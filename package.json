@@ -1,0 +1,16 @@
+{
+  "name": "homerun-automations",
+  "type": "module",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "codegen": "homerun-generate-ha-types"
+  },
+  "dependencies": {
+    "homerun": "file:../homerun"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "typescript": "^6.0.3"
+  }
+}
