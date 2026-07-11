@@ -15,7 +15,7 @@ const baseState = {
   'sensor.house_active_mode': { state: 'normal' },
 };
 
-describe('bedroom:sleep_mode_button', () => {
+describe('house:sleep_mode_button', () => {
   it('sets sleep mode on button hold when bed is occupied', () => {
     const result = testAutomation(automation, {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
