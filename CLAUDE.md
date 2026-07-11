@@ -46,6 +46,8 @@ export default defineAutomation({
 
 `context` receives `(state, ha)` — `state(entityId)` returns the current HA entity state, `ha` provides `entitiesByLabel`, `labelsFor`, `entitiesByArea`. Return `abort('reason')` to short-circuit — no reduce call, observability records the abort.
 
+Entity state includes `last_changed` and `last_updated` (ISO strings). Use `Date.parse(entity.last_changed)` for timestamp comparisons; guard with `Number.isFinite()` per design principle 20.
+
 `inputs` in the context return and reducer output feeds the MQTT decision snapshot — include everything that influenced the decision.
 
 ## Multi-room controllers (factory pattern)
@@ -83,14 +85,25 @@ npm run codegen   # writes types/ha-entities.ts
 
 Import from `./types/ha-entities.js` in automations for typed entity IDs.
 
+## Testing
+
+`testAutomation` from `@ajclarkson/homerun/testing` accepts partial state entries:
+
+```typescript
+state: {
+  'binary_sensor.foo': { state: 'on', last_changed: new Date(Date.now() - 5000).toISOString() },
+}
+```
+
+`last_changed` and `last_updated` are optional — they default to `''` if omitted. Omitting them is fine for automations that don't read timestamps.
+
 ## Structure
 
 ```
-wfh/
-  adam.ts           — WFH inference for Adam (schedule, Wed-Fri always WFH)
-  sarah.ts          — WFH inference for Sarah (schedule, presence check)
-  weekend-clear.ts  — Clears WFH flags on non-workday
-hello-world.ts      — Smoke test automation (on_start)
+house/
+  away-detection.ts — sets/clears away mode via zone.home + door recency
+bedroom/
+  bed-occupancy-sync.ts — syncs bed occupancy to hallway helper
 types/
   ha-entities.ts    — Generated entity types (do not edit)
 ```
