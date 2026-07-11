@@ -23,7 +23,7 @@ const baseState = {
   'switch.foreign_office_plug_heater': { state: 'on' },
 };
 
-describe('foreign-office:overtemp-safety', () => {
+describe('foreign_office:overtemp-safety', () => {
   it('turns off heater when temp exceeds 25 and heater is on (temp trigger)', () => {
     const result = testAutomation(automation, { event: tempTrigger, state: baseState });
 
