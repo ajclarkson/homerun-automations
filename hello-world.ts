@@ -1,4 +1,4 @@
-import { defineAutomation } from 'homerun';
+import { defineAutomation } from '@ajclarkson/homerun';
 
 export default defineAutomation({
   id: 'hello-world',

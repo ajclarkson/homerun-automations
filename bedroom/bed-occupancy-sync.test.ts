@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation } from 'homerun/testing';
+import { testAutomation } from '@ajclarkson/homerun/testing';
 import automation from './bed-occupancy-sync.js';
 
 const trigger = {

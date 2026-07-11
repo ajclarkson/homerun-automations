@@ -1,4 +1,4 @@
-import { defineAutomation, abort } from 'homerun';
+import { defineAutomation, abort } from '@ajclarkson/homerun';
 
 export default defineAutomation({
   id: 'bedroom:bed-occupancy-sync',

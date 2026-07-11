@@ -9,7 +9,7 @@
     "test:run": "vitest run"
   },
   "dependencies": {
-    "homerun": "file:../homerun"
+    "@ajclarkson/homerun": "edge"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",
