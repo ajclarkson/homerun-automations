@@ -19,11 +19,6 @@ export default defineAutomation({
       return abort(`heater_unavailable:${heaterState}`);
     }
 
-    // No heater running means no safety risk — nothing to evaluate.
-    if (heaterState !== 'on') {
-      return abort('heater_off');
-    }
-
     const tempStr = state('sensor.foreign_office_sensor_climate_temperature')?.state;
     const temp = parseFloat(tempStr ?? '');
     if (!Number.isFinite(temp)) {
@@ -32,14 +27,15 @@ export default defineAutomation({
 
     return {
       temp,
+      heaterOn: heaterState === 'on',
       inputs: { temp, heaterState },
     };
   },
 
   reduce: (ctx) => {
-    const { temp } = ctx;
+    const { temp, heaterOn } = ctx;
 
-    if (temp > OVERTEMP_THRESHOLD_C) {
+    if (temp > OVERTEMP_THRESHOLD_C && heaterOn) {
       return {
         decision: 'turn_off_heater',
         reason: 'overtemp_heater_on',
@@ -57,7 +53,7 @@ export default defineAutomation({
 
     return {
       decision: 'no_action',
-      reason: 'temp_normal',
+      reason: temp > OVERTEMP_THRESHOLD_C ? 'overtemp_heater_already_off' : 'temp_normal',
       inputs: ctx.inputs,
       actions: [],
     };

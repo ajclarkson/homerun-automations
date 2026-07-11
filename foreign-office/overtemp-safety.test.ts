@@ -50,15 +50,17 @@ describe('foreign-office:overtemp-safety', () => {
     }
   });
 
-  it('aborts when heater is off — no safety risk to evaluate', () => {
+  it('does nothing when heater is off and temp is high', () => {
     const result = testAutomation(automation, {
       event: tempTrigger,
       state: { ...baseState, 'switch.foreign_office_plug_heater': { state: 'off' } },
     });
 
-    expect('abort' in result).toBe(true);
-    if ('abort' in result) {
-      expect(result.reason).toBe('heater_off');
+    expect('abort' in result).toBe(false);
+    if (!('abort' in result)) {
+      expect(result.decision).toBe('no_action');
+      expect(result.reason).toBe('overtemp_heater_already_off');
+      expect(result.actions).toHaveLength(0);
     }
   });
 
