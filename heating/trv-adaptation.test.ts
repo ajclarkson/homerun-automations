@@ -22,8 +22,8 @@ describe('house:trv_adaptation', () => {
       expect(result.actions).toHaveLength(2);
       expect(result.actions[0]).toMatchObject({ domain: 'notify', service: 'mobile_app_adams_iphone' });
       expect(result.actions[1]).toMatchObject({ domain: 'notify', service: 'mobile_app_sarahs_iphone' });
-      const data = (result.actions[0] as { data: { message: string } }).data;
-      expect(data.message).toContain('parlour');
+      const action = result.actions[0] as unknown as { data: { message: string } };
+      expect(action.data.message).toContain('parlour');
     }
   });
 
