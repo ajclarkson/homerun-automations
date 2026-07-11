@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+# If homerun is npm-linked, node_modules/@ajclarkson/homerun will be a symlink.
+# Restore the registry version so the lockfile stays CI-clean.
+if [ -L "node_modules/@ajclarkson/homerun" ]; then
+  echo "homerun is npm-linked — restoring registry version in lockfile before commit"
+  npm install @ajclarkson/homerun@edge --no-save --silent --no-fund
+  git add package-lock.json
+fi
