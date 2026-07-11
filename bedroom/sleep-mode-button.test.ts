@@ -35,20 +35,28 @@ describe('bedroom:sleep_mode_button', () => {
     expect(result.decision).toBe('set_sleep');
   });
 
-  it('aborts when bed is not occupied', () => {
+  it('returns no_action when bed is not occupied', () => {
     const result = testAutomation(automation, {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
       state: { ...baseState, 'binary_sensor.bedroom_sensor_bed_occupancy': { state: 'off' } },
     });
-    expect(result).toMatchObject({ abort: true, reason: expect.stringContaining('bed_not_occupied') });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'bed_not_occupied' });
   });
 
-  it('aborts when already in sleep mode', () => {
+  it('returns no_action when already in sleep mode', () => {
     const result = testAutomation(automation, {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
       state: { ...baseState, 'sensor.house_active_mode': { state: 'sleep' } },
     });
-    expect(result).toMatchObject({ abort: true, reason: 'already_in_sleep_mode' });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'already_in_sleep_mode' });
+  });
+
+  it('aborts when bed sensor is unavailable', () => {
+    const result = testAutomation(automation, {
+      event: holdTrigger('sensor.bedroom_button_adam_action'),
+      state: { ...baseState, 'binary_sensor.bedroom_sensor_bed_occupancy': { state: 'unavailable' } },
+    });
+    expect(result).toMatchObject({ abort: true, reason: expect.stringContaining('bed_sensor_unavailable') });
   });
 
   it('aborts when house mode is unavailable', () => {
