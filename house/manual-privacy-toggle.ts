@@ -1,7 +1,7 @@
 import { defineAutomation, abort } from '@ajclarkson/homerun';
 
 export default defineAutomation({
-  id: 'house:manual-privacy-toggle',
+  id: 'house:manual_privacy_toggle',
   location: 'house',
   subsystem: 'cameras',
 

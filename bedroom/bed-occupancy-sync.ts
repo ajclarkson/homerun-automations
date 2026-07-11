@@ -1,9 +1,9 @@
 import { defineAutomation, abort } from '@ajclarkson/homerun';
 
 export default defineAutomation({
-  id: 'bedroom:bed-occupancy-sync',
+  id: 'bedroom:bed_occupancy_sync',
   location: 'bedroom',
-  subsystem: 'hold-sync',
+  subsystem: 'hold_sync',
 
   triggers: [
     { type: 'state_changed', entity: 'binary_sensor.bedroom_sensor_bed_occupancy' },

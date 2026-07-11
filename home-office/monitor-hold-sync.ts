@@ -3,9 +3,9 @@ import { defineAutomation, abort } from '@ajclarkson/homerun';
 const MONITOR_ON_THRESHOLD_W = 5;
 
 export default defineAutomation({
-  id: 'home_office:monitor-hold-sync',
+  id: 'home_office:monitor_hold_sync',
   location: 'home_office',
-  subsystem: 'hold-sync',
+  subsystem: 'hold_sync',
 
   triggers: [
     { type: 'state_changed', entity: 'sensor.home_office_plug_monitor_power' },

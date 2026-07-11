@@ -10,7 +10,7 @@ const trigger = {
   correlation_id: 'test',
 };
 
-describe('bedroom:bed-occupancy-sync', () => {
+describe('bedroom:bed_occupancy_sync', () => {
   it('turns on the sync boolean when bed is occupied', () => {
     const result = testAutomation(automation, {
       event: trigger,
