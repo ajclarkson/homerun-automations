@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { testAutomation } from '@ajclarkson/homerun/testing';
-import automation from './privacy-toggle.js';
+import automation from './manual-privacy-toggle.js';
 
 const trigger = {
   type: 'button' as const,
@@ -9,7 +9,7 @@ const trigger = {
   correlation_id: 'test',
 };
 
-describe('house:privacy-toggle', () => {
+describe('house:manual-privacy-toggle', () => {
   it('turns off cameras privacy when privacy is currently on', () => {
     const result = testAutomation(automation, {
       event: trigger,
