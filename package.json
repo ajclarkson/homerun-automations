@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "codegen": "homerun-generate-ha-types",
+    "postinstall": "git config core.hooksPath .githooks || true",
     "test": "vitest",
     "test:run": "vitest run"
   },
