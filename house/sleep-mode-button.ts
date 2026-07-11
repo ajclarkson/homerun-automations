@@ -4,8 +4,8 @@ const INACTIVE_STATES = new Set(['off', 'idle', 'unavailable', 'unknown']);
 const isActive = (state: string | undefined) => !!state && !INACTIVE_STATES.has(state);
 
 export default defineAutomation({
-  id: 'bedroom:sleep_mode_button',
-  location: 'bedroom',
+  id: 'house:sleep_mode_button',
+  location: 'house',
   subsystem: 'house_mode',
 
   triggers: [
