@@ -21,10 +21,13 @@ describe('bedroom:sleep_mode_button', () => {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
       state: baseState,
     });
-    expect(result.decision).toBe('set_sleep');
-    expect(result.actions).toEqual([
-      { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'sleep' },
-    ]);
+    expect('abort' in result).toBe(false);
+    if (!('abort' in result)) {
+      expect(result.decision).toBe('set_sleep');
+      expect(result.actions).toEqual([
+        { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'sleep' },
+      ]);
+    }
   });
 
   it('sets sleep mode on wall button hold when bed is occupied', () => {
@@ -32,7 +35,10 @@ describe('bedroom:sleep_mode_button', () => {
       event: holdTrigger('sensor.bedroom_button_wall_action'),
       state: baseState,
     });
-    expect(result.decision).toBe('set_sleep');
+    expect('abort' in result).toBe(false);
+    if (!('abort' in result)) {
+      expect(result.decision).toBe('set_sleep');
+    }
   });
 
   it('returns no_action when parlour sonos is playing', () => {
@@ -68,7 +74,10 @@ describe('bedroom:sleep_mode_button', () => {
         'media_player.parlour_tv': { state: 'off' },
       },
     });
-    expect(result.decision).toBe('set_sleep');
+    expect('abort' in result).toBe(false);
+    if (!('abort' in result)) {
+      expect(result.decision).toBe('set_sleep');
+    }
   });
 
   it('returns no_action when bed is not occupied', () => {
