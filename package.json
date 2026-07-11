@@ -4,13 +4,16 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "codegen": "homerun-generate-ha-types"
+    "codegen": "homerun-generate-ha-types",
+    "test": "vitest",
+    "test:run": "vitest run"
   },
   "dependencies": {
     "homerun": "file:../homerun"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
   }
 }
