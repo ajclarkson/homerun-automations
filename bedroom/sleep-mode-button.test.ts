@@ -35,6 +35,42 @@ describe('bedroom:sleep_mode_button', () => {
     expect(result.decision).toBe('set_sleep');
   });
 
+  it('returns no_action when parlour sonos is playing', () => {
+    const result = testAutomation(automation, {
+      event: holdTrigger('sensor.bedroom_button_adam_action'),
+      state: { ...baseState, 'media_player.parlour': { state: 'playing' } },
+    });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'parlour_active' });
+  });
+
+  it('returns no_action when parlour sonos is paused', () => {
+    const result = testAutomation(automation, {
+      event: holdTrigger('sensor.bedroom_button_adam_action'),
+      state: { ...baseState, 'media_player.parlour': { state: 'paused' } },
+    });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'parlour_active' });
+  });
+
+  it('returns no_action when parlour tv is on', () => {
+    const result = testAutomation(automation, {
+      event: holdTrigger('sensor.bedroom_button_adam_action'),
+      state: { ...baseState, 'media_player.parlour_tv': { state: 'on' } },
+    });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'parlour_active' });
+  });
+
+  it('allows sleep when parlour players are idle or off', () => {
+    const result = testAutomation(automation, {
+      event: holdTrigger('sensor.bedroom_button_adam_action'),
+      state: {
+        ...baseState,
+        'media_player.parlour': { state: 'idle' },
+        'media_player.parlour_tv': { state: 'off' },
+      },
+    });
+    expect(result.decision).toBe('set_sleep');
+  });
+
   it('returns no_action when bed is not occupied', () => {
     const result = testAutomation(automation, {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
