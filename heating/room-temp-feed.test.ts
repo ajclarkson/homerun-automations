@@ -12,7 +12,7 @@ const stateChangeTrigger = (entity: string, state: string) => ({
 
 const scheduleTrigger = {
   type: 'schedule' as const,
-  cron: '*/15 * * * *',
+  cron: '*/30 * * * *',
   correlation_id: 'test-cid',
 };
 
@@ -61,7 +61,18 @@ describe('room-temp-feed', () => {
       expect(result).toMatchObject({ abort: true, reason: expect.stringContaining('temp_unavailable') });
     });
 
-    it('fires on heartbeat schedule', () => {
+    it('uses reason temp_changed on state_changed trigger', () => {
+      const result = testAutomation(automation, {
+        event: stateChangeTrigger('sensor.parlour_sensor_climate_temperature', '20.0'),
+        state: { 'sensor.parlour_sensor_climate_temperature': { state: '20.0' } },
+      });
+      expect('abort' in result).toBe(false);
+      if (!('abort' in result)) {
+        expect(result.reason).toBe('temp_changed');
+      }
+    });
+
+    it('uses reason heartbeat on schedule trigger', () => {
       const result = testAutomation(automation, {
         event: scheduleTrigger,
         state: { 'sensor.parlour_sensor_climate_temperature': { state: '20.0' } },
@@ -69,6 +80,7 @@ describe('room-temp-feed', () => {
       expect('abort' in result).toBe(false);
       if (!('abort' in result)) {
         expect(result.decision).toBe('update_external_temp');
+        expect(result.reason).toBe('heartbeat');
         expect(result.actions[0]).toMatchObject({ data: { value: 2000 } });
       }
     });

@@ -17,19 +17,19 @@ function makeTempFeedAutomation(location: string, sensorEntity: string) {
 
     triggers: [
       { type: 'state_changed', entity: sensorEntity },
-      { type: 'schedule', cron: '*/15 * * * *' },
+      { type: 'schedule', cron: '*/30 * * * *' },
     ],
 
-    context: (state) => {
+    context: (state, _ha, event) => {
       const tempStr = state(sensorEntity)?.state;
       const temp = parseFloat(tempStr ?? '');
       if (!Number.isFinite(temp)) return abort(`temp_unavailable:${tempStr}`);
-      return { temp, inputs: { sensorEntity, temp } };
+      return { temp, reason: event.type === 'schedule' ? 'heartbeat' : 'temp_changed', inputs: { sensorEntity, temp } };
     },
 
     reduce: (ctx) => ({
       decision: 'update_external_temp',
-      reason: 'temp_changed_or_heartbeat',
+      reason: ctx.reason,
       inputs: ctx.inputs,
       actions: [{
         type: 'ha.call_service',
