@@ -17,7 +17,7 @@ const MQTT_ACTION = (payload: 'ON' | 'OFF') => ({
   retain: true,
 });
 
-describe('home-office:monitor-hold-sync', () => {
+describe('home_office:monitor-hold-sync', () => {
   it('publishes ON when power exceeds threshold', () => {
     const result = testAutomation(automation, {
       event: trigger,
