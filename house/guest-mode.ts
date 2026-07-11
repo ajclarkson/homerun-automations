@@ -3,7 +3,7 @@ import { defineAutomation, abort } from '@ajclarkson/homerun';
 export default defineAutomation({
   id: 'house:guest-mode',
   location: 'house',
-  subsystem: 'guest-mode',
+  subsystem: 'modifier',
 
   triggers: [
     { type: 'state_changed', entity: 'input_select.house_active_mode_modifier' },
