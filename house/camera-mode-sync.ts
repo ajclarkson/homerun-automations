@@ -1,7 +1,7 @@
 import { defineAutomation, abort } from '@ajclarkson/homerun';
 
 export default defineAutomation({
-  id: 'house:camera-mode-sync',
+  id: 'house:camera_mode_sync',
   location: 'house',
   subsystem: 'cameras',
 

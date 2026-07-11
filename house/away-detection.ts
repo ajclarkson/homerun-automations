@@ -3,9 +3,9 @@ import { defineAutomation, abort } from '@ajclarkson/homerun';
 const DOOR_WINDOW_MS = 15 * 60 * 1000;
 
 export default defineAutomation({
-  id: 'house:away-detection',
+  id: 'house:away_detection',
   location: 'house',
-  subsystem: 'away-detection',
+  subsystem: 'house_mode',
 
   triggers: [
     { type: 'state_changed', entity: 'zone.home' },

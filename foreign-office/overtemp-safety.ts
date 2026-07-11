@@ -3,7 +3,7 @@ import { defineAutomation, abort } from '@ajclarkson/homerun';
 const OVERTEMP_THRESHOLD_C = 25;
 
 export default defineAutomation({
-  id: 'foreign_office:overtemp-safety',
+  id: 'foreign_office:overtemp_safety',
   location: 'foreign_office',
   subsystem: 'heating',
 

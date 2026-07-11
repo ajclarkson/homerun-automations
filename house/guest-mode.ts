@@ -1,7 +1,7 @@
 import { defineAutomation, abort } from '@ajclarkson/homerun';
 
 export default defineAutomation({
-  id: 'house:guest-mode',
+  id: 'house:guest_mode',
   location: 'house',
   subsystem: 'modifier',
 
