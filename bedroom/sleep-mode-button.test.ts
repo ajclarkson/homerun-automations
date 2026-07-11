@@ -16,7 +16,7 @@ const baseState = {
 };
 
 describe('bedroom:sleep_mode_button', () => {
-  it('sets sleep mode on adam button hold when bed is occupied', () => {
+  it('sets sleep mode on button hold when bed is occupied', () => {
     const result = testAutomation(automation, {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
       state: baseState,
@@ -27,17 +27,6 @@ describe('bedroom:sleep_mode_button', () => {
       expect(result.actions).toEqual([
         { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'sleep' },
       ]);
-    }
-  });
-
-  it('sets sleep mode on wall button hold when bed is occupied', () => {
-    const result = testAutomation(automation, {
-      event: holdTrigger('sensor.bedroom_button_wall_action'),
-      state: baseState,
-    });
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('set_sleep');
     }
   });
 

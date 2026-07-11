@@ -9,8 +9,7 @@ export default defineAutomation({
   subsystem: 'house_mode',
 
   triggers: [
-    { type: 'button', entity: 'sensor.bedroom_button_adam_action', gesture: 'hold' },
-    { type: 'button', entity: 'sensor.bedroom_button_wall_action', gesture: 'hold' },
+    { type: 'button', entity: /^sensor\.bedroom_button_.*_action$/, gesture: 'hold' },
   ],
 
   context: (state) => {
