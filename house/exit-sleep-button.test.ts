@@ -2,11 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { testAutomation } from '@ajclarkson/homerun/testing';
 import automation from './exit-sleep-button.js';
 
-const buttonTrigger = (entity: string, state = 'short_press') => ({
-  type: 'state_changed' as const,
+const buttonTrigger = (entity: string) => ({
+  type: 'button' as const,
   entity_id: entity,
-  old_state: { entity_id: entity, state: '', attributes: {}, last_changed: '', last_updated: '' },
-  new_state: { entity_id: entity, state, attributes: {}, last_changed: '', last_updated: '' },
+  gesture: 'single_press' as const,
   correlation_id: 'test-cid',
 });
 
@@ -75,14 +74,6 @@ describe('house:exit_sleep_button', () => {
       state: { ...baseState, 'sensor.house_active_mode': { state: 'normal' } },
     });
     expect(result).toMatchObject({ decision: 'no_action', reason: 'not_in_sleep_mode' });
-  });
-
-  it('aborts when button state is unavailable', () => {
-    const result = testAutomation(automation, {
-      event: buttonTrigger('sensor.hallway_downstairs_button_wall_action', 'unavailable'),
-      state: baseState,
-    });
-    expect(result).toMatchObject({ abort: true, reason: expect.stringContaining('button_state_not_actionable') });
   });
 
   it('aborts when house mode is unavailable', () => {
