@@ -84,7 +84,7 @@ describe('makeLightingAutomation', () => {
         decision: 'activate_scene',
         reason: 'lux_low',
         actions: expect.arrayContaining([
-          { type: 'ha.call_service', domain: 'scene', service: 'turn_on', target: { entity_id: `scene.${LOCATION}_low` } },
+          { type: 'ha.call_service', domain: 'scene', service: 'turn_on', target: { entity_id: `scene.${LOCATION}_low` }, data: { transition: 0.5 } },
         ]),
       });
     });
@@ -103,7 +103,7 @@ describe('makeLightingAutomation', () => {
         decision: 'activate_scene',
         reason: 'lux_low',
         actions: expect.arrayContaining([
-          { type: 'ha.call_service', domain: 'scene', service: 'turn_on', target: { entity_id: `scene.${LOCATION}_daylight` } },
+          { type: 'ha.call_service', domain: 'scene', service: 'turn_on', target: { entity_id: `scene.${LOCATION}_daylight` }, data: { transition: 0.5 } },
         ]),
       });
     });
@@ -161,7 +161,7 @@ describe('makeLightingAutomation', () => {
       if (!('abort' in result)) {
         expect(result.actions).toContainEqual({
           type: 'ha.call_service', domain: 'scene', service: 'turn_on',
-          target: { entity_id: `scene.${LOCATION}_off` },
+          target: { entity_id: `scene.${LOCATION}_off` }, data: { transition: 0.5 },
         });
         expect(result.actions).toContainEqual({
           type: 'mqtt.publish', topic: `${LOCATION}/lighting/recent_auto_off`, payload: 'ON', retain: true,
@@ -184,7 +184,7 @@ describe('makeLightingAutomation', () => {
         decision: 'activate_scene',
         reason: 'button_cycle',
         actions: expect.arrayContaining([
-          { type: 'ha.call_service', domain: 'scene', service: 'turn_on', target: { entity_id: `scene.${LOCATION}_low` } },
+          { type: 'ha.call_service', domain: 'scene', service: 'turn_on', target: { entity_id: `scene.${LOCATION}_low` }, data: { transition: 0.5 } },
         ]),
       });
     });
@@ -202,7 +202,7 @@ describe('makeLightingAutomation', () => {
         decision: 'activate_scene',
         reason: 'button_cycle',
         actions: expect.arrayContaining([
-          { type: 'ha.call_service', domain: 'scene', service: 'turn_on', target: { entity_id: `scene.${LOCATION}_daylight` } },
+          { type: 'ha.call_service', domain: 'scene', service: 'turn_on', target: { entity_id: `scene.${LOCATION}_daylight` }, data: { transition: 0.5 } },
         ]),
       });
     });
@@ -220,7 +220,7 @@ describe('makeLightingAutomation', () => {
         decision: 'activate_scene',
         reason: 'button_cycle',
         actions: expect.arrayContaining([
-          { type: 'ha.call_service', domain: 'scene', service: 'turn_on', target: { entity_id: `scene.${LOCATION}_low` } },
+          { type: 'ha.call_service', domain: 'scene', service: 'turn_on', target: { entity_id: `scene.${LOCATION}_low` }, data: { transition: 0.5 } },
         ]),
       });
     });
@@ -235,7 +235,7 @@ describe('makeLightingAutomation', () => {
       if (!('abort' in result)) {
         expect(result.actions).toContainEqual({
           type: 'ha.call_service', domain: 'scene', service: 'turn_on',
-          target: { entity_id: `scene.${LOCATION}_off` },
+          target: { entity_id: `scene.${LOCATION}_off` }, data: { transition: 0.5 },
         });
         expect(result.actions).toContainEqual({
           type: 'mqtt.publish', topic: `${LOCATION}/lighting/recent_auto_off`, payload: 'ON', retain: true,
