@@ -57,7 +57,7 @@ function nextCycleScene(scenes: SceneSet, activeScene: string | null): string {
 }
 
 function planScene(scene: string) {
-  return [{ type: 'ha.call_service' as const, domain: 'scene', service: 'turn_on', target: { entity_id: scene } }];
+  return [{ type: 'ha.call_service' as const, domain: 'scene', service: 'turn_on', target: { entity_id: scene }, data: { transition: 0.5 } }];
 }
 
 function planRecentAutoOffOn(location: string, delayMs: number) {
