@@ -81,7 +81,7 @@ function planRecentAutoOffCancel(location: string) {
 }
 
 export function makeLightingAutomation(config: LightingRoomConfig) {
-  const { location, disableInSleepMode = false, recentAutoOffMins = 5 } = config;
+  const { location, disableInSleepMode = true, recentAutoOffMins = 5 } = config;
   const recentAutoOffMs = recentAutoOffMins * 60 * 1000;
 
   return defineAutomation<LightingContext>({
