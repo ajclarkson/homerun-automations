@@ -7,16 +7,11 @@ export default defineAutomation({
   subsystem: 'house_mode',
 
   triggers: [
-    { type: 'state_changed', entity: /.*_button_.*_action/ },
+    { type: 'button', entity: /.*_button_.*_action/, gesture: 'single_press' },
   ],
 
   context: (state, _ha, event: TriggerEvent) => {
-    if (event.type !== 'state_changed') return abort('unexpected_trigger_type');
-
-    const buttonState = event.new_state.state;
-    if (!buttonState || buttonState === 'unavailable' || buttonState === 'unknown') {
-      return abort(`button_state_not_actionable:${buttonState}`);
-    }
+    if (event.type !== 'button') return abort('unexpected_trigger_type');
 
     const houseMode = state('sensor.house_active_mode')?.state;
     if (!houseMode || houseMode === 'unavailable' || houseMode === 'unknown') {
@@ -51,7 +46,7 @@ export default defineAutomation({
       isHomeOfficeButton,
       bedOccupied,
       guestModeActive,
-      inputs: { entityId, buttonState, houseMode, bedOccupied, guestModeActive },
+      inputs: { entityId, houseMode, bedOccupied, guestModeActive },
     };
   },
 
