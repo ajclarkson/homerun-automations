@@ -8,7 +8,7 @@ export interface LightingRoomConfig {
 
 type LightingTrigger =
   | { type: 'occupancy'; to: 'occupied' | 'unoccupied' }
-  | { type: 'button'; to: 'button-short-press' | 'holding' }
+  | { type: 'button'; gesture: 'single_press' | 'hold' }
   | { type: 'house_mode'; to: string }
   | { type: 'timer' }
   | { type: 'system' };
@@ -102,7 +102,7 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
       // Trigger classification
       let trigger: LightingTrigger;
       if (event.type === 'button') {
-        trigger = { type: 'button', to: event.gesture === 'hold' ? 'holding' : 'button-short-press' };
+        trigger = { type: 'button', gesture: event.gesture === 'hold' ? 'hold' : 'single_press' };
       } else if (event.type === 'timer_expired') {
         trigger = { type: 'timer' };
       } else if (event.type === 'state_changed') {
@@ -223,7 +223,7 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
 
       // Rule 3: sleep mode blocks occupancy-triggered on
       if (blockedBySleep && occupied) {
-        return { decision: 'blocked', reason: 'sleep_mode', inputs: ctx.inputs, actions: [] };
+        return { decision: 'no_action', reason: 'sleep_mode', inputs: ctx.inputs, actions: [] };
       }
 
       // Rule 4: external suppress blocks motion-triggered on
@@ -243,7 +243,7 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
 
       // Rule 6: button press
       if (trigger.type === 'button') {
-        if (trigger.to === 'holding') {
+        if (trigger.gesture === 'hold') {
           return {
             decision: 'turn_off',
             reason: 'button_off',

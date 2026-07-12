@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { testAutomation } from '@ajclarkson/homerun/testing';
 import type { HAContext } from '@ajclarkson/homerun';
-import { makeLightingAutomation } from './make-lighting-automation.js';
+import { makeLightingAutomation } from './lighting-controller-factory.js';
 
 const LOCATION = 'test_room';
 
@@ -279,7 +279,7 @@ describe('makeLightingAutomation', () => {
         },
         ha: makeHa(),
       });
-      expect(result).toMatchObject({ decision: 'blocked', reason: 'sleep_mode' });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'sleep_mode' });
     });
 
     it('does not block when disableInSleepMode is false', () => {

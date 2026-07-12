@@ -1,4 +1,4 @@
-import { makeLightingAutomation } from '../lighting/make-lighting-automation.js';
+import { makeLightingAutomation } from '../lighting/lighting-controller-factory.js';
 
 export default makeLightingAutomation({
   location: 'hallway_downstairs',
