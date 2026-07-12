@@ -84,6 +84,8 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
   const { location, disableInSleepMode = true, recentAutoOffMins = 5 } = config;
   const recentAutoOffMs = recentAutoOffMins * 60 * 1000;
 
+  const buttonEntity = new RegExp(`sensor\\.${location}_button_.*_action`);
+
   return defineAutomation<LightingContext>({
     id: `${location}:lighting`,
     location,
@@ -91,8 +93,8 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
 
     triggers: [
       { type: 'state_changed', entity: `binary_sensor.${location}_occupied` },
-      { type: 'button', entity: `sensor.${location}_button_wall_action`, gesture: 'single_press' },
-      { type: 'button', entity: `sensor.${location}_button_wall_action`, gesture: 'hold' },
+      { type: 'button', entity: buttonEntity, gesture: 'single_press' },
+      { type: 'button', entity: buttonEntity, gesture: 'hold' },
       { type: 'state_changed', entity: 'sensor.house_active_mode' },
       { type: 'timer_expired', timerKey: `${location}:lighting_recent_auto_off` },
       { type: 'on_start' },
