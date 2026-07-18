@@ -1,5 +1,4 @@
-import { defineAutomation, abort } from '@ajclarkson/homerun';
-import { Services } from '../types/ha-services.js';
+import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
 
 const ROOMS = [
   'parlour', 'kitchen', 'hallway_downstairs', 'bedroom', 'bathroom', 'home_office',
@@ -37,8 +36,8 @@ export default defineAutomation({
   reduce: (ctx) => {
     const actions = ctx.windows.map(({ switchEntity, open }) =>
       open
-        ? Services.switch.turn_on({ entity_id: switchEntity })
-        : Services.switch.turn_off({ entity_id: switchEntity }),
+        ? HomeAssistant.switch.turn_on({ entity_id: switchEntity })
+        : HomeAssistant.switch.turn_off({ entity_id: switchEntity }),
     );
 
     const summary = ctx.windows.map(({ room, open }) => `${room}:${open ? 'open' : 'closed'}`).join(';');

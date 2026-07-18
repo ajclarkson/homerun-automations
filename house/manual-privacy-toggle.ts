@@ -1,5 +1,4 @@
-import { defineAutomation, abort } from '@ajclarkson/homerun';
-import { Services } from '../types/ha-services.js';
+import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
 
 export default defineAutomation({
   id: 'house:manual_privacy_toggle',
@@ -29,8 +28,8 @@ export default defineAutomation({
     inputs: ctx.inputs,
     actions: [
       ctx.privacyOn
-        ? Services.switch.turn_off({ entity_id: 'group.cameras_privacy' })
-        : Services.switch.turn_on({ entity_id: 'group.cameras_privacy' }),
+        ? HomeAssistant.switch.turn_off({ entity_id: 'group.cameras_privacy' })
+        : HomeAssistant.switch.turn_on({ entity_id: 'group.cameras_privacy' }),
     ],
   }),
 });

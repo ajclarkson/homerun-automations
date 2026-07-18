@@ -1,5 +1,4 @@
-import { defineAutomation, abort } from '@ajclarkson/homerun';
-import { Services } from '../types/ha-services.js';
+import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
 
 export default defineAutomation({
   id: 'house:patio_door',
@@ -44,8 +43,8 @@ export default defineAutomation({
         inputs: ctx.inputs,
         // Flag written before heating off — crash-safe: on_start re-applies suspend if flag is set
         actions: [
-          Services.input_boolean.turn_on({ entity_id: 'input_boolean.patio_door_heating_suspended' }),
-          Services.input_boolean.turn_off({ entity_id: 'input_boolean.house_heating_enabled' }),
+          HomeAssistant.input_boolean.turn_on({ entity_id: 'input_boolean.patio_door_heating_suspended' }),
+          HomeAssistant.input_boolean.turn_off({ entity_id: 'input_boolean.house_heating_enabled' }),
         ],
       };
     }
@@ -57,8 +56,8 @@ export default defineAutomation({
         inputs: ctx.inputs,
         // Heating restored before flag cleared — crash-safe: on_start restores again if both true (idempotent)
         actions: [
-          Services.input_boolean.turn_on({ entity_id: 'input_boolean.house_heating_enabled' }),
-          Services.input_boolean.turn_off({ entity_id: 'input_boolean.patio_door_heating_suspended' }),
+          HomeAssistant.input_boolean.turn_on({ entity_id: 'input_boolean.house_heating_enabled' }),
+          HomeAssistant.input_boolean.turn_off({ entity_id: 'input_boolean.patio_door_heating_suspended' }),
         ],
       };
     }

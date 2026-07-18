@@ -1,5 +1,4 @@
-import { defineAutomation, abort } from '@ajclarkson/homerun';
-import { Services } from '../types/ha-services.js';
+import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
 
 export default defineAutomation({
   id: 'bedroom:bed_occupancy_sync',
@@ -29,8 +28,8 @@ export default defineAutomation({
     inputs: ctx.inputs,
     actions: [
       ctx.occupied
-        ? Services.input_boolean.turn_on({ entity_id: 'input_boolean.hallway_upstairs_bed_occupied_sync' })
-        : Services.input_boolean.turn_off({ entity_id: 'input_boolean.hallway_upstairs_bed_occupied_sync' }),
+        ? HomeAssistant.input_boolean.turn_on({ entity_id: 'input_boolean.hallway_upstairs_bed_occupied_sync' })
+        : HomeAssistant.input_boolean.turn_off({ entity_id: 'input_boolean.hallway_upstairs_bed_occupied_sync' }),
     ],
   }),
 });

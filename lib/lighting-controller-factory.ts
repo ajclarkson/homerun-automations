@@ -1,5 +1,4 @@
-import { defineAutomation, abort } from '@ajclarkson/homerun';
-import { Services } from '../types/ha-services.js';
+import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
 
 export interface LightingRoomConfig {
   location: string;
@@ -58,7 +57,7 @@ function nextCycleScene(scenes: SceneSet, activeScene: string | null): string {
 }
 
 function planScene(scene: string) {
-  return [Services.scene.turn_on({ entity_id: scene }, { transition: 0.5 })];
+  return [HomeAssistant.scene.turn_on({ entity_id: scene }, { transition: 0.5 })];
 }
 
 function planRecentAutoOffOn(location: string, delayMs: number) {

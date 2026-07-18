@@ -1,5 +1,4 @@
-import { defineAutomation, abort } from '@ajclarkson/homerun';
-import { Services } from '../types/ha-services.js';
+import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
 
 export default defineAutomation({
   id: 'house:camera_mode_sync',
@@ -39,7 +38,7 @@ export default defineAutomation({
         reason: 'house_away',
         inputs: ctx.inputs,
         actions: [
-          Services.switch.turn_off({ entity_id: 'group.cameras_privacy' }),
+          HomeAssistant.switch.turn_off({ entity_id: 'group.cameras_privacy' }),
         ],
       };
     }
@@ -59,8 +58,8 @@ export default defineAutomation({
         reason: 'sleep_kitchen_camera_on',
         inputs: ctx.inputs,
         actions: [
-          Services.switch.turn_on({ entity_id: 'group.cameras_privacy' }),
-          Services.switch.turn_off({ entity_id: 'switch.kitchen_privacy' }),
+          HomeAssistant.switch.turn_on({ entity_id: 'group.cameras_privacy' }),
+          HomeAssistant.switch.turn_off({ entity_id: 'switch.kitchen_privacy' }),
         ],
       };
     }
@@ -71,7 +70,7 @@ export default defineAutomation({
         reason: 'house_not_away',
         inputs: ctx.inputs,
         actions: [
-          Services.switch.turn_on({ entity_id: 'group.cameras_privacy' }),
+          HomeAssistant.switch.turn_on({ entity_id: 'group.cameras_privacy' }),
         ],
       };
     }
