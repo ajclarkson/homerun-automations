@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "codegen": "homerun-generate-ha-types",
+    "codegen": "homerun-generate-ha-types && homerun-generate-ha-services --domains=input_boolean,input_number,light,climate,media_player,scene",
     "postinstall": "git config core.hooksPath .githooks || true",
     "test": "vitest",
     "test:run": "vitest run"
@@ -15,6 +15,6 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
-    "@ajclarkson/homerun": "edge"
+    "@ajclarkson/homerun": "^0.0.1-edge.90fa3ca"
   }
 }
