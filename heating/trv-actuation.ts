@@ -1,4 +1,5 @@
 import { defineAutomation, abort } from '@ajclarkson/homerun';
+import { Services } from '../types/ha-services.js';
 
 const ROOM_TO_TRV: Record<string, string> = {
   parlour:            'climate.parlour_trv',
@@ -65,24 +66,12 @@ export default defineAutomation({
       if (!mode || mode === 'unknown' || mode === 'unavailable') continue;
 
       if (mode === 'off') {
-        actions.push({
-          type: 'ha.call_service' as const,
-          domain: 'climate',
-          service: 'set_hvac_mode',
-          target: { entity_id: trvEntity },
-          data: { hvac_mode: 'off' },
-        });
+        actions.push(Services.climate.set_hvac_mode({ entity_id: trvEntity }, { hvac_mode: 'off' }));
         roomSummary.push(`${room}:off`);
       } else {
         const temperature = modeToTemp[mode];
         if (temperature === undefined) continue;
-        actions.push({
-          type: 'ha.call_service' as const,
-          domain: 'climate',
-          service: 'set_temperature',
-          target: { entity_id: trvEntity },
-          data: { hvac_mode: 'heat', temperature },
-        });
+        actions.push(Services.climate.set_temperature({ entity_id: trvEntity }, { hvac_mode: 'heat', temperature }));
         roomSummary.push(`${room}:${mode}@${temperature}`);
       }
     }

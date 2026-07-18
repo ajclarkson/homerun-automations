@@ -1,4 +1,5 @@
 import { defineAutomation, abort } from '@ajclarkson/homerun';
+import { Services } from '../types/ha-services.js';
 
 export interface LightingRoomConfig {
   location: string;
@@ -57,7 +58,7 @@ function nextCycleScene(scenes: SceneSet, activeScene: string | null): string {
 }
 
 function planScene(scene: string) {
-  return [{ type: 'ha.call_service' as const, domain: 'scene', service: 'turn_on', target: { entity_id: scene }, data: { transition: 0.5 } }];
+  return [Services.scene.turn_on({ entity_id: scene }, { transition: 0.5 })];
 }
 
 function planRecentAutoOffOn(location: string, delayMs: number) {

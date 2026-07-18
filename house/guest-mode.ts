@@ -1,4 +1,5 @@
 import { defineAutomation, abort } from '@ajclarkson/homerun';
+import { Services } from '../types/ha-services.js';
 
 export default defineAutomation({
   id: 'house:guest_mode',
@@ -33,12 +34,9 @@ export default defineAutomation({
       reason: `modifier_is_${modifier}`,
       inputs: ctx.inputs,
       actions: [
-        {
-          type: 'ha.call_service',
-          domain: 'input_boolean',
-          service: guestActive ? 'turn_on' : 'turn_off',
-          target: { entity_id: 'input_boolean.home_office_automation_presence_override' },
-        },
+        guestActive
+          ? Services.input_boolean.turn_on({ entity_id: 'input_boolean.home_office_automation_presence_override' })
+          : Services.input_boolean.turn_off({ entity_id: 'input_boolean.home_office_automation_presence_override' }),
       ],
     };
   },

@@ -26,8 +26,8 @@ describe('house:patio_door', () => {
     if (!('abort' in result)) {
       expect(result.decision).toBe('suspend');
       expect(result.actions).toEqual([
-        { type: 'ha.call_service', domain: 'input_boolean', service: 'turn_on',  target: { entity_id: 'input_boolean.patio_door_heating_suspended' }, data: {} },
-        { type: 'ha.call_service', domain: 'input_boolean', service: 'turn_off', target: { entity_id: 'input_boolean.house_heating_enabled' },          data: {} },
+        { type: 'ha.call_service', domain: 'input_boolean', service: 'turn_on',  target: { entity_id: 'input_boolean.patio_door_heating_suspended' } },
+        { type: 'ha.call_service', domain: 'input_boolean', service: 'turn_off', target: { entity_id: 'input_boolean.house_heating_enabled' } },
       ]);
     }
   });
@@ -46,8 +46,8 @@ describe('house:patio_door', () => {
     if (!('abort' in result)) {
       expect(result.decision).toBe('restore');
       expect(result.actions).toEqual([
-        { type: 'ha.call_service', domain: 'input_boolean', service: 'turn_on',  target: { entity_id: 'input_boolean.house_heating_enabled' },          data: {} },
-        { type: 'ha.call_service', domain: 'input_boolean', service: 'turn_off', target: { entity_id: 'input_boolean.patio_door_heating_suspended' }, data: {} },
+        { type: 'ha.call_service', domain: 'input_boolean', service: 'turn_on',  target: { entity_id: 'input_boolean.house_heating_enabled' } },
+        { type: 'ha.call_service', domain: 'input_boolean', service: 'turn_off', target: { entity_id: 'input_boolean.patio_door_heating_suspended' } },
       ]);
     }
   });

@@ -1,4 +1,5 @@
 import { defineAutomation, abort } from '@ajclarkson/homerun';
+import { Services } from '../types/ha-services.js';
 
 export default defineAutomation({
   id: 'bedroom:bed_occupancy_sync',
@@ -27,12 +28,9 @@ export default defineAutomation({
     reason: 'bed_sensor_state_changed',
     inputs: ctx.inputs,
     actions: [
-      {
-        type: 'ha.call_service',
-        domain: 'input_boolean',
-        service: ctx.occupied ? 'turn_on' : 'turn_off',
-        target: { entity_id: 'input_boolean.hallway_upstairs_bed_occupied_sync' },
-      },
+      ctx.occupied
+        ? Services.input_boolean.turn_on({ entity_id: 'input_boolean.hallway_upstairs_bed_occupied_sync' })
+        : Services.input_boolean.turn_off({ entity_id: 'input_boolean.hallway_upstairs_bed_occupied_sync' }),
     ],
   }),
 });

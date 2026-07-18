@@ -33,7 +33,6 @@ describe('house:window_external', () => {
         domain: 'switch',
         service: 'turn_on',
         target: { entity_id: 'switch.parlour_trv_window_open_external' },
-        data: {},
       }]);
     }
   });
@@ -50,7 +49,6 @@ describe('house:window_external', () => {
         domain: 'switch',
         service: 'turn_off',
         target: { entity_id: 'switch.bedroom_trv_window_open_external' },
-        data: {},
       }]);
     }
   });

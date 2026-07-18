@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "codegen": "homerun-generate-ha-types && homerun-generate-ha-services --domains=input_boolean,input_number,light,climate,media_player,scene",
+    "codegen": "homerun-generate-ha-types && homerun-generate-ha-services --domains=input_boolean,input_number,light,climate,media_player,scene,switch",
     "postinstall": "git config core.hooksPath .githooks || true",
     "test": "vitest",
     "test:run": "vitest run"

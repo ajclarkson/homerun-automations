@@ -1,4 +1,5 @@
 import { defineAutomation, abort } from '@ajclarkson/homerun';
+import { Services } from '../types/ha-services.js';
 
 const OVERTEMP_THRESHOLD_C = 25;
 
@@ -41,12 +42,7 @@ export default defineAutomation({
         reason: 'overtemp_heater_on',
         inputs: ctx.inputs,
         actions: [
-          {
-            type: 'ha.call_service',
-            domain: 'switch',
-            service: 'turn_off',
-            target: { entity_id: 'switch.foreign_office_plug_heater' },
-          },
+          Services.switch.turn_off({ entity_id: 'switch.foreign_office_plug_heater' }),
         ],
       };
     }
