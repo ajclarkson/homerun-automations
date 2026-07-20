@@ -76,11 +76,259 @@ const occupiedState = { ...baseState, [`binary_sensor.${LOCATION}_occupied`]: { 
 
 describe('makeOccupancyAutomation', () => {
 
-  describe('Branch 0 — PIR fired while motion gate is off', () => {
-    it('returns no_change and does not touch the timer', () => {
+  describe('room becomes occupied', () => {
+    it('marks room occupied when motion is detected in an empty room', () => {
       const result = testAutomation(automation, {
         event: motionEvent('on'),
-        state: { ...baseState, [MOTION_GATE]: { state: 'off' } },
+        state: baseState,
+        ha: noHolds,
+      });
+      expect(result).toMatchObject({ decision: 'set_occupied', reason: 'motion_detected' });
+      if (!('abort' in result)) {
+        expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/state`, payload: 'ON', retain: true });
+        expect(result.actions).toContainEqual({ type: 'timer.cancel', timerKey: TIMER_KEY });
+      }
+    });
+
+    it('cancels any pending clear timer when motion re-fires in an already-occupied room', () => {
+      const result = testAutomation(automation, {
+        event: motionEvent('on'),
+        state: occupiedState,
+        ha: noHolds,
+      });
+      expect(result).toMatchObject({ decision: 'no_change', reason: 'motion_detected' });
+      if (!('abort' in result)) {
+        expect(result.actions).not.toContainEqual(expect.objectContaining({ payload: 'ON' }));
+        expect(result.actions).toContainEqual({ type: 'timer.cancel', timerKey: TIMER_KEY });
+      }
+    });
+
+    it('marks room occupied when a presence hold activates in an empty room', () => {
+      const result = testAutomation(automation, {
+        event: presenceOverrideEvent('on'),
+        state: baseState,
+        ha: withStrongHold,
+      });
+      expect(result).toMatchObject({ decision: 'set_occupied', reason: 'strong_hold_active' });
+      if (!('abort' in result)) {
+        expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/state`, payload: 'ON', retain: true });
+      }
+    });
+
+    it('cancels any pending clear timer when a presence hold is active and room was already occupied', () => {
+      const result = testAutomation(automation, {
+        event: presenceOverrideEvent('on'),
+        state: occupiedState,
+        ha: withStrongHold,
+      });
+      expect(result).toMatchObject({ decision: 'no_change', reason: 'strong_hold_active' });
+      if (!('abort' in result)) {
+        expect(result.actions).toContainEqual({ type: 'timer.cancel', timerKey: TIMER_KEY });
+      }
+    });
+
+    it('attributes occupancy to the hold, not motion, when both are simultaneously active', () => {
+      const result = testAutomation(automation, {
+        event: motionEvent('on'),
+        state: { ...baseState, [PRESENCE_OVERRIDE]: { state: 'on' } },
+        ha: withStrongHold,
+      });
+      expect(result).toMatchObject({ reason: 'strong_hold_active' });
+    });
+  });
+
+  describe('clear countdown starts when evidence clears', () => {
+    it('starts the standard clear countdown when motion stops in an occupied room', () => {
+      const result = testAutomation(automation, {
+        event: motionEvent('off'),
+        state: occupiedState,
+        ha: noHolds,
+      });
+      expect(result).toMatchObject({ decision: 'no_change', reason: 'normal_clear_timer' });
+      if (!('abort' in result)) {
+        expect(result.actions).toContainEqual(expect.objectContaining({ type: 'timer.start', timerKey: TIMER_KEY, delayMs: 2 * 60_000 }));
+      }
+    });
+
+    it('starts the clear countdown on startup when room is already marked occupied', () => {
+      const result = testAutomation(automation, {
+        event: onStartEvent(),
+        state: occupiedState,
+        ha: noHolds,
+      });
+      expect(result).toMatchObject({ decision: 'no_change', reason: 'normal_clear_timer' });
+    });
+
+    it('starts the clear countdown when a presence hold deactivates with no other evidence', () => {
+      const result = testAutomation(automation, {
+        event: presenceOverrideEvent('off'),
+        state: { ...occupiedState, [PRESENCE_OVERRIDE]: { state: 'on' } },
+        ha: withStrongHold,
+      });
+      expect(result).toMatchObject({ decision: 'no_change', reason: 'normal_clear_timer' });
+      if (!('abort' in result)) {
+        expect(result.actions).toContainEqual(expect.objectContaining({ type: 'timer.start', timerKey: TIMER_KEY }));
+      }
+    });
+
+    it('keeps room occupied via motion when a presence hold deactivates but PIR is still active', () => {
+      const result = testAutomation(automation, {
+        event: presenceOverrideEvent('off'),
+        state: { ...occupiedState, [PRESENCE_OVERRIDE]: { state: 'on' }, [MOTION_SENSOR]: { state: 'on' } },
+        ha: withStrongHold,
+      });
+      expect(result).toMatchObject({ reason: 'motion_detected' });
+      if (!('abort' in result)) {
+        expect(result.actions).toContainEqual({ type: 'timer.cancel', timerKey: TIMER_KEY });
+      }
+    });
+  });
+
+  describe('door opens — shortening the clear countdown', () => {
+    it('shortens the countdown when a door opens with no other evidence (person may have just left)', () => {
+      const result = testAutomation(automationWithDoor, {
+        event: doorEvent('on'),
+        state: { ...occupiedState, [DOOR_ENTITY]: { state: 'off' } },
+        ha: withDoor,
+      });
+      expect(result).toMatchObject({ decision: 'no_change', reason: 'door_open_tighten_timer' });
+      if (!('abort' in result)) {
+        expect(result.actions).toContainEqual(expect.objectContaining({ type: 'timer.start', timerKey: TIMER_KEY, delayMs: 1 * 60_000 }));
+      }
+    });
+
+    it('uses the standard countdown when PIR is still active as the door opens (person still present)', () => {
+      // PIR on + gate on → evidence still present → standard clear timer, not door-tighten
+      const result = testAutomation(automationWithDoor, {
+        event: doorEvent('on'),
+        state: { ...occupiedState, [MOTION_SENSOR]: { state: 'on' }, [DOOR_ENTITY]: { state: 'off' } },
+        ha: withDoor,
+      });
+      expect(result).toMatchObject({ reason: 'motion_detected' });
+      if (!('abort' in result)) {
+        expect(result.actions).toContainEqual({ type: 'timer.cancel', timerKey: TIMER_KEY });
+      }
+    });
+
+    it('uses the standard countdown when the PIR sensor still reads motion (gate off) as the door opens', () => {
+      // Gate off but sensor still shows motion — don't treat the stale PIR reading as evidence
+      // that someone left, so use the full clear delay rather than the tightened one
+      const result = testAutomation(automationWithDoor, {
+        event: doorEvent('on'),
+        state: { ...occupiedState, [MOTION_GATE]: { state: 'off' }, [MOTION_SENSOR]: { state: 'on' }, [DOOR_ENTITY]: { state: 'off' } },
+        ha: withDoor,
+      });
+      expect(result).toMatchObject({ decision: 'no_change', reason: 'normal_clear_timer' });
+      expect(result).not.toMatchObject({ reason: 'door_open_tighten_timer' });
+    });
+  });
+
+  describe('room goes unoccupied when the clear timer fires', () => {
+    it('marks room unoccupied when the clear timer expires', () => {
+      const result = testAutomation(automation, {
+        event: timerEvent(),
+        state: occupiedState,
+        ha: noHolds,
+      });
+      expect(result).toMatchObject({ decision: 'clear_occupied', reason: 'timer_expired' });
+      if (!('abort' in result)) {
+        expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/state`, payload: 'OFF', retain: true });
+      }
+    });
+
+    it('does nothing if the timer fires when room is already unoccupied', () => {
+      const result = testAutomation(automation, {
+        event: timerEvent(),
+        state: baseState,
+        ha: noHolds,
+      });
+      expect(result).toMatchObject({ decision: 'no_change', reason: 'timer_expired' });
+      if (!('abort' in result)) {
+        expect(result.actions).not.toContainEqual(expect.objectContaining({ topic: `${LOCATION}/occupied/state`, payload: 'OFF' }));
+      }
+    });
+
+    it('marks room unoccupied and clears containment when the failsafe fires on a sealed room', () => {
+      const result = testAutomation(automationWithDoor, {
+        event: timerEvent(),
+        state: {
+          ...occupiedState,
+          [`binary_sensor.${LOCATION}_occupied_contained`]: { state: 'on' },
+          [DOOR_ENTITY]: { state: 'off' },
+        },
+        ha: withDoor,
+      });
+      expect(result).toMatchObject({ decision: 'clear_occupied', reason: 'containment_failsafe_expired' });
+      if (!('abort' in result)) {
+        expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/state`, payload: 'OFF', retain: true });
+        expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/contained/state`, payload: 'OFF', retain: true });
+      }
+    });
+  });
+
+  describe('containment — sealed room tracking', () => {
+    it('marks room contained when motion fires with all doors closed', () => {
+      const result = testAutomation(automationWithDoor, {
+        event: motionEvent('on'),
+        state: { ...baseState, [DOOR_ENTITY]: { state: 'off' } },
+        ha: withDoor,
+      });
+      expect(result).toMatchObject({ decision: 'set_occupied' });
+      if (!('abort' in result)) {
+        expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/contained/state`, payload: 'ON', retain: true });
+      }
+    });
+
+    it('does not mark contained when motion fires with a door open', () => {
+      const result = testAutomation(automationWithDoor, {
+        event: motionEvent('on'),
+        state: { ...baseState, [DOOR_ENTITY]: { state: 'on' } },
+        ha: withDoor,
+      });
+      if (!('abort' in result)) {
+        expect(result.actions).not.toContainEqual(expect.objectContaining({ topic: `${LOCATION}/occupied/contained/state` }));
+      }
+    });
+
+    it('waits for the long failsafe timeout when motion clears but room remains sealed', () => {
+      const result = testAutomation(automationWithDoor, {
+        event: motionEvent('off'),
+        state: {
+          ...occupiedState,
+          [`binary_sensor.${LOCATION}_occupied_contained`]: { state: 'on' },
+          [DOOR_ENTITY]: { state: 'off' },
+        },
+        ha: withDoor,
+      });
+      expect(result).toMatchObject({ decision: 'no_change', reason: 'contained_failsafe_wait' });
+      if (!('abort' in result)) {
+        expect(result.actions).toContainEqual(expect.objectContaining({ type: 'timer.start', timerKey: TIMER_KEY, delayMs: 60 * 60_000 }));
+      }
+    });
+
+    it('drops containment and shortens the countdown when the door opens during containment', () => {
+      const result = testAutomation(automationWithDoor, {
+        event: doorEvent('on'),
+        state: {
+          ...occupiedState,
+          [`binary_sensor.${LOCATION}_occupied_contained`]: { state: 'on' },
+          [DOOR_ENTITY]: { state: 'off' },
+        },
+        ha: withDoor,
+      });
+      expect(result).toMatchObject({ decision: 'no_change', reason: 'door_open_tighten_timer' });
+      if (!('abort' in result)) {
+        expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/contained/state`, payload: 'OFF', retain: true });
+        expect(result.actions).toContainEqual(expect.objectContaining({ type: 'timer.start', delayMs: 1 * 60_000 }));
+      }
+    });
+  });
+
+  describe('motion gate — disabling the PIR sensor', () => {
+    it('ignores PIR completely and leaves the existing clear timer running when gate is off', () => {
+      const result = testAutomation(automation, {
+        event: motionEvent('on'),
+        state: { ...occupiedState, [MOTION_GATE]: { state: 'off' } },
         ha: noHolds,
       });
       expect(result).toMatchObject({ decision: 'no_change', reason: 'motion_disabled_ignore_pir' });
@@ -90,7 +338,34 @@ describe('makeOccupancyAutomation', () => {
       }
     });
 
-    it('publishes contained OFF when PIR fires with gate already off and room is contained', () => {
+    it('starts the clear countdown when the gate is turned off while room is occupied', () => {
+      // Gate-off is not a PIR event so the ignore-PIR path does not apply;
+      // with gate now off there is no evidence, so the normal clear timer starts
+      const result = testAutomation(automation, {
+        event: motionGateEvent('off'),
+        state: { ...occupiedState, [MOTION_GATE]: { state: 'on' } },
+        ha: noHolds,
+      });
+      expect(result).toMatchObject({ decision: 'no_change', reason: 'normal_clear_timer' });
+    });
+
+    it('drops containment when the gate is disabled while room is sealed and contained', () => {
+      const result = testAutomation(automationWithDoor, {
+        event: motionGateEvent('off'),
+        state: {
+          ...occupiedState,
+          [MOTION_GATE]: { state: 'on' },
+          [`binary_sensor.${LOCATION}_occupied_contained`]: { state: 'on' },
+          [DOOR_ENTITY]: { state: 'off' },
+        },
+        ha: withDoor,
+      });
+      if (!('abort' in result)) {
+        expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/contained/state`, payload: 'OFF', retain: true });
+      }
+    });
+
+    it('drops containment but leaves timer untouched when PIR fires with gate off in a contained room', () => {
       const result = testAutomation(automationWithDoor, {
         event: motionEvent('on'),
         state: {
@@ -104,356 +379,45 @@ describe('makeOccupancyAutomation', () => {
       expect(result).toMatchObject({ decision: 'no_change', reason: 'motion_disabled_ignore_pir' });
       if (!('abort' in result)) {
         expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/contained/state`, payload: 'OFF', retain: true });
-      }
-    });
-  });
-
-  describe('Branch 1 — Evidence present (motion or strong hold)', () => {
-    describe('motion detected', () => {
-      it('publishes occupied ON and cancels timer when previously unoccupied', () => {
-        const result = testAutomation(automation, {
-          event: motionEvent('on'),
-          state: baseState,
-          ha: noHolds,
-        });
-        expect(result).toMatchObject({ decision: 'set_occupied', reason: 'motion_detected' });
-        if (!('abort' in result)) {
-          expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/state`, payload: 'ON', retain: true });
-          expect(result.actions).toContainEqual({ type: 'timer.cancel', timerKey: TIMER_KEY });
-        }
-      });
-
-      it('returns no_change and cancels timer when already occupied', () => {
-        const result = testAutomation(automation, {
-          event: motionEvent('on'),
-          state: occupiedState,
-          ha: noHolds,
-        });
-        expect(result).toMatchObject({ decision: 'no_change', reason: 'motion_detected' });
-        if (!('abort' in result)) {
-          expect(result.actions).not.toContainEqual(expect.objectContaining({ payload: 'ON' }));
-          expect(result.actions).toContainEqual({ type: 'timer.cancel', timerKey: TIMER_KEY });
-        }
-      });
-    });
-
-    describe('strong hold', () => {
-      it('publishes occupied ON when strong hold entity turns on and room was unoccupied', () => {
-        const result = testAutomation(automation, {
-          event: presenceOverrideEvent('on'),
-          state: baseState,
-          ha: withStrongHold,
-        });
-        expect(result).toMatchObject({ decision: 'set_occupied', reason: 'strong_hold_active' });
-        if (!('abort' in result)) {
-          expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/state`, payload: 'ON', retain: true });
-        }
-      });
-
-      it('cancels timer when strong hold entity turns on and room was already occupied', () => {
-        const result = testAutomation(automation, {
-          event: presenceOverrideEvent('on'),
-          state: occupiedState,
-          ha: withStrongHold,
-        });
-        expect(result).toMatchObject({ decision: 'no_change', reason: 'strong_hold_active' });
-        if (!('abort' in result)) {
-          expect(result.actions).toContainEqual({ type: 'timer.cancel', timerKey: TIMER_KEY });
-        }
-      });
-
-      it('takes strong_hold_active reason over motion_detected when both are active', () => {
-        const result = testAutomation(automation, {
-          event: motionEvent('on'),
-          state: { ...baseState, [PRESENCE_OVERRIDE]: { state: 'on' } },
-          ha: withStrongHold,
-        });
-        expect(result).toMatchObject({ reason: 'strong_hold_active' });
-      });
-    });
-  });
-
-  describe('Branch 2 — Timer expired', () => {
-    it('publishes occupied OFF when room was occupied', () => {
-      const result = testAutomation(automation, {
-        event: timerEvent(),
-        state: occupiedState,
-        ha: noHolds,
-      });
-      expect(result).toMatchObject({ decision: 'clear_occupied', reason: 'timer_expired' });
-      if (!('abort' in result)) {
-        expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/state`, payload: 'OFF', retain: true });
-      }
-    });
-
-    it('returns no_change when timer fires but room was already unoccupied', () => {
-      const result = testAutomation(automation, {
-        event: timerEvent(),
-        state: baseState,
-        ha: noHolds,
-      });
-      expect(result).toMatchObject({ decision: 'no_change', reason: 'timer_expired' });
-      if (!('abort' in result)) {
-        expect(result.actions).not.toContainEqual(expect.objectContaining({ payload: 'OFF', topic: `${LOCATION}/occupied/state` }));
-      }
-    });
-
-    it('uses containment_failsafe_expired reason and clears both topics when was contained', () => {
-      const result = testAutomation(automationWithDoor, {
-        event: timerEvent(),
-        state: {
-          ...occupiedState,
-          [`binary_sensor.${LOCATION}_occupied_contained`]: { state: 'on' },
-          [DOOR_ENTITY]: { state: 'off' }, // sealed
-        },
-        ha: withDoor,
-      });
-      expect(result).toMatchObject({ decision: 'clear_occupied', reason: 'containment_failsafe_expired' });
-      if (!('abort' in result)) {
-        expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/state`, payload: 'OFF', retain: true });
-        expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/contained/state`, payload: 'OFF', retain: true });
-      }
-    });
-  });
-
-  describe('Branch 3 — No evidence, room occupied', () => {
-    it('starts normal clear timer when motion clears', () => {
-      const result = testAutomation(automation, {
-        event: motionEvent('off'),
-        state: occupiedState,
-        ha: noHolds,
-      });
-      expect(result).toMatchObject({ decision: 'no_change', reason: 'normal_clear_timer' });
-      if (!('abort' in result)) {
-        expect(result.actions).toContainEqual(expect.objectContaining({ type: 'timer.start', timerKey: TIMER_KEY, delayMs: 2 * 60_000 }));
-      }
-    });
-
-    it('starts normal clear timer on on_start when room is already occupied', () => {
-      const result = testAutomation(automation, {
-        event: onStartEvent(),
-        state: occupiedState,
-        ha: noHolds,
-      });
-      expect(result).toMatchObject({ decision: 'no_change', reason: 'normal_clear_timer' });
-    });
-
-    describe('door opens (with containment config)', () => {
-      it('starts tightened clear timer when door opens and no other evidence', () => {
-        const result = testAutomation(automationWithDoor, {
-          event: doorEvent('on'),
-          state: {
-            ...occupiedState,
-            [DOOR_ENTITY]: { state: 'off' }, // was closed, opening now
-          },
-          ha: withDoor,
-        });
-        expect(result).toMatchObject({ decision: 'no_change', reason: 'door_open_tighten_timer' });
-        if (!('abort' in result)) {
-          expect(result.actions).toContainEqual(expect.objectContaining({ type: 'timer.start', timerKey: TIMER_KEY, delayMs: 1 * 60_000 }));
-        }
-      });
-
-      it('starts normal clear timer (not tightened) when door opens but PIR is still active', () => {
-        const result = testAutomation(automationWithDoor, {
-          event: doorEvent('on'),
-          state: {
-            ...occupiedState,
-            [MOTION_SENSOR]: { state: 'on' },
-            [DOOR_ENTITY]: { state: 'off' },
-          },
-          ha: withDoor,
-        });
-        // PIR is on → evidenceNow=true → Branch 1, not Branch 3
-        expect(result).toMatchObject({ decision: 'no_change', reason: 'motion_detected' });
-      });
-    });
-
-    describe('containment failsafe', () => {
-      it('starts containment max timer when room is contained and sealed', () => {
-        const result = testAutomation(automationWithDoor, {
-          event: motionEvent('off'),
-          state: {
-            ...occupiedState,
-            [`binary_sensor.${LOCATION}_occupied_contained`]: { state: 'on' },
-            [DOOR_ENTITY]: { state: 'off' }, // sealed
-          },
-          ha: withDoor,
-        });
-        expect(result).toMatchObject({ decision: 'no_change', reason: 'contained_failsafe_wait' });
-        if (!('abort' in result)) {
-          expect(result.actions).toContainEqual(expect.objectContaining({ type: 'timer.start', timerKey: TIMER_KEY, delayMs: 60 * 60_000 }));
-        }
-      });
-
-      it('starts normal timer (not containment) when door opens breaking the seal', () => {
-        const result = testAutomation(automationWithDoor, {
-          event: doorEvent('on'),
-          state: {
-            ...occupiedState,
-            [`binary_sensor.${LOCATION}_occupied_contained`]: { state: 'on' },
-            [DOOR_ENTITY]: { state: 'off' }, // was sealed, now opening
-          },
-          ha: withDoor,
-        });
-        // isDoorMsg=true, sealedNow=false after door opens → containedNext=false
-        // door_open_tighten_timer fires (door opened, no PIR, no strong hold)
-        expect(result).toMatchObject({ decision: 'no_change', reason: 'door_open_tighten_timer' });
-        if (!('abort' in result)) {
-          expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/contained/state`, payload: 'OFF', retain: true });
-        }
-      });
-    });
-  });
-
-  describe('Branch 4 — No evidence, room unoccupied', () => {
-    it('cancels timer on on_start when room is unoccupied', () => {
-      const result = testAutomation(automation, {
-        event: onStartEvent(),
-        state: baseState,
-        ha: noHolds,
-      });
-      expect(result).toMatchObject({ decision: 'no_change', reason: 'already_unoccupied' });
-      if (!('abort' in result)) {
-        expect(result.actions).toContainEqual({ type: 'timer.cancel', timerKey: TIMER_KEY });
-      }
-    });
-
-    it('cancels timer when motion clears in an already-unoccupied room', () => {
-      const result = testAutomation(automation, {
-        event: motionEvent('off'),
-        state: baseState,
-        ha: noHolds,
-      });
-      expect(result).toMatchObject({ decision: 'no_change', reason: 'already_unoccupied' });
-      if (!('abort' in result)) {
-        expect(result.actions).toContainEqual({ type: 'timer.cancel', timerKey: TIMER_KEY });
-      }
-    });
-  });
-
-  describe('containment transitions', () => {
-    it('publishes contained ON when PIR fires while door is sealed', () => {
-      const result = testAutomation(automationWithDoor, {
-        event: motionEvent('on'),
-        state: {
-          ...baseState,
-          [DOOR_ENTITY]: { state: 'off' }, // sealed
-        },
-        ha: withDoor,
-      });
-      expect(result).toMatchObject({ decision: 'set_occupied' });
-      if (!('abort' in result)) {
-        expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/contained/state`, payload: 'ON', retain: true });
-      }
-    });
-
-    it('does not publish contained ON when PIR fires with door open', () => {
-      const result = testAutomation(automationWithDoor, {
-        event: motionEvent('on'),
-        state: {
-          ...baseState,
-          [DOOR_ENTITY]: { state: 'on' }, // open
-        },
-        ha: withDoor,
-      });
-      if (!('abort' in result)) {
-        expect(result.actions).not.toContainEqual(expect.objectContaining({ topic: `${LOCATION}/occupied/contained/state` }));
-      }
-    });
-
-    it('publishes contained OFF when motion gate is disabled while room is contained', () => {
-      const result = testAutomation(automationWithDoor, {
-        event: motionGateEvent('off'),
-        state: {
-          ...occupiedState,
-          [MOTION_GATE]: { state: 'on' }, // was on
-          [`binary_sensor.${LOCATION}_occupied_contained`]: { state: 'on' },
-          [DOOR_ENTITY]: { state: 'off' },
-        },
-        ha: withDoor,
-      });
-      if (!('abort' in result)) {
-        expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/contained/state`, payload: 'OFF', retain: true });
-      }
-    });
-  });
-
-  describe('motion gate disabled', () => {
-    it('starts normal clear timer when gate turns off while occupied (not PIR-triggered)', () => {
-      const result = testAutomation(automation, {
-        event: motionGateEvent('off'),
-        state: {
-          ...occupiedState,
-          [MOTION_GATE]: { state: 'on' }, // was on
-        },
-        ha: noHolds,
-      });
-      // motionGateEvent is NOT a PIR trigger, so Branch 0 doesn't apply
-      // motionEnabled is now false (from event), pirRaw=false → evidenceNow=false
-      // occupied → normal_clear_timer
-      expect(result).toMatchObject({ decision: 'no_change', reason: 'normal_clear_timer' });
-    });
-
-    it('does not touch timer when PIR fires with gate off (Branch 0)', () => {
-      const result = testAutomation(automation, {
-        event: motionEvent('on'),
-        state: { ...occupiedState, [MOTION_GATE]: { state: 'off' } },
-        ha: noHolds,
-      });
-      expect(result).toMatchObject({ decision: 'no_change', reason: 'motion_disabled_ignore_pir' });
-      if (!('abort' in result)) {
         expect(result.actions).not.toContainEqual(expect.objectContaining({ type: 'timer.start' }));
+        expect(result.actions).not.toContainEqual(expect.objectContaining({ type: 'timer.cancel' }));
       }
     });
   });
 
-  describe('strong hold turns off', () => {
-    it('starts clear timer when strong hold releases and no other evidence', () => {
+  describe('room is already empty', () => {
+    it('cancels any orphaned timer on startup when room is unoccupied', () => {
       const result = testAutomation(automation, {
-        event: presenceOverrideEvent('off'),
-        state: {
-          ...occupiedState,
-          [PRESENCE_OVERRIDE]: { state: 'on' }, // was on, now turning off
-        },
-        ha: withStrongHold,
+        event: onStartEvent(),
+        state: baseState,
+        ha: noHolds,
       });
-      expect(result).toMatchObject({ decision: 'no_change', reason: 'normal_clear_timer' });
+      expect(result).toMatchObject({ decision: 'no_change', reason: 'already_unoccupied' });
       if (!('abort' in result)) {
-        expect(result.actions).toContainEqual(expect.objectContaining({ type: 'timer.start', timerKey: TIMER_KEY }));
+        expect(result.actions).toContainEqual({ type: 'timer.cancel', timerKey: TIMER_KEY });
       }
     });
 
-    it('sets occupied if PIR is still active when strong hold releases', () => {
+    it('cancels timer idempotently when a stale motion-off event arrives in an empty room', () => {
       const result = testAutomation(automation, {
-        event: presenceOverrideEvent('off'),
-        state: {
-          ...occupiedState,
-          [PRESENCE_OVERRIDE]: { state: 'on' },
-          [MOTION_SENSOR]: { state: 'on' },
-        },
-        ha: withStrongHold,
+        event: motionEvent('off'),
+        state: baseState,
+        ha: noHolds,
       });
-      // PIR still on → evidenceNow=true → Branch 1
-      expect(result).toMatchObject({ reason: 'motion_detected' });
+      expect(result).toMatchObject({ decision: 'no_change', reason: 'already_unoccupied' });
       if (!('abort' in result)) {
         expect(result.actions).toContainEqual({ type: 'timer.cancel', timerKey: TIMER_KEY });
       }
     });
   });
 
-  describe('door contact trigger not in defaults', () => {
-    it('does not restart timer when front door opens on automation without extraTriggers', () => {
-      // This tests that the base automation is not affected by door events from the
-      // perspective of the reducer — even if the engine somehow dispatched one,
-      // isDoorMsg would be false (no presence_hold_door entities), so it falls to
-      // normal_clear_timer rather than door_open_tighten_timer.
+  describe('rooms without door hold configuration', () => {
+    it('a door opening starts the standard countdown, not the tightened one, when no door holds are configured', () => {
       const result = testAutomation(automation, {
         event: doorEvent('on'),
         state: occupiedState,
-        ha: noHolds, // no door entities configured
+        ha: noHolds,
       });
-      // isDoorMsg=false → does NOT take the tighten branch
       expect(result).toMatchObject({ decision: 'no_change', reason: 'normal_clear_timer' });
       expect(result).not.toMatchObject({ reason: 'door_open_tighten_timer' });
     });
