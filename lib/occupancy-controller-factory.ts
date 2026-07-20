@@ -154,7 +154,8 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
       const evidenceNow = strongHoldActive || motionActive;
       const isTimer = trigger.type === 'timer';
 
-      // Branch 0: PIR fired while motion gate is off — don't touch timers
+      // Branch 0: PIR fired while motion gate is off — complete no-op, don't touch timers.
+      // The gate means "ignore PIR entirely"; the existing clear timer should keep ticking.
       if (pirTriggered && !motionEnabled) {
         publishContainedIfChanged();
         return { decision: 'no_change', reason: 'motion_disabled_ignore_pir', inputs: ctx.inputs, actions };
