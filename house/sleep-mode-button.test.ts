@@ -13,10 +13,11 @@ const holdTrigger = (entity: string) => ({
 const baseState = {
   'binary_sensor.bedroom_sensor_bed_occupancy': { state: 'on' },
   'sensor.house_active_mode': { state: 'normal' },
+  'binary_sensor.parlour_media_active': { state: 'off' },
 };
 
 describe('house:sleep_mode_button', () => {
-  it('sets sleep mode on button hold when bed is occupied', () => {
+  it('sets sleep mode on button hold when bed is occupied and parlour inactive', () => {
     const result = testAutomation(automation, {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
       state: baseState,
@@ -30,38 +31,18 @@ describe('house:sleep_mode_button', () => {
     }
   });
 
-  it('returns no_action when parlour sonos is playing', () => {
+  it('returns no_action when parlour media active', () => {
     const result = testAutomation(automation, {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
-      state: { ...baseState, 'media_player.parlour': { state: 'playing' } },
+      state: { ...baseState, 'binary_sensor.parlour_media_active': { state: 'on' } },
     });
     expect(result).toMatchObject({ decision: 'no_action', reason: 'parlour_active' });
   });
 
-  it('returns no_action when parlour sonos is paused', () => {
+  it('allows sleep when parlour media inactive', () => {
     const result = testAutomation(automation, {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
-      state: { ...baseState, 'media_player.parlour': { state: 'paused' } },
-    });
-    expect(result).toMatchObject({ decision: 'no_action', reason: 'parlour_active' });
-  });
-
-  it('returns no_action when parlour tv is on', () => {
-    const result = testAutomation(automation, {
-      event: holdTrigger('sensor.bedroom_button_adam_action'),
-      state: { ...baseState, 'media_player.parlour_tv': { state: 'on' } },
-    });
-    expect(result).toMatchObject({ decision: 'no_action', reason: 'parlour_active' });
-  });
-
-  it('allows sleep when parlour players are idle or off', () => {
-    const result = testAutomation(automation, {
-      event: holdTrigger('sensor.bedroom_button_adam_action'),
-      state: {
-        ...baseState,
-        'media_player.parlour': { state: 'idle' },
-        'media_player.parlour_tv': { state: 'off' },
-      },
+      state: { ...baseState, 'binary_sensor.parlour_media_active': { state: 'off' } },
     });
     expect('abort' in result).toBe(false);
     if (!('abort' in result)) {

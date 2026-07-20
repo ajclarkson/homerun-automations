@@ -1,8 +1,5 @@
 import { defineAutomation, abort } from '@ajclarkson/homerun';
 
-const INACTIVE_STATES = new Set(['off', 'idle', 'unavailable', 'unknown']);
-const isActive = (state: string | undefined) => !!state && !INACTIVE_STATES.has(state);
-
 export default defineAutomation({
   id: 'house:sleep_mode_button',
   location: 'house',
@@ -23,14 +20,13 @@ export default defineAutomation({
       return abort(`house_mode_unavailable:${houseMode}`);
     }
 
-    const parlourSonos = state('media_player.parlour')?.state;
-    const parlourTv = state('media_player.parlour_tv')?.state;
+    const parlourActive = state('binary_sensor.parlour_media_active')?.state === 'on';
 
     return {
       bedOccupied: bedOccupied === 'on',
       houseMode,
-      parlourActive: isActive(parlourSonos) || isActive(parlourTv),
-      inputs: { bedOccupied, houseMode, parlourSonos, parlourTv },
+      parlourActive,
+      inputs: { bedOccupied, houseMode, parlourActive },
     };
   },
 
