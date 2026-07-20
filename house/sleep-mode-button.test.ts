@@ -10,16 +10,14 @@ const holdTrigger = (entity: string) => ({
   correlation_id: 'test-cid',
 });
 
-const TV_OFF_LONG_AGO = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-const TV_OFF_RECENTLY = new Date(Date.now() - 30 * 1000).toISOString();
-
 const baseState = {
   'binary_sensor.bedroom_sensor_bed_occupancy': { state: 'on' },
   'sensor.house_active_mode': { state: 'normal' },
+  'binary_sensor.parlour_media_active': { state: 'off' },
 };
 
 describe('house:sleep_mode_button', () => {
-  it('sets sleep mode on button hold when bed is occupied', () => {
+  it('sets sleep mode on button hold when bed is occupied and parlour inactive', () => {
     const result = testAutomation(automation, {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
       state: baseState,
@@ -33,77 +31,18 @@ describe('house:sleep_mode_button', () => {
     }
   });
 
-  it('returns no_action when parlour sonos is playing via airplay (TV off)', () => {
+  it('returns no_action when parlour media active', () => {
     const result = testAutomation(automation, {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
-      state: {
-        ...baseState,
-        'media_player.parlour': { state: 'playing', attributes: { source: 'AirPlay' } },
-        'media_player.parlour_tv': { state: 'off', last_changed: TV_OFF_LONG_AGO },
-      },
+      state: { ...baseState, 'binary_sensor.parlour_media_active': { state: 'on' } },
     });
     expect(result).toMatchObject({ decision: 'no_action', reason: 'parlour_active' });
   });
 
-  it('returns no_action when parlour sonos is playing via airplay (TV on)', () => {
+  it('allows sleep when parlour media inactive', () => {
     const result = testAutomation(automation, {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
-      state: { ...baseState, 'media_player.parlour': { state: 'playing', attributes: { source: 'AirPlay' } } },
-    });
-    expect(result).toMatchObject({ decision: 'no_action', reason: 'parlour_active' });
-  });
-
-  it('returns no_action when sonos source is TV but TV only just turned off', () => {
-    const result = testAutomation(automation, {
-      event: holdTrigger('sensor.bedroom_button_adam_action'),
-      state: {
-        ...baseState,
-        'media_player.parlour': { state: 'playing', attributes: { source: 'TV' } },
-        'media_player.parlour_tv': { state: 'off', last_changed: TV_OFF_RECENTLY },
-      },
-    });
-    expect(result).toMatchObject({ decision: 'no_action', reason: 'parlour_active' });
-  });
-
-  it('allows sleep when sonos source is TV but TV has been off for 2+ minutes', () => {
-    const result = testAutomation(automation, {
-      event: holdTrigger('sensor.bedroom_button_adam_action'),
-      state: {
-        ...baseState,
-        'media_player.parlour': { state: 'playing', attributes: { source: 'TV' } },
-        'media_player.parlour_tv': { state: 'off', last_changed: TV_OFF_LONG_AGO },
-      },
-    });
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('set_sleep');
-    }
-  });
-
-  it('returns no_action when parlour sonos is paused', () => {
-    const result = testAutomation(automation, {
-      event: holdTrigger('sensor.bedroom_button_adam_action'),
-      state: { ...baseState, 'media_player.parlour': { state: 'paused', attributes: {} } },
-    });
-    expect(result).toMatchObject({ decision: 'no_action', reason: 'parlour_active' });
-  });
-
-  it('returns no_action when parlour tv is on', () => {
-    const result = testAutomation(automation, {
-      event: holdTrigger('sensor.bedroom_button_adam_action'),
-      state: { ...baseState, 'media_player.parlour_tv': { state: 'on' } },
-    });
-    expect(result).toMatchObject({ decision: 'no_action', reason: 'parlour_active' });
-  });
-
-  it('allows sleep when parlour players are idle or off', () => {
-    const result = testAutomation(automation, {
-      event: holdTrigger('sensor.bedroom_button_adam_action'),
-      state: {
-        ...baseState,
-        'media_player.parlour': { state: 'idle', attributes: {} },
-        'media_player.parlour_tv': { state: 'off' },
-      },
+      state: { ...baseState, 'binary_sensor.parlour_media_active': { state: 'off' } },
     });
     expect('abort' in result).toBe(false);
     if (!('abort' in result)) {
