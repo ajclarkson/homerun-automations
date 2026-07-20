@@ -1,10 +1,12 @@
-import { defineAutomation, type Action } from '@ajclarkson/homerun';
+import { defineAutomation, type Action, type Trigger } from '@ajclarkson/homerun';
 
 export interface OccupancyRoomConfig {
   location: string;
   delayMins?: number;
   containmentMaxMins?: number;
   reopenTightenMins?: number;
+  /** Extra state_changed triggers for door contacts or other hold entities specific to this room. */
+  extraTriggers?: Trigger[];
 }
 
 type OccupancyTrigger =
@@ -58,7 +60,7 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
       { type: 'state_changed', entity: motionSensor },
       { type: 'state_changed', entity: motionGate },
       { type: 'state_changed', entity: presenceOverride },
-      { type: 'state_changed', entity: new RegExp(`binary_sensor\\.${location}_.*_contact`) },
+      ...(config.extraTriggers ?? []),
       { type: 'timer_expired', timerKey },
       { type: 'on_start' },
     ],
