@@ -10,6 +10,9 @@ const holdTrigger = (entity: string) => ({
   correlation_id: 'test-cid',
 });
 
+const TV_OFF_LONG_AGO = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+const TV_OFF_RECENTLY = new Date(Date.now() - 30 * 1000).toISOString();
+
 const baseState = {
   'binary_sensor.bedroom_sensor_bed_occupancy': { state: 'on' },
   'sensor.house_active_mode': { state: 'normal' },
@@ -30,18 +33,57 @@ describe('house:sleep_mode_button', () => {
     }
   });
 
-  it('returns no_action when parlour sonos is playing', () => {
+  it('returns no_action when parlour sonos is playing via airplay (TV off)', () => {
     const result = testAutomation(automation, {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
-      state: { ...baseState, 'media_player.parlour': { state: 'playing' } },
+      state: {
+        ...baseState,
+        'media_player.parlour': { state: 'playing', attributes: { source: 'AirPlay' } },
+        'media_player.parlour_tv': { state: 'off', last_changed: TV_OFF_LONG_AGO },
+      },
     });
     expect(result).toMatchObject({ decision: 'no_action', reason: 'parlour_active' });
+  });
+
+  it('returns no_action when parlour sonos is playing via airplay (TV on)', () => {
+    const result = testAutomation(automation, {
+      event: holdTrigger('sensor.bedroom_button_adam_action'),
+      state: { ...baseState, 'media_player.parlour': { state: 'playing', attributes: { source: 'AirPlay' } } },
+    });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'parlour_active' });
+  });
+
+  it('returns no_action when sonos source is TV but TV only just turned off', () => {
+    const result = testAutomation(automation, {
+      event: holdTrigger('sensor.bedroom_button_adam_action'),
+      state: {
+        ...baseState,
+        'media_player.parlour': { state: 'playing', attributes: { source: 'TV' } },
+        'media_player.parlour_tv': { state: 'off', last_changed: TV_OFF_RECENTLY },
+      },
+    });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'parlour_active' });
+  });
+
+  it('allows sleep when sonos source is TV but TV has been off for 2+ minutes', () => {
+    const result = testAutomation(automation, {
+      event: holdTrigger('sensor.bedroom_button_adam_action'),
+      state: {
+        ...baseState,
+        'media_player.parlour': { state: 'playing', attributes: { source: 'TV' } },
+        'media_player.parlour_tv': { state: 'off', last_changed: TV_OFF_LONG_AGO },
+      },
+    });
+    expect('abort' in result).toBe(false);
+    if (!('abort' in result)) {
+      expect(result.decision).toBe('set_sleep');
+    }
   });
 
   it('returns no_action when parlour sonos is paused', () => {
     const result = testAutomation(automation, {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
-      state: { ...baseState, 'media_player.parlour': { state: 'paused' } },
+      state: { ...baseState, 'media_player.parlour': { state: 'paused', attributes: {} } },
     });
     expect(result).toMatchObject({ decision: 'no_action', reason: 'parlour_active' });
   });
@@ -59,7 +101,7 @@ describe('house:sleep_mode_button', () => {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
       state: {
         ...baseState,
-        'media_player.parlour': { state: 'idle' },
+        'media_player.parlour': { state: 'idle', attributes: {} },
         'media_player.parlour_tv': { state: 'off' },
       },
     });

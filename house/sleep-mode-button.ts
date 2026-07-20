@@ -3,6 +3,8 @@ import { defineAutomation, abort } from '@ajclarkson/homerun';
 const INACTIVE_STATES = new Set(['off', 'idle', 'unavailable', 'unknown']);
 const isActive = (state: string | undefined) => !!state && !INACTIVE_STATES.has(state);
 
+const TV_SOURCE_STALE_MS = 2 * 60 * 1000;
+
 export default defineAutomation({
   id: 'house:sleep_mode_button',
   location: 'house',
@@ -23,14 +25,24 @@ export default defineAutomation({
       return abort(`house_mode_unavailable:${houseMode}`);
     }
 
-    const parlourSonos = state('media_player.parlour')?.state;
-    const parlourTv = state('media_player.parlour_tv')?.state;
+    const parlourSonosEntity = state('media_player.parlour');
+    const parlourTvEntity = state('media_player.parlour_tv');
+    const parlourSonos = parlourSonosEntity?.state;
+    const parlourTv = parlourTvEntity?.state;
+    const sonosSource = parlourSonosEntity?.attributes?.source as string | undefined;
+
+    const tvOff = !isActive(parlourTv);
+    const tvOffMs = tvOff
+      ? Date.now() - Date.parse(parlourTvEntity?.last_changed ?? '')
+      : 0;
+    const sonosStale = isActive(parlourSonos) && sonosSource === 'TV' && tvOff && tvOffMs > TV_SOURCE_STALE_MS;
+    const parlourActive = (isActive(parlourSonos) && !sonosStale) || isActive(parlourTv);
 
     return {
       bedOccupied: bedOccupied === 'on',
       houseMode,
-      parlourActive: isActive(parlourSonos) || isActive(parlourTv),
-      inputs: { bedOccupied, houseMode, parlourSonos, parlourTv },
+      parlourActive,
+      inputs: { bedOccupied, houseMode, parlourSonos, parlourTv, sonosSource, tvOffMs: Math.round(tvOffMs / 1000) },
     };
   },
 
