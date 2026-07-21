@@ -98,8 +98,8 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
       const pirTriggered = sourceEntity === motionSensor && sourceValue === 'on';
 
       const strongHoldActive = strongHoldEntities.some(e => {
-        const override = ha.labelsFor(e).find(l => l.startsWith('presence_hold_state:'));
-        const holdState = override ? override.slice('presence_hold_state:'.length) : 'on';
+        const override = ha.labelsFor(e).find(l => l.startsWith('presence_hold_state_'));
+        const holdState = override ? override.slice('presence_hold_state_'.length) : 'on';
         return readState(e) === holdState;
       });
 

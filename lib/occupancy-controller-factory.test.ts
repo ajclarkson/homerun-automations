@@ -24,8 +24,9 @@ const automationWithDoor = makeOccupancyAutomation({
 function makeHa(opts: {
   strongHoldEntities?: string[];
   doorEntities?: string[];
+  entityLabels?: Record<string, string[]>;
 } = {}): Partial<HAContext> {
-  const { strongHoldEntities = [], doorEntities = [] } = opts;
+  const { strongHoldEntities = [], doorEntities = [], entityLabels = {} } = opts;
   const area = [MOTION_SENSOR, MOTION_GATE, PRESENCE_OVERRIDE, ...strongHoldEntities, ...doorEntities];
   return {
     entitiesByArea: (a) => (a === LOCATION ? area : []),
@@ -34,7 +35,7 @@ function makeHa(opts: {
       if (label === 'presence_hold_door') return doorEntities;
       return [];
     },
-    labelsFor: () => [],
+    labelsFor: (entity) => entityLabels[entity] ?? [],
   };
 }
 
@@ -126,6 +127,32 @@ describe('makeOccupancyAutomation', () => {
         ha: withStrongHold,
       });
       expect(result).toMatchObject({ reason: 'strong_hold_active' });
+    });
+
+    describe('custom hold state via presence_hold_state_ label', () => {
+      const MEDIA_PLAYER = 'media_player.test_room';
+      const withMediaHold = makeHa({
+        strongHoldEntities: [MEDIA_PLAYER],
+        entityLabels: { [MEDIA_PLAYER]: ['presence_hold_strong', 'presence_hold_state_playing'] },
+      });
+
+      it('treats entity as holding when state matches the label suffix', () => {
+        const result = testAutomation(automation, {
+          event: stateChangedEvent(MEDIA_PLAYER, 'idle', 'playing'),
+          state: { ...baseState, [MEDIA_PLAYER]: { state: 'playing' } },
+          ha: withMediaHold,
+        });
+        expect(result).toMatchObject({ decision: 'set_occupied', reason: 'strong_hold_active' });
+      });
+
+      it('does not hold when entity is in a different state', () => {
+        const result = testAutomation(automation, {
+          event: stateChangedEvent(MEDIA_PLAYER, 'playing', 'idle'),
+          state: { ...occupiedState, [MEDIA_PLAYER]: { state: 'idle' } },
+          ha: withMediaHold,
+        });
+        expect(result).toMatchObject({ reason: 'normal_clear_timer' });
+      });
     });
   });
 
