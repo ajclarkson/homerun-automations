@@ -1,5 +1,5 @@
 import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
-import { HEATING_ROOMS } from './rooms.js';
+import { HEATING_ROOMS } from '../lib/heating-rooms.js';
 
 export default defineAutomation({
   id: 'house:window_external',

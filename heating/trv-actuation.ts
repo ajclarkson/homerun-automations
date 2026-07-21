@@ -1,5 +1,5 @@
 import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
-import { HEATING_ROOMS } from './rooms.js';
+import { HEATING_ROOMS } from '../lib/heating-rooms.js';
 
 const MODE_HELPERS: Record<string, string> = {
   comfort:        'input_number.global_temperature_comfort',

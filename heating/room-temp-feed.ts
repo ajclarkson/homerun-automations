@@ -1,5 +1,5 @@
 import { defineAutomation, abort } from '@ajclarkson/homerun';
-import { HEATING_ROOMS } from './rooms.js';
+import { HEATING_ROOMS } from '../lib/heating-rooms.js';
 
 const MIN_ROOM_TEMP_C = 0;
 const MAX_ROOM_TEMP_C = 40;
