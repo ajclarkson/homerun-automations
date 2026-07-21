@@ -105,10 +105,10 @@ describe('room-temp-feed', () => {
   describe('hallway_downstairs:room_temp_feed', () => {
     const automation = automations.find(a => a.id === 'hallway_downstairs:room_temp_feed')!;
 
-    it('reads from the motion sensor and targets the downstairs TRV', () => {
+    it('reads from the climate sensor and targets the downstairs TRV', () => {
       const result = testAutomation(automation, {
-        event: stateChangeTrigger('sensor.hallway_downstairs_sensor_motion_temperature', '18.0'),
-        state: { 'sensor.hallway_downstairs_sensor_motion_temperature': { state: '18.0' } },
+        event: stateChangeTrigger('sensor.hallway_downstairs_sensor_climate_temperature', '18.0'),
+        state: { 'sensor.hallway_downstairs_sensor_climate_temperature': { state: '18.0' } },
       });
       expect('abort' in result).toBe(false);
       if (!('abort' in result)) {
