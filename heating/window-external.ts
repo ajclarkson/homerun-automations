@@ -1,8 +1,5 @@
 import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
-
-const ROOMS = [
-  'parlour', 'kitchen', 'hallway_downstairs', 'bedroom', 'bathroom', 'home_office',
-] as const;
+import { HEATING_ROOMS } from './rooms.js';
 
 export default defineAutomation({
   id: 'house:window_external',
@@ -10,7 +7,7 @@ export default defineAutomation({
   subsystem: 'heating',
 
   triggers: [
-    { type: 'state_changed', entity: /^binary_sensor\.(parlour|kitchen|hallway_downstairs|bedroom|bathroom|home_office)_external_openings$/ },
+    { type: 'state_changed', entity: /^binary_sensor\..+_external_openings$/ },
     { type: 'on_start' },
   ],
 
@@ -19,9 +16,9 @@ export default defineAutomation({
     if (event.type === 'state_changed') {
       const match = event.entity_id.match(/^binary_sensor\.(.+)_external_openings$/);
       const room = match?.[1];
-      targetRooms = room && (ROOMS as readonly string[]).includes(room) ? [room] : [];
+      targetRooms = room && HEATING_ROOMS.includes(room) ? [room] : [];
     } else {
-      targetRooms = ROOMS;
+      targetRooms = HEATING_ROOMS;
     }
 
     const windows = targetRooms.map(room => ({

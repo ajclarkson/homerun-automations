@@ -1,8 +1,5 @@
 import { defineAutomation, abort } from '@ajclarkson/homerun';
-
-const ROOMS = [
-  'parlour', 'kitchen', 'hallway_downstairs', 'bedroom', 'bathroom', 'home_office',
-] as const;
+import { HEATING_ROOMS } from './rooms.js';
 
 export default defineAutomation({
   id: 'house:boiler_demand',
@@ -22,7 +19,7 @@ export default defineAutomation({
     }
 
     const heatingEnabled = heatingEnabledState === 'on';
-    const callingRooms = ROOMS.filter(
+    const callingRooms = HEATING_ROOMS.filter(
       room => state(`binary_sensor.${room}_trv_heat_required`)?.state === 'on'
     );
     const demand = callingRooms.length > 0;

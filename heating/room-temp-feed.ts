@@ -1,18 +1,12 @@
 import { defineAutomation, abort } from '@ajclarkson/homerun';
+import { HEATING_ROOMS } from './rooms.js';
 
 const MIN_ROOM_TEMP_C = 0;
 const MAX_ROOM_TEMP_C = 40;
 
-const ROOMS: Array<{ location: string; sensor: string }> = [
-  { location: 'parlour',            sensor: 'sensor.parlour_sensor_climate_temperature' },
-  { location: 'kitchen',            sensor: 'sensor.kitchen_sensor_climate_temperature' },
-  { location: 'hallway_downstairs', sensor: 'sensor.hallway_downstairs_sensor_motion_temperature' },
-  { location: 'bedroom',            sensor: 'sensor.bedroom_sensor_climate_temperature' },
-  { location: 'bathroom',           sensor: 'sensor.bathroom_sensor_climate_temperature' },
-  { location: 'home_office',        sensor: 'sensor.home_office_sensor_climate_temperature' },
-];
+function makeTempFeedAutomation(location: string) {
+  const sensorEntity = `sensor.${location}_sensor_climate_temperature`;
 
-function makeTempFeedAutomation(location: string, sensorEntity: string) {
   return defineAutomation({
     id: `${location}:room_temp_feed`,
     location,
@@ -46,4 +40,4 @@ function makeTempFeedAutomation(location: string, sensorEntity: string) {
   });
 }
 
-export default ROOMS.map(({ location, sensor }) => makeTempFeedAutomation(location, sensor));
+export default HEATING_ROOMS.map(location => makeTempFeedAutomation(location));

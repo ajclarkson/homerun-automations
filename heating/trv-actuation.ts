@@ -1,13 +1,5 @@
 import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
-
-const ROOM_TO_TRV: Record<string, string> = {
-  parlour:            'climate.parlour_trv',
-  kitchen:            'climate.kitchen_trv',
-  hallway_downstairs: 'climate.hallway_downstairs_trv',
-  bedroom:            'climate.bedroom_trv',
-  bathroom:           'climate.bathroom_trv',
-  home_office:        'climate.home_office_trv',
-};
+import { HEATING_ROOMS } from './rooms.js';
 
 const MODE_HELPERS: Record<string, string> = {
   comfort:        'input_number.global_temperature_comfort',
@@ -29,7 +21,7 @@ export default defineAutomation({
   subsystem: 'heating',
 
   triggers: [
-    { type: 'state_changed', entity: /^sensor\.(parlour|kitchen|hallway_downstairs|bedroom|bathroom|home_office)_active_heating$/ },
+    { type: 'state_changed', entity: /^sensor\..+_active_heating$/ },
     { type: 'on_start' },
   ],
 
@@ -45,14 +37,14 @@ export default defineAutomation({
     if (event.type === 'state_changed') {
       const match = event.entity_id.match(/^sensor\.(.+)_active_heating$/);
       const room = match?.[1];
-      targetRooms = room && ROOM_TO_TRV[room] ? [room] : [];
+      targetRooms = room && HEATING_ROOMS.includes(room) ? [room] : [];
     } else {
-      targetRooms = Object.keys(ROOM_TO_TRV);
+      targetRooms = [...HEATING_ROOMS];
     }
 
     const rooms = targetRooms.map(room => ({
       room,
-      trvEntity: ROOM_TO_TRV[room],
+      trvEntity: `climate.${room}_trv`,
       mode: state(`sensor.${room}_active_heating`)?.state ?? null,
     }));
 
