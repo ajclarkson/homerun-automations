@@ -214,6 +214,15 @@ describe('manual override', () => {
     expectModePublished(result.actions, 'minimum');
     expect(result.reason).toBe('house_mode_away');
   });
+
+  it('treats unrecognised manual mode value as auto (falls through to schedule)', () => {
+    const result = run({
+      [`input_select.${LOCATION}_heating_manual_mode`]: { state: 'unknown' },
+      [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' },
+    });
+    expectModePublished(result.actions, 'baseline_day');
+    expect(result.reason).toBe('schedule');
+  });
 });
 
 // ---- Stage 5: schedule resolution ----
@@ -255,8 +264,8 @@ describe('schedule resolution', () => {
       location: LOCATION,
       scheduleConfig: {
         byContext: {
-          weekday_wfh_adam: [{ start: '00:00', end: '24:00', mode: 'comfort' }],
-          weekday: [{ start: '00:00', end: '24:00', mode: 'baseline_day' }],
+          weekday_wfh_adam: [{ start: '06:00', end: '22:00', mode: 'comfort' }],
+          weekday: [{ start: '06:00', end: '22:00', mode: 'baseline_day' }],
           default: [],
         },
       },
@@ -273,8 +282,8 @@ describe('schedule resolution', () => {
       location: LOCATION,
       scheduleConfig: {
         byContext: {
-          weekday_wfh_adam: [{ start: '00:00', end: '24:00', mode: 'comfort' }],
-          weekday: [{ start: '00:00', end: '24:00', mode: 'baseline_day' }],
+          weekday_wfh_adam: [{ start: '06:00', end: '22:00', mode: 'comfort' }],
+          weekday: [{ start: '06:00', end: '22:00', mode: 'baseline_day' }],
           default: [],
         },
       },

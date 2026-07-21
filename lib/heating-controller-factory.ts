@@ -30,6 +30,8 @@ export interface HeatingRoomConfig {
 
 // ---- Constants ----
 
+const VALID_HEATING_MODES = new Set<string>(['minimum', 'baseline_night', 'baseline_day', 'comfort']);
+
 const HOUSE_MODES_AFFECTING_HEATING = ['sleep', 'away', 'vacation'] as const;
 type HouseMode = typeof HOUSE_MODES_AFFECTING_HEATING[number];
 
@@ -42,11 +44,16 @@ const HOUSE_MODE_MAP: Record<HouseMode, HeatingMode> = {
 const SCHEDULE_TIMER_SUFFIX = 'heating:schedule_boundary';
 const MANUAL_TIMER_SUFFIX = 'heating:manual_override_expiry';
 
+// Any schedule block can span at most 24h; 25h is a safe ceiling for timer delay.
+const MIN_TIMER_DELAY_MS = 250;
+const MAX_TIMER_DELAY_MS = 25 * 60 * 60 * 1000;
+
 // ---- Schedule resolution ----
 
 function parseHHMM(hhmm: string): number | null {
   const [h, m] = hhmm.split(':').map(Number);
   if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
   return h * 60 + m;
 }
 
@@ -76,7 +83,10 @@ function computeValidUntilMs(block: HeatingBlock, now: Date): number | null {
   const nowMins = minutesSinceMidnight(now);
   if (endMins <= nowMins) end.setDate(end.getDate() + 1);
   end.setHours(Math.floor(endMins / 60), endMins % 60, 0, 0);
-  return end.getTime();
+
+  const validUntilMs = end.getTime();
+  if (!Number.isFinite(validUntilMs) || validUntilMs <= now.getTime()) return null;
+  return validUntilMs;
 }
 
 function buildContextKeys(weekday: boolean, wfhAdam: boolean, wfhSarah: boolean): ScheduleContextKey[] {
@@ -129,6 +139,14 @@ function resolveSchedule(
     block,
     contextKey,
   };
+}
+
+// ---- Reducer helpers ----
+
+function planTimer(timerKey: string, validUntilMs: number | null, nowMs: number): Action[] {
+  if (validUntilMs === null) return [];
+  const delayMs = Math.min(Math.max(validUntilMs - nowMs, MIN_TIMER_DELAY_MS), MAX_TIMER_DELAY_MS);
+  return [{ type: 'timer.start', timerKey, delayMs }];
 }
 
 // ---- Factory ----
@@ -186,8 +204,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
 
       const currentMode = state(`sensor.${location}_active_heating`)?.state ?? null;
 
-      const windowState = state(windowEntity)?.state;
-      const windowOpen = windowState === 'on';
+      const windowOpen = state(windowEntity)?.state === 'on';
 
       const heatingSystemEnabled = state('input_boolean.house_heating_enabled')?.state === 'on';
       const forceMinimum = !independent && !heatingSystemEnabled;
@@ -199,7 +216,9 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       const wfhSarah = state('input_boolean.wfh_sarah')?.state === 'on';
 
       const manualSelectState = state(manualSelectEntity)?.state ?? 'auto';
-      const manualMode = manualSelectState !== 'auto' ? (manualSelectState as HeatingMode) : null;
+      const manualMode = (manualSelectState !== 'auto' && VALID_HEATING_MODES.has(manualSelectState))
+        ? (manualSelectState as HeatingMode)
+        : null;
 
       const schedule = resolveSchedule(scheduleConfig, weekday, wfhAdam, wfhSarah, now);
 
@@ -227,7 +246,9 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
           schedule: {
             contextKey: schedule.contextKey,
             requestedMode: schedule.requestedMode,
-            block: schedule.block ? { start: schedule.block.start, end: schedule.block.end, mode: schedule.block.mode } : null,
+            block: schedule.block
+              ? { start: schedule.block.start, end: schedule.block.end, mode: schedule.block.mode }
+              : null,
           },
         },
       };
@@ -236,11 +257,12 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
     reduce: (ctx) => {
       const { automationEnabled, currentMode, safety, house, manualMode, schedule, scheduleTimerKey, manualTimerKey, now } = ctx;
       const actions: Action[] = [];
+      const nowMs = now.getTime();
 
       let targetMode: HeatingMode | null = null;
       let source: HeatingSource = 'none';
-      let decision: string;
-      let reason: string;
+      let decision = 'no_action';
+      let reason = 'uninitialised';
 
       // Stage 1 — automation disabled
       if (!automationEnabled) {
@@ -260,15 +282,12 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
         reason = 'safety_heating_disabled';
       }
 
-      // Stage 3 — house mode
-      if (!targetMode && house.affectsHeating && house.mode) {
-        const mapped = HOUSE_MODE_MAP[house.mode as HouseMode];
-        if (mapped) {
-          targetMode = mapped;
-          source = 'house_mode';
-          decision = 'set_mode';
-          reason = `house_mode_${house.mode}`;
-        }
+      // Stage 3 — house mode (affectsHeating guarantees mode is non-null and in HOUSE_MODE_MAP)
+      if (!targetMode && house.affectsHeating) {
+        targetMode = HOUSE_MODE_MAP[house.mode as HouseMode];
+        source = 'house_mode';
+        decision = 'set_mode';
+        reason = `house_mode_${house.mode}`;
       }
 
       // Stage 4 — manual override
@@ -277,14 +296,8 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
         source = 'manual';
         decision = 'set_mode';
         reason = 'manual_override';
-
-        // Timer to expire at next schedule boundary
-        if (schedule.validUntilMs !== null) {
-          const delayMs = Math.max(schedule.validUntilMs - now.getTime(), 250);
-          actions.push({ type: 'timer.start', timerKey: manualTimerKey, delayMs });
-        }
+        actions.push(...planTimer(manualTimerKey, schedule.validUntilMs, nowMs));
       } else {
-        // Manual not active — cancel expiry timer (idempotent)
         actions.push({ type: 'timer.cancel', timerKey: manualTimerKey });
       }
 
@@ -303,23 +316,14 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
 
       // Stage 7 — no-op detection
       if (targetMode === currentMode) {
-        // Still plan the schedule boundary timer even when maintaining
-        if (schedule.validUntilMs !== null) {
-          const delayMs = Math.max(schedule.validUntilMs - now.getTime(), 250);
-          actions.push({ type: 'timer.start', timerKey: scheduleTimerKey, delayMs });
-        }
+        actions.push(...planTimer(scheduleTimerKey, schedule.validUntilMs, nowMs));
         return { decision: 'maintain', reason: 'no_change', inputs: ctx.inputs, actions };
       }
 
       // Stage 8 — emit mode + source
       actions.push({ type: 'mqtt.publish', topic: activeHeatingTopic, payload: targetMode, retain: true });
       actions.push({ type: 'mqtt.publish', topic: sourceTopic, payload: source, retain: true });
-
-      // Stage 9 — plan next schedule boundary timer
-      if (schedule.validUntilMs !== null) {
-        const delayMs = Math.max(schedule.validUntilMs - now.getTime(), 250);
-        actions.push({ type: 'timer.start', timerKey: scheduleTimerKey, delayMs });
-      }
+      actions.push(...planTimer(scheduleTimerKey, schedule.validUntilMs, nowMs));
 
       return { decision, reason, inputs: ctx.inputs, actions };
     },

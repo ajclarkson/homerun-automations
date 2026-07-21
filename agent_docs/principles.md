@@ -95,7 +95,40 @@ Always validate with `Number.isFinite()` before use. If the value is required an
 | Thing | Pattern | Example |
 |---|---|---|
 | Timer key | `{location}:{purpose}` | `hallway_downstairs:occupied_clear` |
+| Timer key (subsystem-scoped) | `{location}:{subsystem}:{purpose}` | `parlour:heating:schedule_boundary` |
 | Occupied state topic | `{location}/occupied/state` | `kitchen/occupied/state` |
 | Contained state topic | `{location}/occupied/contained/state` | `kitchen/occupied/contained/state` |
+| Heating mode topic | `{location}/heating/active` | `parlour/heating/active` |
+| Heating source topic | `{location}/heating/source` | `parlour/heating/source` |
 
 Consistent naming makes topics predictable and prevents collisions across rooms. Do not invent new patterns without updating this table.
+
+---
+
+**11. Keep functions under 70 lines. Centralise branching; extract non-branching logic.**
+
+A function longer than 70 lines cannot be read without scrolling. When a function grows past this limit, the fix is structural: the parent owns the branching logic, and repeated non-branching computations move into named helpers.
+
+Duplicated logic is the most common driver of length violations. If the same computation appears twice in a function body, it belongs in a helper — not because of DRY, but because each duplication is a future divergence waiting to happen.
+
+```typescript
+// Extracted helper: named, bounded, and independently testable
+function planTimer(timerKey: string, validUntilMs: number | null, nowMs: number): Action[] {
+  if (validUntilMs === null) return [];
+  const delayMs = Math.min(Math.max(validUntilMs - nowMs, MIN_TIMER_DELAY_MS), MAX_TIMER_DELAY_MS);
+  return [{ type: 'timer.start', timerKey, delayMs }];
+}
+```
+
+---
+
+**12. Initialise variables to sentinel values; never leave them in an indeterminate state.**
+
+Declaring `let decision: string` and assigning it conditionally relies on the compiler to prove every path assigns before use. Compilers are fallible and conditions change. Initialise to a sentinel that is observably wrong if it reaches the output:
+
+```typescript
+let decision = 'no_action';
+let reason = 'uninitialised';
+```
+
+If `'uninitialised'` appears in a Loki event, it immediately identifies a code path that failed to set the value — far better than a runtime error or a silently incorrect decision.
