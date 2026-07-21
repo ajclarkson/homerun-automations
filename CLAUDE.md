@@ -1,117 +1,38 @@
-# homerun-automations — Context
+# homerun-automations
 
-## What this is
+Private consumer repo for the homerun automation framework. All household automations for the Clarkson home live here. No framework code — just automation definitions.
 
-The private consumer repo for the homerun framework. All household automations live here — no framework code, no HA infrastructure, just automation definitions for the Clarkson home.
+Framework lives at `~/workspace/homerun` (linked via `"@ajclarkson/homerun": "file:../homerun"`). Design principles and entity naming conventions are in `~/workspace/claude-home/CLAUDE.md`.
 
-Framework lives at `~/workspace/homerun` and is linked via `"homerun": "file:../homerun"`.
-
-## Running the dev server
+## How to build and test
 
 ```bash
-# From ~/workspace/homerun — start with automations pointed here
-AUTOMATIONS_DIR=../homerun-automations DRY_RUN=true npm run dev
+npm test          # run vitest test suite — always do this before committing
+npm run codegen   # regenerate types/ha-entities.ts from live HA state (run if entity types are stale)
 ```
 
-Hot reload is active — saving any `.ts` file in this repo triggers esbuild re-bundle and re-registration without a process restart.
+Hot reload is active in production — saving any `.ts` file triggers re-bundle without a process restart. No manual deploy step.
 
-## Writing automations
+## How to add an automation
 
-```typescript
-import { defineAutomation, abort } from 'homerun';
+One file per automation, in a directory named after the room or subsystem (e.g. `kitchen/`, `house/`). Export the automation as default.
 
-export default defineAutomation({
-  id: 'room:subsystem',
-  location: 'room',
-  subsystem: 'subsystem_name',
-  triggers: [
-    { type: 'schedule', cron: '0 8 * * 1-5' },
-    { type: 'state_changed', entity: 'binary_sensor.some_sensor' },
-  ],
-  context: (state, ha) => {
-    if (someGuard) return abort('reason');
-    return { field, inputs: { field } };
-  },
-  reduce: (ctx) => ({
-    decision: 'on',
-    reason: 'some_reason',
-    inputs: ctx.inputs,
-    actions: [
-      { type: 'ha.call_service', domain: 'input_boolean', service: 'turn_on',
-        target: { entity_id: 'input_boolean.some_flag' } },
-    ],
-  }),
-});
-```
+For controllers that are identical across rooms (lighting, occupancy, heating), use the factory functions in `lib/`:
 
-`context` receives `(state, ha)` — `state(entityId)` returns the current HA entity state, `ha` provides `entitiesByLabel`, `labelsFor`, `entitiesByArea`. Return `abort('reason')` to short-circuit — no reduce call, observability records the abort.
+- `lib/lighting-controller-factory.ts` — `makeLightingAutomation(config)`
+- `lib/occupancy-controller-factory.ts` — `makeOccupancyAutomation(config)`
 
-Entity state includes `last_changed` and `last_updated` (ISO strings). Use `Date.parse(entity.last_changed)` for timestamp comparisons; guard with `Number.isFinite()` per design principle 20.
+Room files that use a factory are typically 3-5 lines. All logic lives in the factory; the room file only passes config.
 
-`inputs` in the context return and reducer output feeds the MQTT decision snapshot — include everything that influenced the decision.
+## How to write tests
 
-## Multi-room controllers (factory pattern)
+Use `testAutomation` from `@ajclarkson/homerun/testing`. Tests live alongside the file they test (e.g. `lib/occupancy-controller-factory.test.ts`).
 
-For controllers shared across rooms (occupancy, lighting, heating), use a factory function and array default export:
+Write tests from domain intent, not code structure. Describe blocks should read like behaviour specifications, not branch labels. Every meaningful permutation of inputs should be covered — see `lib/occupancy-controller-factory.test.ts` as the reference example.
 
-```typescript
-// shared/occupancy-controller.ts
-function makeOccupancyAutomation(room: string, triggers: Trigger[]) {
-  return defineAutomation({
-    id: `${room}:occupancy`,
-    location: room,
-    subsystem: 'occupancy',
-    triggers,
-    context: (state) => { /* shared logic */ },
-    reduce: (ctx) => ({ /* shared logic */ }),
-  });
-}
+## What not to do
 
-export default [
-  { room: 'parlour', triggers: [{ type: 'state_changed', entity: 'binary_sensor.parlour_sensor_motion' }] },
-  { room: 'kitchen', triggers: [{ type: 'state_changed', entity: 'binary_sensor.kitchen_sensor_motion' }] },
-].map(({ room, triggers }) => makeOccupancyAutomation(room, triggers));
-```
-
-Note: array default export support is tracked as homerun issue #54 and not yet implemented. Until then, use one file per room.
-
-## Codegen
-
-Entity types are generated from live HA state:
-
-```bash
-npm run codegen   # writes types/ha-entities.ts
-```
-
-Import from `./types/ha-entities.js` in automations for typed entity IDs.
-
-## Testing
-
-`testAutomation` from `@ajclarkson/homerun/testing` accepts partial state entries:
-
-```typescript
-state: {
-  'binary_sensor.foo': { state: 'on', last_changed: new Date(Date.now() - 5000).toISOString() },
-}
-```
-
-`last_changed` and `last_updated` are optional — they default to `''` if omitted. Omitting them is fine for automations that don't read timestamps.
-
-## Structure
-
-```
-house/
-  away-detection.ts — sets/clears away mode via zone.home + door recency
-bedroom/
-  bed-occupancy-sync.ts — syncs bed occupancy to hallway helper
-types/
-  ha-entities.ts    — Generated entity types (do not edit)
-```
-
-## Household context
-
-- Residents: Adam, Sarah
-- WFH helpers: `input_boolean.wfh_adam`, `input_boolean.wfh_sarah`
-- Workday sensor: `binary_sensor.workday_sensor` (UK bank holiday-aware — always prefer this over hardcoding weekdays)
-- House mode: `sensor.house_active_mode`
-- Entity naming follows strict conventions — see `~/workspace/claude-home/CLAUDE.md`
+- Do not reference Node-RED in source code or comments. Migration history belongs in PR descriptions.
+- Do not hardcode entity IDs or room names inside shared factory functions — they must be derived from `location` config or discovered via HA labels.
+- Do not use `initial:` on HA helpers — it breaks state persistence across restarts.
+- Array default exports are not yet supported by the framework. One automation per file.
