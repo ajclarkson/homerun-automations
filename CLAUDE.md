@@ -43,4 +43,4 @@ When the task involves examining or porting an existing automation, read `agent_
 - Do not reference Node-RED in source code or comments. Migration history belongs in PR descriptions.
 - Do not hardcode entity IDs or room names inside shared factory functions — they must be derived from `location` config or discovered via HA labels.
 - Do not use `initial:` on HA helpers — it breaks state persistence across restarts.
-- Array default exports are not yet supported by the framework. One automation per file.
+- Array default exports are supported — a file may export `defineAutomation(...)[]` when one logical concern produces multiple automations (e.g. one per room). Each automation in the array must still have a unique `id`.

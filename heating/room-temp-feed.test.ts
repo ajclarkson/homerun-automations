@@ -53,6 +53,22 @@ describe('room-temp-feed', () => {
       }
     });
 
+    it('aborts when temperature is implausibly high, treating it as sensor failure', () => {
+      const result = testAutomation(automation, {
+        event: stateChangeTrigger('sensor.parlour_sensor_climate_temperature', '99.9'),
+        state: { 'sensor.parlour_sensor_climate_temperature': { state: '99.9' } },
+      });
+      expect(result).toMatchObject({ abort: true, reason: expect.stringContaining('temp_out_of_range') });
+    });
+
+    it('aborts when temperature is sub-zero, treating it as sensor failure', () => {
+      const result = testAutomation(automation, {
+        event: stateChangeTrigger('sensor.parlour_sensor_climate_temperature', '-5.0'),
+        state: { 'sensor.parlour_sensor_climate_temperature': { state: '-5.0' } },
+      });
+      expect(result).toMatchObject({ abort: true, reason: expect.stringContaining('temp_out_of_range') });
+    });
+
     it('aborts when temp is unavailable', () => {
       const result = testAutomation(automation, {
         event: stateChangeTrigger('sensor.parlour_sensor_climate_temperature', 'unavailable'),
