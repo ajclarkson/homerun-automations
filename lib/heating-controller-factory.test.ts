@@ -37,7 +37,7 @@ const baseState = {
   [`input_select.${LOCATION}_heating_manual_mode`]: { state: 'auto' },
 };
 
-const onStartEvent = { type: 'on_start' as const };
+const onStartEvent = { type: 'on_start' as const, correlation_id: 'test-cid' };
 
 // Pin time to a Wednesday at 10:00 (weekday, baseline_day block)
 function pinTime(isoString: string) {
