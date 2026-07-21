@@ -6,7 +6,7 @@ Current state of the Node-RED → homerun migration. When porting a new automati
 
 ## Done
 
-**Lighting** — all rooms: bathroom, bedroom, foreign-office, hallway-downstairs, hallway-upstairs, home-office, kitchen, parlour. Factory: `lib/lighting-controller-factory.ts`.
+**Lighting** — all rooms: bathroom, bedroom, foreign-office, hallway-downstairs, hallway-upstairs, home-office, kitchen, parlour. Factory: `lib/lighting-controller-factory.ts`. back-garden remaining.
 
 **Occupancy** — all rooms: bathroom, bedroom, foreign-office, hallway-downstairs, hallway-upstairs, home-office, kitchen, parlour. Factory: `lib/occupancy-controller-factory.ts`.
 
@@ -28,7 +28,7 @@ Current state of the Node-RED → homerun migration. When porting a new automati
 | Rates tomorrow notification | `state_changed` on forecast availability sensor, emits notify action |
 | Outdoor temp history | `schedule` at 23:00, shifts 7-entry history array, writes to `input_text` |
 | Mo/Frigate notifications | Needs `mqtt_in` trigger on Frigate topic; cooldown via timer, camera-to-room mapping |
-| back-garden occupancy | Motion only, no containment — straightforward `makeOccupancyAutomation` |
+| back-garden lighting | Lighting controller — check Node-RED config for any back-garden specific behaviour |
 
 ---
 
