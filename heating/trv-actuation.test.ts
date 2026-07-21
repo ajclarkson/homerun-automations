@@ -29,17 +29,14 @@ describe('house:trv_actuation', () => {
       event: activeHeatingTrigger('parlour', 'comfort'),
       state: baseState,
     });
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('set_trvs');
-      expect(result.actions).toEqual([{
-        type: 'ha.call_service',
-        domain: 'climate',
-        service: 'set_temperature',
-        target: { entity_id: 'climate.parlour_trv' },
-        data: { hvac_mode: 'heat', temperature: 20 },
-      }]);
-    }
+    expect(result.decision).toBe('set_trvs');
+    expect(result.actions).toEqual([{
+      type: 'ha.call_service',
+      domain: 'climate',
+      service: 'set_temperature',
+      target: { entity_id: 'climate.parlour_trv' },
+      data: { hvac_mode: 'heat', temperature: 20 },
+    }]);
   });
 
   it('sets hvac_mode off for a room in off mode', () => {
@@ -47,16 +44,13 @@ describe('house:trv_actuation', () => {
       event: activeHeatingTrigger('home_office', 'off'),
       state: baseState,
     });
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.actions).toEqual([{
-        type: 'ha.call_service',
-        domain: 'climate',
-        service: 'set_hvac_mode',
-        target: { entity_id: 'climate.home_office_trv' },
-        data: { hvac_mode: 'off' },
-      }]);
-    }
+    expect(result.actions).toEqual([{
+      type: 'ha.call_service',
+      domain: 'climate',
+      service: 'set_hvac_mode',
+      target: { entity_id: 'climate.home_office_trv' },
+      data: { hvac_mode: 'off' },
+    }]);
   });
 
   it('reads temperature from global helpers', () => {
@@ -64,10 +58,7 @@ describe('house:trv_actuation', () => {
       event: activeHeatingTrigger('kitchen', 'baseline_day'),
       state: { ...baseState, 'input_number.global_temperature_baseline_day': { state: '17.5' } },
     });
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.actions[0]).toMatchObject({ data: { temperature: 17.5 } });
-    }
+    expect(result.actions[0]).toMatchObject({ data: { temperature: 17.5 } });
   });
 
   it('records skipped rooms with unavailable mode in the reason', () => {
@@ -75,12 +66,9 @@ describe('house:trv_actuation', () => {
       event: activeHeatingTrigger('parlour', 'unavailable'),
       state: { ...baseState, 'sensor.parlour_active_heating': { state: 'unavailable' } },
     });
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('no_action');
-      expect(result.actions).toHaveLength(0);
-      expect(result.reason).toContain('parlour:skipped(unavailable)');
-    }
+    expect(result.decision).toBe('no_action');
+    expect(result.actions).toHaveLength(0);
+    expect(result.reason).toContain('parlour:skipped(unavailable)');
   });
 
   it('records skipped rooms with an unrecognised mode in the reason', () => {
@@ -88,12 +76,9 @@ describe('house:trv_actuation', () => {
       event: activeHeatingTrigger('parlour', 'eco'),
       state: { ...baseState, 'sensor.parlour_active_heating': { state: 'eco' } },
     });
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('no_action');
-      expect(result.actions).toHaveLength(0);
-      expect(result.reason).toContain('parlour:skipped(unknown_mode:eco)');
-    }
+    expect(result.decision).toBe('no_action');
+    expect(result.actions).toHaveLength(0);
+    expect(result.reason).toContain('parlour:skipped(unknown_mode:eco)');
   });
 
   it('clamps setpoint to MAX_SETPOINT_C and records it in the reason when helper value is above the safe range', () => {
@@ -101,11 +86,8 @@ describe('house:trv_actuation', () => {
       event: activeHeatingTrigger('parlour', 'comfort'),
       state: { ...baseState, 'input_number.global_temperature_comfort': { state: '30' } },
     });
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.actions[0]).toMatchObject({ data: { temperature: 25 } });
-      expect(result.reason).toContain('clamped_from_30');
-    }
+    expect(result.actions[0]).toMatchObject({ data: { temperature: 25 } });
+    expect(result.reason).toContain('clamped_from_30');
   });
 
   it('clamps setpoint to MIN_SETPOINT_C and records it in the reason when helper value is below the safe range', () => {
@@ -113,11 +95,8 @@ describe('house:trv_actuation', () => {
       event: activeHeatingTrigger('parlour', 'minimum'),
       state: { ...baseState, 'sensor.parlour_active_heating': { state: 'minimum' }, 'input_number.global_temperature_minimum': { state: '1' } },
     });
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.actions[0]).toMatchObject({ data: { temperature: 5 } });
-      expect(result.reason).toContain('clamped_from_1');
-    }
+    expect(result.actions[0]).toMatchObject({ data: { temperature: 5 } });
+    expect(result.reason).toContain('clamped_from_1');
   });
 
   it('uses hallway_downstairs TRV entity', () => {
@@ -125,12 +104,9 @@ describe('house:trv_actuation', () => {
       event: activeHeatingTrigger('hallway_downstairs', 'baseline_night'),
       state: baseState,
     });
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.actions[0]).toMatchObject({
-        target: { entity_id: 'climate.hallway_downstairs_trv' },
-        data: { temperature: 16 },
-      });
-    }
+    expect(result.actions[0]).toMatchObject({
+      target: { entity_id: 'climate.hallway_downstairs_trv' },
+      data: { temperature: 16 },
+    });
   });
 });

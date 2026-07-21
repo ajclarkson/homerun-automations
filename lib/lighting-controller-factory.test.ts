@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation } from '@ajclarkson/homerun/testing';
+import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
 import type { HAContext } from '@ajclarkson/homerun';
 import { makeLightingAutomation } from './lighting-controller-factory.js';
 
@@ -157,19 +157,16 @@ describe('makeLightingAutomation', () => {
         ha: makeHa(),
       });
       expect(result).toMatchObject({ decision: 'turn_off', reason: 'occupancy_off' });
-      expect(result).not.toMatchObject({ abort: true });
-      if (!('abort' in result)) {
-        expect(result.actions).toContainEqual({
-          type: 'ha.call_service', domain: 'scene', service: 'turn_on',
-          target: { entity_id: `scene.${LOCATION}_off` }, data: { transition: 0.5 },
-        });
-        expect(result.actions).toContainEqual({
-          type: 'mqtt.publish', topic: `${LOCATION}/lighting/recent_auto_off`, payload: 'ON', retain: true,
-        });
-        expect(result.actions).toContainEqual(
-          expect.objectContaining({ type: 'timer.start', timerKey: `${LOCATION}:lighting_recent_auto_off` }),
-        );
-      }
+      expect(result.actions).toContainEqual({
+        type: 'ha.call_service', domain: 'scene', service: 'turn_on',
+        target: { entity_id: `scene.${LOCATION}_off` }, data: { transition: 0.5 },
+      });
+      expect(result.actions).toContainEqual({
+        type: 'mqtt.publish', topic: `${LOCATION}/lighting/recent_auto_off`, payload: 'ON', retain: true,
+      });
+      expect(result.actions).toContainEqual(
+        expect.objectContaining({ type: 'timer.start', timerKey: `${LOCATION}:lighting_recent_auto_off` }),
+      );
     });
   });
 
@@ -232,15 +229,13 @@ describe('makeLightingAutomation', () => {
         ha: makeHa(),
       });
       expect(result).toMatchObject({ decision: 'turn_off', reason: 'button_off' });
-      if (!('abort' in result)) {
-        expect(result.actions).toContainEqual({
-          type: 'ha.call_service', domain: 'scene', service: 'turn_on',
-          target: { entity_id: `scene.${LOCATION}_off` }, data: { transition: 0.5 },
-        });
-        expect(result.actions).toContainEqual({
-          type: 'mqtt.publish', topic: `${LOCATION}/lighting/recent_auto_off`, payload: 'ON', retain: true,
-        });
-      }
+      expect(result.actions).toContainEqual({
+        type: 'ha.call_service', domain: 'scene', service: 'turn_on',
+        target: { entity_id: `scene.${LOCATION}_off` }, data: { transition: 0.5 },
+      });
+      expect(result.actions).toContainEqual({
+        type: 'mqtt.publish', topic: `${LOCATION}/lighting/recent_auto_off`, payload: 'ON', retain: true,
+      });
     });
   });
 
@@ -334,11 +329,9 @@ describe('makeLightingAutomation', () => {
         ha: makeHa(),
       });
       expect(result).toMatchObject({ decision: 'clear_recent_auto_off', reason: 'recent_auto_off_expired' });
-      if (!('abort' in result)) {
-        expect(result.actions).toContainEqual({
-          type: 'mqtt.publish', topic: `${LOCATION}/lighting/recent_auto_off`, payload: 'OFF', retain: true,
-        });
-      }
+      expect(result.actions).toContainEqual({
+        type: 'mqtt.publish', topic: `${LOCATION}/lighting/recent_auto_off`, payload: 'OFF', retain: true,
+      });
     });
   });
 
@@ -358,7 +351,7 @@ describe('makeLightingAutomation', () => {
 
   describe('abort', () => {
     it('aborts when no off scene is configured for the room', () => {
-      const result = testAutomation(automation, {
+      const result = testAbort(automation, {
         event: occupancyEvent('on'),
         state: baseState,
         ha: {
@@ -366,17 +359,17 @@ describe('makeLightingAutomation', () => {
           entitiesByLabel: () => [],
         },
       });
-      expect(result).toMatchObject({ abort: true, reason: expect.stringContaining('no_off_scene_configured') });
+      expect(result.reason).toEqual(expect.stringContaining('no_off_scene_configured'));
     });
 
     it('aborts when the lux threshold helper is missing, surfacing the misconfiguration', () => {
       const { [`input_number.${LOCATION}_automation_lux_threshold_dark`]: _, ...stateWithoutThreshold } = baseState;
-      const result = testAutomation(automation, {
+      const result = testAbort(automation, {
         event: occupancyEvent('on'),
         state: stateWithoutThreshold,
         ha: makeHa(),
       });
-      expect(result).toMatchObject({ abort: true, reason: expect.stringContaining('lux_threshold_unavailable') });
+      expect(result.reason).toEqual(expect.stringContaining('lux_threshold_unavailable'));
     });
   });
 });

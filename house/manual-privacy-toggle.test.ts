@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation } from '@ajclarkson/homerun/testing';
+import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
 import automation from './manual-privacy-toggle.js';
 
 const trigger = {
@@ -16,16 +16,13 @@ describe('house:manual-privacy-toggle', () => {
       state: { 'switch.parlour_privacy': { state: 'on' } },
     });
 
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('disable_privacy');
-      expect(result.actions).toEqual([{
-        type: 'ha.call_service',
-        domain: 'switch',
-        service: 'turn_off',
-        target: { entity_id: 'group.cameras_privacy' },
-      }]);
-    }
+    expect(result.decision).toBe('disable_privacy');
+    expect(result.actions).toEqual([{
+      type: 'ha.call_service',
+      domain: 'switch',
+      service: 'turn_off',
+      target: { entity_id: 'group.cameras_privacy' },
+    }]);
   });
 
   it('turns on cameras privacy when privacy is currently off', () => {
@@ -34,36 +31,28 @@ describe('house:manual-privacy-toggle', () => {
       state: { 'switch.parlour_privacy': { state: 'off' } },
     });
 
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('enable_privacy');
-      expect(result.actions).toEqual([{
-        type: 'ha.call_service',
-        domain: 'switch',
-        service: 'turn_on',
-        target: { entity_id: 'group.cameras_privacy' },
-      }]);
-    }
+    expect(result.decision).toBe('enable_privacy');
+    expect(result.actions).toEqual([{
+      type: 'ha.call_service',
+      domain: 'switch',
+      service: 'turn_on',
+      target: { entity_id: 'group.cameras_privacy' },
+    }]);
   });
 
   it('aborts when privacy switch is unavailable', () => {
-    const result = testAutomation(automation, {
+    const result = testAbort(automation, {
       event: trigger,
       state: { 'switch.parlour_privacy': { state: 'unavailable' } },
     });
 
-    expect('abort' in result).toBe(true);
-    if ('abort' in result) {
-      expect(result.reason).toMatch(/privacy_switch_unavailable/);
-    }
+    expect(result.reason).toMatch(/privacy_switch_unavailable/);
   });
 
   it('aborts when privacy switch is missing from state', () => {
-    const result = testAutomation(automation, {
+    testAbort(automation, {
       event: trigger,
       state: {},
     });
-
-    expect('abort' in result).toBe(true);
   });
 });

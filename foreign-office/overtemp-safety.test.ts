@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation } from '@ajclarkson/homerun/testing';
+import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
 import automation from './overtemp-safety.js';
 
 const tempTrigger = {
@@ -27,27 +27,21 @@ describe('foreign_office:overtemp-safety', () => {
   it('turns off heater when temp exceeds 25 and heater is on (temp trigger)', () => {
     const result = testAutomation(automation, { event: tempTrigger, state: baseState });
 
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('turn_off_heater');
-      expect(result.reason).toBe('overtemp_heater_on');
-      expect(result.actions).toEqual([{
-        type: 'ha.call_service',
-        domain: 'switch',
-        service: 'turn_off',
-        target: { entity_id: 'switch.foreign_office_plug_heater' },
-      }]);
-    }
+    expect(result.decision).toBe('turn_off_heater');
+    expect(result.reason).toBe('overtemp_heater_on');
+    expect(result.actions).toEqual([{
+      type: 'ha.call_service',
+      domain: 'switch',
+      service: 'turn_off',
+      target: { entity_id: 'switch.foreign_office_plug_heater' },
+    }]);
   });
 
   it('turns off heater immediately when heater turns on while already overtemp (heater trigger)', () => {
     const result = testAutomation(automation, { event: heaterTrigger, state: baseState });
 
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('turn_off_heater');
-      expect(result.reason).toBe('overtemp_heater_on');
-    }
+    expect(result.decision).toBe('turn_off_heater');
+    expect(result.reason).toBe('overtemp_heater_on');
   });
 
   it('does nothing when heater is off and temp is high', () => {
@@ -56,12 +50,9 @@ describe('foreign_office:overtemp-safety', () => {
       state: { ...baseState, 'switch.foreign_office_plug_heater': { state: 'off' } },
     });
 
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('no_action');
-      expect(result.reason).toBe('overtemp_heater_already_off');
-      expect(result.actions).toHaveLength(0);
-    }
+    expect(result.decision).toBe('no_action');
+    expect(result.reason).toBe('overtemp_heater_already_off');
+    expect(result.actions).toHaveLength(0);
   });
 
   it('does nothing when heater is on but temp is at or below 25', () => {
@@ -71,43 +62,32 @@ describe('foreign_office:overtemp-safety', () => {
         state: { ...baseState, 'sensor.foreign_office_sensor_climate_temperature': { state: temp } },
       });
 
-      expect('abort' in result).toBe(false);
-      if (!('abort' in result)) {
-        expect(result.decision).toBe('no_action');
-        expect(result.reason).toBe('temp_normal');
-        expect(result.actions).toHaveLength(0);
-      }
+      expect(result.decision).toBe('no_action');
+      expect(result.reason).toBe('temp_normal');
+      expect(result.actions).toHaveLength(0);
     }
   });
 
   it('aborts when heater switch is unavailable', () => {
-    const result = testAutomation(automation, {
+    const result = testAbort(automation, {
       event: tempTrigger,
       state: { ...baseState, 'switch.foreign_office_plug_heater': { state: 'unavailable' } },
     });
 
-    expect('abort' in result).toBe(true);
-    if ('abort' in result) {
-      expect(result.reason).toMatch(/heater_unavailable/);
-    }
+    expect(result.reason).toMatch(/heater_unavailable/);
   });
 
   it('aborts when temp sensor is unavailable', () => {
-    const result = testAutomation(automation, {
+    const result = testAbort(automation, {
       event: tempTrigger,
       state: { ...baseState, 'sensor.foreign_office_sensor_climate_temperature': { state: 'unavailable' } },
     });
 
-    expect('abort' in result).toBe(true);
-    if ('abort' in result) {
-      expect(result.reason).toMatch(/temp_unavailable/);
-    }
+    expect(result.reason).toMatch(/temp_unavailable/);
   });
 
   it('aborts when temp sensor is missing from state', () => {
     const { 'sensor.foreign_office_sensor_climate_temperature': _removed, ...stateWithoutTemp } = baseState;
-    const result = testAutomation(automation, { event: tempTrigger, state: stateWithoutTemp });
-
-    expect('abort' in result).toBe(true);
+    testAbort(automation, { event: tempTrigger, state: stateWithoutTemp });
   });
 });

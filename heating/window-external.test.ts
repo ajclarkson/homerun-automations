@@ -25,16 +25,13 @@ describe('house:window_external', () => {
       event: openingsTrigger('parlour', true),
       state: { ...baseState, 'binary_sensor.parlour_external_openings': { state: 'on' } },
     });
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('sync_window_external');
-      expect(result.actions).toEqual([{
-        type: 'ha.call_service',
-        domain: 'switch',
-        service: 'turn_on',
-        target: { entity_id: 'switch.parlour_trv_window_open_external' },
-      }]);
-    }
+    expect(result.decision).toBe('sync_window_external');
+    expect(result.actions).toEqual([{
+      type: 'ha.call_service',
+      domain: 'switch',
+      service: 'turn_on',
+      target: { entity_id: 'switch.parlour_trv_window_open_external' },
+    }]);
   });
 
   it('turns off the TRV window switch when opening is closed', () => {
@@ -42,15 +39,12 @@ describe('house:window_external', () => {
       event: openingsTrigger('bedroom', false),
       state: baseState,
     });
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.actions).toEqual([{
-        type: 'ha.call_service',
-        domain: 'switch',
-        service: 'turn_off',
-        target: { entity_id: 'switch.bedroom_trv_window_open_external' },
-      }]);
-    }
+    expect(result.actions).toEqual([{
+      type: 'ha.call_service',
+      domain: 'switch',
+      service: 'turn_off',
+      target: { entity_id: 'switch.bedroom_trv_window_open_external' },
+    }]);
   });
 
   it('uses hallway_downstairs entity', () => {
@@ -58,11 +52,8 @@ describe('house:window_external', () => {
       event: openingsTrigger('hallway_downstairs', true),
       state: { ...baseState, 'binary_sensor.hallway_downstairs_external_openings': { state: 'on' } },
     });
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.actions[0]).toMatchObject({
-        target: { entity_id: 'switch.hallway_downstairs_trv_window_open_external' },
-      });
-    }
+    expect(result.actions[0]).toMatchObject({
+      target: { entity_id: 'switch.hallway_downstairs_trv_window_open_external' },
+    });
   });
 });

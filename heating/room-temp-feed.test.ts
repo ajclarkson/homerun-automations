@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation } from '@ajclarkson/homerun/testing';
+import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
 import automations from './room-temp-feed.js';
 
 const stateChangeTrigger = (entity: string, state: string) => ({
@@ -29,17 +29,14 @@ describe('room-temp-feed', () => {
         event: stateChangeTrigger('sensor.parlour_sensor_climate_temperature', '19.5'),
         state: { 'sensor.parlour_sensor_climate_temperature': { state: '19.5' } },
       });
-      expect('abort' in result).toBe(false);
-      if (!('abort' in result)) {
-        expect(result.decision).toBe('update_external_temp');
-        expect(result.actions).toEqual([{
-          type: 'ha.call_service',
-          domain: 'number',
-          service: 'set_value',
-          target: { entity_id: 'number.parlour_trv_external_measured_room_sensor' },
-          data: { value: 1950 },
-        }]);
-      }
+      expect(result.decision).toBe('update_external_temp');
+      expect(result.actions).toEqual([{
+        type: 'ha.call_service',
+        domain: 'number',
+        service: 'set_value',
+        target: { entity_id: 'number.parlour_trv_external_measured_room_sensor' },
+        data: { value: 1950 },
+      }]);
     });
 
     it('rounds to nearest centidegree', () => {
@@ -47,34 +44,31 @@ describe('room-temp-feed', () => {
         event: stateChangeTrigger('sensor.parlour_sensor_climate_temperature', '19.567'),
         state: { 'sensor.parlour_sensor_climate_temperature': { state: '19.567' } },
       });
-      expect('abort' in result).toBe(false);
-      if (!('abort' in result)) {
-        expect(result.actions[0]).toMatchObject({ data: { value: 1957 } });
-      }
+      expect(result.actions[0]).toMatchObject({ data: { value: 1957 } });
     });
 
     it('aborts when temperature is implausibly high, treating it as sensor failure', () => {
-      const result = testAutomation(automation, {
+      const result = testAbort(automation, {
         event: stateChangeTrigger('sensor.parlour_sensor_climate_temperature', '99.9'),
         state: { 'sensor.parlour_sensor_climate_temperature': { state: '99.9' } },
       });
-      expect(result).toMatchObject({ abort: true, reason: expect.stringContaining('temp_out_of_range') });
+      expect(result.reason).toEqual(expect.stringContaining('temp_out_of_range'));
     });
 
     it('aborts when temperature is sub-zero, treating it as sensor failure', () => {
-      const result = testAutomation(automation, {
+      const result = testAbort(automation, {
         event: stateChangeTrigger('sensor.parlour_sensor_climate_temperature', '-5.0'),
         state: { 'sensor.parlour_sensor_climate_temperature': { state: '-5.0' } },
       });
-      expect(result).toMatchObject({ abort: true, reason: expect.stringContaining('temp_out_of_range') });
+      expect(result.reason).toEqual(expect.stringContaining('temp_out_of_range'));
     });
 
     it('aborts when temp is unavailable', () => {
-      const result = testAutomation(automation, {
+      const result = testAbort(automation, {
         event: stateChangeTrigger('sensor.parlour_sensor_climate_temperature', 'unavailable'),
         state: { 'sensor.parlour_sensor_climate_temperature': { state: 'unavailable' } },
       });
-      expect(result).toMatchObject({ abort: true, reason: expect.stringContaining('temp_unavailable') });
+      expect(result.reason).toEqual(expect.stringContaining('temp_unavailable'));
     });
 
     it('uses reason temp_changed on state_changed trigger', () => {
@@ -82,10 +76,7 @@ describe('room-temp-feed', () => {
         event: stateChangeTrigger('sensor.parlour_sensor_climate_temperature', '20.0'),
         state: { 'sensor.parlour_sensor_climate_temperature': { state: '20.0' } },
       });
-      expect('abort' in result).toBe(false);
-      if (!('abort' in result)) {
-        expect(result.reason).toBe('temp_changed');
-      }
+      expect(result.reason).toBe('temp_changed');
     });
 
     it('uses reason heartbeat on schedule trigger', () => {
@@ -93,12 +84,9 @@ describe('room-temp-feed', () => {
         event: scheduleTrigger,
         state: { 'sensor.parlour_sensor_climate_temperature': { state: '20.0' } },
       });
-      expect('abort' in result).toBe(false);
-      if (!('abort' in result)) {
-        expect(result.decision).toBe('update_external_temp');
-        expect(result.reason).toBe('heartbeat');
-        expect(result.actions[0]).toMatchObject({ data: { value: 2000 } });
-      }
+      expect(result.decision).toBe('update_external_temp');
+      expect(result.reason).toBe('heartbeat');
+      expect(result.actions[0]).toMatchObject({ data: { value: 2000 } });
     });
   });
 });

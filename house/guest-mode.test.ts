@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation } from '@ajclarkson/homerun/testing';
+import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
 import automation from './guest-mode.js';
 
 const trigger = {
@@ -19,16 +19,13 @@ describe('house:guest-mode', () => {
       state: { 'input_select.house_active_mode_modifier': { state: 'guest' } },
     });
 
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('guest_active');
-      expect(result.actions).toEqual([{
-        type: 'ha.call_service',
-        domain: 'input_boolean',
-        service: 'turn_on',
-        target: { entity_id: HOME_OFFICE_OVERRIDE },
-      }]);
-    }
+    expect(result.decision).toBe('guest_active');
+    expect(result.actions).toEqual([{
+      type: 'ha.call_service',
+      domain: 'input_boolean',
+      service: 'turn_on',
+      target: { entity_id: HOME_OFFICE_OVERRIDE },
+    }]);
   });
 
   it('turns off home office presence override when modifier returns to none', () => {
@@ -37,16 +34,13 @@ describe('house:guest-mode', () => {
       state: { 'input_select.house_active_mode_modifier': { state: 'none' } },
     });
 
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('guest_inactive');
-      expect(result.actions).toEqual([{
-        type: 'ha.call_service',
-        domain: 'input_boolean',
-        service: 'turn_off',
-        target: { entity_id: HOME_OFFICE_OVERRIDE },
-      }]);
-    }
+    expect(result.decision).toBe('guest_inactive');
+    expect(result.actions).toEqual([{
+      type: 'ha.call_service',
+      domain: 'input_boolean',
+      service: 'turn_off',
+      target: { entity_id: HOME_OFFICE_OVERRIDE },
+    }]);
   });
 
   it('turns off home office presence override when modifier is sitter', () => {
@@ -55,36 +49,28 @@ describe('house:guest-mode', () => {
       state: { 'input_select.house_active_mode_modifier': { state: 'sitter' } },
     });
 
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('guest_inactive');
-      expect(result.actions).toEqual([{
-        type: 'ha.call_service',
-        domain: 'input_boolean',
-        service: 'turn_off',
-        target: { entity_id: HOME_OFFICE_OVERRIDE },
-      }]);
-    }
+    expect(result.decision).toBe('guest_inactive');
+    expect(result.actions).toEqual([{
+      type: 'ha.call_service',
+      domain: 'input_boolean',
+      service: 'turn_off',
+      target: { entity_id: HOME_OFFICE_OVERRIDE },
+    }]);
   });
 
   it('aborts when modifier is unavailable', () => {
-    const result = testAutomation(automation, {
+    const result = testAbort(automation, {
       event: trigger,
       state: { 'input_select.house_active_mode_modifier': { state: 'unavailable' } },
     });
 
-    expect('abort' in result).toBe(true);
-    if ('abort' in result) {
-      expect(result.reason).toMatch(/modifier_unavailable/);
-    }
+    expect(result.reason).toMatch(/modifier_unavailable/);
   });
 
   it('aborts when modifier entity is missing from state', () => {
-    const result = testAutomation(automation, {
+    testAbort(automation, {
       event: trigger,
       state: {},
     });
-
-    expect('abort' in result).toBe(true);
   });
 });
