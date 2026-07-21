@@ -36,7 +36,7 @@ Read `agent_docs/principles.md` — these are the rules that produce correct beh
 
 ## Porting from an existing flow
 
-When the task involves examining or porting an existing automation, read `agent_docs/node-red.md` before starting.
+When the task involves examining or porting an existing automation, read `agent_docs/migration-status.md` to understand what's done and what's next, and `agent_docs/node-red.md` for how to examine the source flow.
 
 ## What not to do
 
