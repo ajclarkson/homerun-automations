@@ -23,7 +23,7 @@ function parseHistory(raw: string | undefined): TempHistory {
 export default defineAutomation({
   id: 'house:outdoor_temp_history',
   location: 'house',
-  subsystem: 'energy',
+  subsystem: 'thermal',
 
   triggers: [
     { type: 'schedule', cron: '0 23 * * *' },
