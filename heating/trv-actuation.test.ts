@@ -81,6 +81,27 @@ describe('house:trv_actuation', () => {
     expect(result.reason).toContain('parlour:skipped(unknown_mode:eco)');
   });
 
+  it('skips a room with named reason when its mode helper is unavailable rather than falling back to a default', () => {
+    const result = testAutomation(automation, {
+      event: activeHeatingTrigger('parlour', 'comfort'),
+      state: { ...baseState, 'input_number.global_temperature_comfort': { state: 'unavailable' } },
+    });
+    expect(result.decision).toBe('no_action');
+    expect(result.actions).toHaveLength(0);
+    expect(result.reason).toContain('parlour:skipped(helper_unavailable:comfort)');
+  });
+
+  it('still actuates rooms on other modes when one helper is unavailable', () => {
+    const result = testAutomation(automation, {
+      event: { type: 'on_start' as const, correlation_id: 'test-cid' },
+      state: { ...baseState, 'input_number.global_temperature_comfort': { state: 'unavailable' } },
+    });
+    // comfort rooms (parlour, bedroom) skipped; other modes still actuated
+    expect(result.reason).toContain('parlour:skipped(helper_unavailable:comfort)');
+    expect(result.reason).toContain('bedroom:skipped(helper_unavailable:comfort)');
+    expect(result.reason).toContain('kitchen:baseline_day@18');
+  });
+
   it('clamps setpoint to MAX_SETPOINT_C and records it in the reason when helper value is above the safe range', () => {
     const result = testAutomation(automation, {
       event: activeHeatingTrigger('parlour', 'comfort'),
