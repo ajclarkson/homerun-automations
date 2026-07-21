@@ -10,7 +10,7 @@ Current state of the Node-RED → homerun migration. When porting a new automati
 
 **Occupancy** — hallway-downstairs, hallway-upstairs, kitchen. Factory: `lib/occupancy-controller-factory.ts`. Remaining rooms below.
 
-**Heating** — boiler-demand, trv-actuation, trv-adaptation, window-external, patio-door, room-temp-feed.
+**Heating** — boiler-demand, trv-actuation, trv-adaptation, window-external, patio-door, room-temp-feed, heating-controller (all 7 rooms via `lib/heating-controller-factory.ts`).
 
 **House** — away-detection, camera-mode-sync, guest-mode, manual-privacy-toggle, sleep-mode-button, exit-sleep-button, foreign-office/overtemp-safety.
 
@@ -35,6 +35,7 @@ Use `makeOccupancyAutomation`. Rooms with door contact entities labelled `presen
 
 | Automation | Notes |
 |---|---|
+| Heating (main tab) | **Pending drop** — homerun heating controller is live; HA config PR merged (input_select rename + source sensors). Run codegen after HA deploy, then decommission Node-RED main Heating tab. |
 | WFH Adam / WFH Sarah / WFH Weekend | Clean v3 pipelines, shared tail — currently running in homerun already (WFH); verify what's live |
 | Window thermal notifications | Clean v3 pipeline |
 | Kitchen Sonos | Independent automation triggered by `binary_sensor.kitchen_occupied`; `input_boolean.kitchen_automation_sonos_enabled` gates it |
