@@ -8,7 +8,7 @@ Current state of the Node-RED → homerun migration. When porting a new automati
 
 **Lighting** — all rooms: bathroom, bedroom, foreign-office, hallway-downstairs, hallway-upstairs, home-office, kitchen, parlour. Factory: `lib/lighting-controller-factory.ts`.
 
-**Occupancy** — hallway-downstairs, hallway-upstairs, kitchen. Factory: `lib/occupancy-controller-factory.ts`. Remaining rooms below.
+**Occupancy** — all rooms: bathroom, bedroom, foreign-office, hallway-downstairs, hallway-upstairs, home-office, kitchen, parlour. Factory: `lib/occupancy-controller-factory.ts`.
 
 **Heating** — boiler-demand, trv-actuation, trv-adaptation, window-external, patio-door, room-temp-feed, heating-controller (all 7 rooms via `lib/heating-controller-factory.ts`).
 
@@ -18,34 +18,17 @@ Current state of the Node-RED → homerun migration. When porting a new automati
 
 ## Todo
 
-### Occupancy — remaining rooms
-
-Use `makeOccupancyAutomation`. Rooms with door contact entities labelled `presence_hold_door` need `extraTriggers` for those contacts.
-
-| Room | Notes |
-|------|-------|
-| bathroom | No door contacts expected |
-| bedroom | No door contacts expected |
-| home-office | Check for door contact |
-| parlour | Has patio door — likely needs `extraTriggers` |
-| foreign-office | Check for door contact |
-| back-garden | Motion only, no containment |
-
-### House-level automations
+### Standalone automations
 
 | Automation | Notes |
 |---|---|
-| Heating (main tab) | **Pending drop** — homerun heating controller is live; HA config PR merged (input_select rename + source sensors). Run codegen after HA deploy, then decommission Node-RED main Heating tab. |
-| WFH Adam / WFH Sarah / WFH Weekend | Clean v3 pipelines, shared tail — currently running in homerun already (WFH); verify what's live |
+| WFH Adam / WFH Sarah / WFH Weekend | Clean v3 pipelines, shared tail — verify what's already live in homerun |
 | Window thermal notifications | Clean v3 pipeline |
-| Kitchen Sonos | Independent automation triggered by `binary_sensor.kitchen_occupied`; `input_boolean.kitchen_automation_sonos_enabled` gates it |
-| Home Office Sonos | Same pattern as Kitchen |
-| Foreign Office heating | Pre-v3 internally — port as a fresh automation; logic is straightforward |
 | Cheap rate nudge | `schedule` trigger, reads cheapest window sensor + presence, emits notify action |
 | Rates tomorrow notification | `state_changed` on forecast availability sensor, emits notify action |
 | Outdoor temp history | `schedule` at 23:00, shifts 7-entry history array, writes to `input_text` |
 | Mo/Frigate notifications | Needs `mqtt_in` trigger on Frigate topic; cooldown via timer, camera-to-room mapping |
-| ~~Active scene publish~~ | Replaced by trigger-based template sensors in `homeassistant-config/packages/templates.yaml`. MQTT sensors removed from `packages/mqtt.yaml`. Node-RED flow c6868348837317f0 can be dropped. |
+| back-garden occupancy | Motion only, no containment — straightforward `makeOccupancyAutomation` |
 
 ---
 
