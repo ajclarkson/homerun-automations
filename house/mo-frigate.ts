@@ -74,7 +74,15 @@ export default defineAutomation({
       return abort('invalid_json');
     }
 
-    if (payload.after?.label !== 'cat') return abort('not_a_cat_event');
+    const noAction = (reason: string) => ({
+      eventType: null as null,
+      camera: '', cam: CAMERA_MAP['kitchen'], now: 0,
+      cooldownActive: false, eatingEnabled: false, spottedEnabled: false,
+      existingEating: [] as TimelineEntry[], existingSpotted: [] as TimelineEntry[], eventId: '',
+      inputs: { eventType: null, camera: '', room: '', cooldownActive: false, eatingEnabled: false, spottedEnabled: false, filterReason: reason },
+    });
+
+    if (payload.after?.label !== 'cat') return noAction('not_a_cat_event');
 
     const camera = payload.after.camera;
     const cam = CAMERA_MAP[camera];
@@ -90,15 +98,7 @@ export default defineAutomation({
 
     const now = Date.now();
 
-    if (!eventType) {
-      return {
-        eventType: null as null,
-        camera, cam, now,
-        cooldownActive: false, eatingEnabled: false, spottedEnabled: false,
-        existingEating: [], existingSpotted: [], eventId: payload.after.id,
-        inputs: { eventType: null, camera, room: cam.room, cooldownActive: false, eatingEnabled: false, spottedEnabled: false },
-      };
-    }
+    if (!eventType) return noAction('not_actionable');
 
     const eatingCooldownActive   = isCooldownActive(state('input_text.mo_cooldown_eating')?.state, now);
     const spottedCooldownActive  = isCooldownActive(state(cam.spottedCooldownEntity as Parameters<typeof state>[0])?.state, now);

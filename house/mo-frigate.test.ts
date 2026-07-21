@@ -72,12 +72,13 @@ describe('event classification', () => {
     expect(result.reason).toBe('not_actionable');
   });
 
-  it('aborts when label is not cat', () => {
-    const result = testAbort(automation, {
+  it('takes no action when label is not cat', () => {
+    const result = testAutomation(automation, {
       event: mqttEvent({ ...spottedPayload, after: { ...spottedPayload.after, label: 'person' } }),
       state: baseState,
     });
-    expect(result.reason).toBe('not_a_cat_event');
+    expect(result.decision).toBe('no_action');
+    expect((result.inputs as { filterReason?: string })?.filterReason).toBe('not_a_cat_event');
   });
 
   it('aborts for unknown camera', () => {
