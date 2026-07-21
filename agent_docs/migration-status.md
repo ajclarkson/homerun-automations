@@ -22,7 +22,7 @@ Current state of the Node-RED → homerun migration. When porting a new automati
 
 | Automation | Notes |
 |---|---|
-| WFH Adam / WFH Sarah / WFH Weekend | Clean v3 pipelines, shared tail — verify what's already live in homerun |
+| ~~WFH Adam / WFH Sarah / WFH Weekend~~ | Done — `house/wfh.ts`, merged PR #47 |
 | Window thermal notifications | Clean v3 pipeline |
 | Cheap rate nudge | `schedule` trigger, reads cheapest window sensor + presence, emits notify action |
 | Rates tomorrow notification | `state_changed` on forecast availability sensor, emits notify action |
