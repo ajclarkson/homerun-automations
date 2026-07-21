@@ -19,7 +19,8 @@ export default defineAutomation<BackGardenLightingContext>({
   subsystem: 'lighting',
 
   triggers: [
-    { type: 'state_changed', entity: 'sun.sun' },
+    { type: 'state_changed', entity: 'sun.sun', to: 'below_horizon' },
+    { type: 'state_changed', entity: 'sun.sun', to: 'above_horizon' },
     { type: 'schedule', cron: '0 22 * * *' },
     { type: 'on_start' },
   ],
