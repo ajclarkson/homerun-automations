@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation } from '@ajclarkson/homerun/testing';
+import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
 import automation from './sleep-mode-button.js';
 
 const holdTrigger = (entity: string) => ({
@@ -22,13 +22,10 @@ describe('house:sleep_mode_button', () => {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
       state: baseState,
     });
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('set_sleep');
-      expect(result.actions).toEqual([
-        { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'sleep' },
-      ]);
-    }
+    expect(result.decision).toBe('set_sleep');
+    expect(result.actions).toEqual([
+      { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'sleep' },
+    ]);
   });
 
   it('returns no_action when parlour media active', () => {
@@ -44,10 +41,7 @@ describe('house:sleep_mode_button', () => {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
       state: { ...baseState, 'binary_sensor.parlour_media_active': { state: 'off' } },
     });
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('set_sleep');
-    }
+    expect(result.decision).toBe('set_sleep');
   });
 
   it('returns no_action when bed is not occupied', () => {
@@ -67,18 +61,18 @@ describe('house:sleep_mode_button', () => {
   });
 
   it('aborts when bed sensor is unavailable', () => {
-    const result = testAutomation(automation, {
+    const result = testAbort(automation, {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
       state: { ...baseState, 'binary_sensor.bedroom_sensor_bed_occupancy': { state: 'unavailable' } },
     });
-    expect(result).toMatchObject({ abort: true, reason: expect.stringContaining('bed_sensor_unavailable') });
+    expect(result.reason).toEqual(expect.stringContaining('bed_sensor_unavailable'));
   });
 
   it('aborts when house mode is unavailable', () => {
-    const result = testAutomation(automation, {
+    const result = testAbort(automation, {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
       state: { ...baseState, 'sensor.house_active_mode': { state: 'unavailable' } },
     });
-    expect(result).toMatchObject({ abort: true, reason: expect.stringContaining('house_mode_unavailable') });
+    expect(result.reason).toEqual(expect.stringContaining('house_mode_unavailable'));
   });
 });

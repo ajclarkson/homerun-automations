@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation } from '@ajclarkson/homerun/testing';
+import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
 import automation from './boiler-demand.js';
 
 const heatRequiredTrigger = (room: string) => ({
@@ -26,15 +26,12 @@ describe('house:boiler_demand', () => {
       event: heatRequiredTrigger('parlour'),
       state: { ...baseState, 'binary_sensor.parlour_trv_heat_required': { state: 'on' } },
     });
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('boiler_on');
-      const action = result.actions[0];
-      expect(action.type).toBe('mqtt.publish');
-      if (action.type === 'mqtt.publish') {
-        expect(action.topic).toBe('zigbee2mqtt/boiler_receiver/set');
-        expect(JSON.parse(action.payload).occupied_heating_setpoint_heat).toBe(30);
-      }
+    expect(result.decision).toBe('boiler_on');
+    const action = result.actions[0];
+    expect(action.type).toBe('mqtt.publish');
+    if (action.type === 'mqtt.publish') {
+      expect(action.topic).toBe('zigbee2mqtt/boiler_receiver/set');
+      expect(JSON.parse(action.payload).occupied_heating_setpoint_heat).toBe(30);
     }
   });
 
@@ -43,14 +40,11 @@ describe('house:boiler_demand', () => {
       event: heatRequiredTrigger('parlour'),
       state: baseState,
     });
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('boiler_off');
-      expect(result.reason).toBe('no_demand');
-      const action = result.actions[0];
-      if (action.type === 'mqtt.publish') {
-        expect(JSON.parse(action.payload).occupied_heating_setpoint_heat).toBe(5);
-      }
+    expect(result.decision).toBe('boiler_off');
+    expect(result.reason).toBe('no_demand');
+    const action = result.actions[0];
+    if (action.type === 'mqtt.publish') {
+      expect(JSON.parse(action.payload).occupied_heating_setpoint_heat).toBe(5);
     }
   });
 
@@ -63,11 +57,8 @@ describe('house:boiler_demand', () => {
         'binary_sensor.parlour_trv_heat_required': { state: 'on' },
       },
     });
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('boiler_off');
-      expect(result.reason).toBe('heating_disabled');
-    }
+    expect(result.decision).toBe('boiler_off');
+    expect(result.reason).toBe('heating_disabled');
   });
 
   it('includes all calling rooms in the reason', () => {
@@ -79,18 +70,15 @@ describe('house:boiler_demand', () => {
         'binary_sensor.bedroom_trv_heat_required': { state: 'on' },
       },
     });
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.reason).toContain('parlour');
-      expect(result.reason).toContain('bedroom');
-    }
+    expect(result.reason).toContain('parlour');
+    expect(result.reason).toContain('bedroom');
   });
 
   it('aborts when heating enabled state is unavailable', () => {
-    const result = testAutomation(automation, {
+    const result = testAbort(automation, {
       event: heatRequiredTrigger('parlour'),
       state: { ...baseState, 'input_boolean.house_heating_enabled': { state: 'unavailable' } },
     });
-    expect(result).toMatchObject({ abort: true, reason: expect.stringContaining('heating_enabled_unavailable') });
+    expect(result.reason).toEqual(expect.stringContaining('heating_enabled_unavailable'));
   });
 });

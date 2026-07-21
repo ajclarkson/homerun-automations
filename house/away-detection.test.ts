@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation } from '@ajclarkson/homerun/testing';
+import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
 import automation from './away-detection.js';
 
 const RECENTLY = new Date(Date.now() - 10 * 60 * 1000).toISOString();
@@ -26,14 +26,11 @@ describe('house:away-detection', () => {
       state: baseState,
     });
 
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('set_away');
-      expect(result.reason).toBe('all_left_door_recently');
-      expect(result.actions).toEqual([
-        { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'away' },
-      ]);
-    }
+    expect(result.decision).toBe('set_away');
+    expect(result.reason).toBe('all_left_door_recently');
+    expect(result.actions).toEqual([
+      { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'away' },
+    ]);
   });
 
   it('does nothing when nobody is home but no door event recently', () => {
@@ -45,12 +42,9 @@ describe('house:away-detection', () => {
       },
     });
 
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('no_action');
-      expect(result.reason).toBe('no_door_event');
-      expect(result.actions).toHaveLength(0);
-    }
+    expect(result.decision).toBe('no_action');
+    expect(result.reason).toBe('no_door_event');
+    expect(result.actions).toHaveLength(0);
   });
 
   it('sets normal mode when someone returns home and house was away', () => {
@@ -63,14 +57,11 @@ describe('house:away-detection', () => {
       },
     });
 
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('set_normal');
-      expect(result.reason).toBe('someone_returned');
-      expect(result.actions).toEqual([
-        { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'normal' },
-      ]);
-    }
+    expect(result.decision).toBe('set_normal');
+    expect(result.reason).toBe('someone_returned');
+    expect(result.actions).toEqual([
+      { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'normal' },
+    ]);
   });
 
   it('does nothing when someone is home and house is already normal', () => {
@@ -79,12 +70,9 @@ describe('house:away-detection', () => {
       state: { ...baseState, 'zone.home': { state: '1' } },
     });
 
-    expect('abort' in result).toBe(false);
-    if (!('abort' in result)) {
-      expect(result.decision).toBe('no_action');
-      expect(result.reason).toBe('not_in_away_mode');
-      expect(result.actions).toHaveLength(0);
-    }
+    expect(result.decision).toBe('no_action');
+    expect(result.reason).toBe('not_in_away_mode');
+    expect(result.actions).toHaveLength(0);
   });
 
   it('does not override vacation or sleep mode on arrival', () => {
@@ -98,49 +86,37 @@ describe('house:away-detection', () => {
         },
       });
 
-      expect('abort' in result).toBe(false);
-      if (!('abort' in result)) {
-        expect(result.decision).toBe('no_action');
-        expect(result.actions).toHaveLength(0);
-      }
+      expect(result.decision).toBe('no_action');
+      expect(result.actions).toHaveLength(0);
     }
   });
 
   it('aborts when zone.home is unavailable', () => {
-    const result = testAutomation(automation, {
+    const result = testAbort(automation, {
       event: zoneTrigger,
       state: { ...baseState, 'zone.home': { state: 'unavailable' } },
     });
 
-    expect('abort' in result).toBe(true);
-    if ('abort' in result) {
-      expect(result.reason).toMatch(/zone_home_unavailable/);
-    }
+    expect(result.reason).toMatch(/zone_home_unavailable/);
   });
 
   it('aborts when house mode is missing', () => {
     const { 'sensor.house_active_mode': _removed, ...stateWithoutMode } = baseState;
-    const result = testAutomation(automation, {
+    const result = testAbort(automation, {
       event: zoneTrigger,
       state: stateWithoutMode,
     });
 
-    expect('abort' in result).toBe(true);
-    if ('abort' in result) {
-      expect(result.reason).toBe('house_mode_unavailable');
-    }
+    expect(result.reason).toBe('house_mode_unavailable');
   });
 
   it('aborts when doors entity is missing', () => {
     const { 'binary_sensor.external_doors_state': _removed, ...stateWithoutDoors } = baseState;
-    const result = testAutomation(automation, {
+    const result = testAbort(automation, {
       event: zoneTrigger,
       state: stateWithoutDoors,
     });
 
-    expect('abort' in result).toBe(true);
-    if ('abort' in result) {
-      expect(result.reason).toBe('doors_entity_missing');
-    }
+    expect(result.reason).toBe('doors_entity_missing');
   });
 });

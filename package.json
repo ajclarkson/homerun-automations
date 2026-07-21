@@ -15,6 +15,6 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
-    "@ajclarkson/homerun": "^0.0.1-edge.e40faa4"
+    "@ajclarkson/homerun": "0.0.1-edge.77108cc"
   }
 }
