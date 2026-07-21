@@ -54,8 +54,8 @@ export default defineAutomation({
   reduce: (ctx) => {
     const { noneHome, doorRecentlyChanged, houseMode } = ctx;
     const actions: { type: 'mqtt.publish'; topic: string; payload: string }[] = [];
-    let decision: string;
-    let reason: string;
+    let decision = 'uninitialised';
+    let reason = 'uninitialised';
 
     if (noneHome && doorRecentlyChanged) {
       decision = 'set_away';

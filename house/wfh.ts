@@ -32,8 +32,8 @@ const adamWfh = defineAutomation({
   reduce: (ctx) => {
     const { houseMode, workday, adamHome, alwaysOn } = ctx;
 
-    let decision: 'on' | 'off';
-    let reason: string;
+    let decision: 'on' | 'off' = 'off';
+    let reason = 'uninitialised';
 
     if (houseMode === 'away')    { decision = 'off'; reason = 'house_away'; }
     else if (workday !== 'on')   { decision = 'off'; reason = 'not_workday'; }
@@ -82,8 +82,8 @@ const sarahWfh = defineAutomation({
   reduce: (ctx) => {
     const { houseMode, workday, sarahHome } = ctx;
 
-    let decision: 'on' | 'off';
-    let reason: string;
+    let decision: 'on' | 'off' = 'off';
+    let reason = 'uninitialised';
 
     if (houseMode === 'away')    { decision = 'off'; reason = 'house_away'; }
     else if (workday !== 'on')   { decision = 'off'; reason = 'not_workday'; }
