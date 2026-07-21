@@ -113,8 +113,6 @@ const tomorrowRatesNudge = defineAutomation({
     const hasNeg   = !!(negWindows   && negWindows   !== '—');
     const hasCheap = !!(cheapWindows && cheapWindows !== '—');
 
-    if (!hasNeg && !hasCheap) return abort('no_notable_windows_tomorrow');
-
     return {
       negWindows,
       cheapWindows,
@@ -126,6 +124,11 @@ const tomorrowRatesNudge = defineAutomation({
 
   reduce: (ctx) => {
     const { negWindows, cheapWindows, hasNeg, hasCheap } = ctx;
+
+    if (!hasNeg && !hasCheap) {
+      return { decision: 'no_action', reason: 'no_notable_windows_tomorrow', inputs: ctx.inputs, actions: [] };
+    }
+
     const notification = buildTomorrowNotification(negWindows, cheapWindows, hasNeg, hasCheap);
 
     return {

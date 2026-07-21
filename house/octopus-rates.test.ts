@@ -196,16 +196,16 @@ describe('tomorrow rates nudge — abort conditions', () => {
     });
     expect(result.reason).toBe('tomorrow_data_not_available');
   });
+});
 
-  it('aborts when no notable windows exist', () => {
-    const result = testAbort(tomorrowRatesNudge, {
-      event: dataAvailableEvent,
-      state: {
-        ...tomorrowBaseState,
-        'sensor.octopus_tomorrow_negative_windows': { state: '—' },
-        'sensor.octopus_tomorrow_cheap_windows': { state: '—' },
-      },
+describe('tomorrow rates nudge — no action', () => {
+  it('takes no action when no notable windows exist', () => {
+    const result = runTomorrow({
+      'sensor.octopus_tomorrow_negative_windows': { state: '—' },
+      'sensor.octopus_tomorrow_cheap_windows': { state: '—' },
     });
+    expect(result.decision).toBe('no_action');
     expect(result.reason).toBe('no_notable_windows_tomorrow');
+    expect(result.actions).toHaveLength(0);
   });
 });
