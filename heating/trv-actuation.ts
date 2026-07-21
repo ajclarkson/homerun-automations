@@ -57,14 +57,20 @@ export default defineAutomation({
     const roomSummary: string[] = [];
 
     for (const { room, trvEntity, mode } of rooms) {
-      if (!mode || mode === 'unknown' || mode === 'unavailable') continue;
+      if (!mode || mode === 'unknown' || mode === 'unavailable') {
+        roomSummary.push(`${room}:skipped(${mode ?? 'null'})`);
+        continue;
+      }
 
       if (mode === 'off') {
         actions.push(HomeAssistant.climate.set_hvac_mode({ entity_id: trvEntity }, { hvac_mode: 'off' }));
         roomSummary.push(`${room}:off`);
       } else {
         const raw = modeToTemp[mode];
-        if (raw === undefined) continue;
+        if (raw === undefined) {
+          roomSummary.push(`${room}:skipped(unknown_mode:${mode})`);
+          continue;
+        }
         const temperature = Math.min(Math.max(raw, MIN_SETPOINT_C), MAX_SETPOINT_C);
         actions.push(HomeAssistant.climate.set_temperature({ entity_id: trvEntity }, { hvac_mode: 'heat', temperature }));
         const clampNote = temperature !== raw ? `(clamped_from_${raw})` : '';
