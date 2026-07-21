@@ -70,7 +70,7 @@ describe('house:trv_actuation', () => {
     }
   });
 
-  it('skips rooms with unavailable mode', () => {
+  it('records skipped rooms with unavailable mode in the reason', () => {
     const result = testAutomation(automation, {
       event: activeHeatingTrigger('parlour', 'unavailable'),
       state: { ...baseState, 'sensor.parlour_active_heating': { state: 'unavailable' } },
@@ -79,6 +79,20 @@ describe('house:trv_actuation', () => {
     if (!('abort' in result)) {
       expect(result.decision).toBe('no_action');
       expect(result.actions).toHaveLength(0);
+      expect(result.reason).toContain('parlour:skipped(unavailable)');
+    }
+  });
+
+  it('records skipped rooms with an unrecognised mode in the reason', () => {
+    const result = testAutomation(automation, {
+      event: activeHeatingTrigger('parlour', 'eco'),
+      state: { ...baseState, 'sensor.parlour_active_heating': { state: 'eco' } },
+    });
+    expect('abort' in result).toBe(false);
+    if (!('abort' in result)) {
+      expect(result.decision).toBe('no_action');
+      expect(result.actions).toHaveLength(0);
+      expect(result.reason).toContain('parlour:skipped(unknown_mode:eco)');
     }
   });
 
