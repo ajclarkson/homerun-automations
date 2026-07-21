@@ -18,11 +18,7 @@ Current state of the Node-RED → homerun migration. When porting a new automati
 
 ## Todo
 
-### Standalone automations
-
-| Automation | Notes |
-|---|---|
-| back-garden lighting | Lighting controller — check Node-RED config for any back-garden specific behaviour |
+Migration complete. Nothing remaining.
 
 ### Done
 
@@ -35,6 +31,7 @@ Current state of the Node-RED → homerun migration. When porting a new automati
 | Foreign Office door ventilation | `foreign-office/door-ventilation.ts`, merged PR #50 |
 | Outdoor temp history | `house/outdoor-temp-history.ts`, merged PR #51 |
 | Mo/Frigate notifications | `house/mo-frigate.ts`, merged PR #52 |
+| Back-garden lighting | `back-garden/`, lighting controller |
 
 ---
 
