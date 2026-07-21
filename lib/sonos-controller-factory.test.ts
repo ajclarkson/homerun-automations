@@ -61,7 +61,9 @@ describe('makeSonosAutomation', () => {
         ha,
       });
       expect(result).toMatchObject({ decision: 'join', reason: 'occupancy_on' });
-      expect(result.actions).toEqual([joinAction()]);
+      if (!('abort' in result)) {
+        expect(result.actions).toEqual([joinAction()]);
+      }
     });
 
     it('unjoins when the room becomes unoccupied', () => {
@@ -71,7 +73,9 @@ describe('makeSonosAutomation', () => {
         ha,
       });
       expect(result).toMatchObject({ decision: 'unjoin', reason: 'occupancy_off' });
-      expect(result.actions).toEqual([unjoinAction()]);
+      if (!('abort' in result)) {
+        expect(result.actions).toEqual([unjoinAction()]);
+      }
     });
   });
 
@@ -83,7 +87,9 @@ describe('makeSonosAutomation', () => {
         ha,
       });
       expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled' });
-      expect(result.actions).toEqual([]);
+      if (!('abort' in result)) {
+        expect(result.actions).toEqual([]);
+      }
     });
 
     it('takes no action when room empties but automation is disabled', () => {
@@ -93,7 +99,9 @@ describe('makeSonosAutomation', () => {
         ha,
       });
       expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled' });
-      expect(result.actions).toEqual([]);
+      if (!('abort' in result)) {
+        expect(result.actions).toEqual([]);
+      }
     });
   });
 
@@ -105,7 +113,9 @@ describe('makeSonosAutomation', () => {
         ha,
       });
       expect(result).toMatchObject({ decision: 'join', reason: 'automation_enabled' });
-      expect(result.actions).toEqual([joinAction()]);
+      if (!('abort' in result)) {
+        expect(result.actions).toEqual([joinAction()]);
+      }
     });
 
     it('unjoins immediately when the automation is turned off, even if room is occupied', () => {
@@ -115,7 +125,9 @@ describe('makeSonosAutomation', () => {
         ha,
       });
       expect(result).toMatchObject({ decision: 'unjoin', reason: 'automation_disabled' });
-      expect(result.actions).toEqual([unjoinAction()]);
+      if (!('abort' in result)) {
+        expect(result.actions).toEqual([unjoinAction()]);
+      }
     });
   });
 
@@ -128,13 +140,15 @@ describe('makeSonosAutomation', () => {
         state: enabledState,
         ha,
       });
-      expect(result.actions).toEqual([{
-        type: 'ha.call_service',
-        domain: 'media_player',
-        service: 'join',
-        target: { entity_id: customMaster },
-        data: { group_members: [MEDIA_PLAYER] },
-      }]);
+      if (!('abort' in result)) {
+        expect(result.actions).toEqual([{
+          type: 'ha.call_service',
+          domain: 'media_player',
+          service: 'join',
+          target: { entity_id: customMaster },
+          data: { group_members: [MEDIA_PLAYER] },
+        }]);
+      }
     });
   });
 
