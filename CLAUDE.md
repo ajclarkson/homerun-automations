@@ -34,13 +34,8 @@ Write tests from domain intent, not code structure. Describe blocks should read 
 
 Read `agent_docs/principles.md` — these are the rules that produce correct behaviour under real conditions. Read `agent_docs/framework.md` for the full trigger, action, and testing API.
 
-## Porting from an existing flow
-
-When the task involves examining or porting an existing automation, read `agent_docs/migration-status.md` to understand what's done and what's next, and `agent_docs/node-red.md` for how to examine the source flow.
-
 ## What not to do
 
-- Do not reference Node-RED in source code or comments. Migration history belongs in PR descriptions.
 - Do not hardcode entity IDs or room names inside shared factory functions — they must be derived from `location` config or discovered via HA labels.
 - Do not use `initial:` on HA helpers — it breaks state persistence across restarts.
 - Array default exports are supported — a file may export `defineAutomation(...)[]` when one logical concern produces multiple automations (e.g. one per room). Each automation in the array must still have a unique `id`.
