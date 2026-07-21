@@ -8,10 +8,6 @@ const MODE_HELPERS: Record<string, string> = {
   minimum:        'input_number.global_temperature_minimum',
 };
 
-const MODE_DEFAULTS: Record<string, number> = {
-  comfort: 20, baseline_day: 18, baseline_night: 16, minimum: 5,
-};
-
 const MIN_SETPOINT_C = 5;
 const MAX_SETPOINT_C = 25;
 
@@ -29,7 +25,7 @@ export default defineAutomation({
     const modeToTemp: Record<string, number> = {};
     for (const [mode, helper] of Object.entries(MODE_HELPERS)) {
       const val = parseFloat(state(helper)?.state ?? '');
-      modeToTemp[mode] = Number.isFinite(val) ? val : MODE_DEFAULTS[mode];
+      if (Number.isFinite(val)) modeToTemp[mode] = val;
     }
 
     // On state_changed, scope to the triggering room only; on_start loads all.
@@ -68,7 +64,8 @@ export default defineAutomation({
       } else {
         const raw = modeToTemp[mode];
         if (raw === undefined) {
-          roomSummary.push(`${room}:skipped(unknown_mode:${mode})`);
+          const skipReason = mode in MODE_HELPERS ? `helper_unavailable:${mode}` : `unknown_mode:${mode}`;
+          roomSummary.push(`${room}:skipped(${skipReason})`);
           continue;
         }
         const temperature = Math.min(Math.max(raw, MIN_SETPOINT_C), MAX_SETPOINT_C);
