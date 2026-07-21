@@ -17,6 +17,7 @@ export interface HeatingBlock {
   start: string; // 'HH:MM'
   end: string;   // 'HH:MM'
   mode: HeatingMode;
+  occupiedMode?: HeatingMode;
 }
 
 export interface HeatingRoomConfig {
@@ -154,6 +155,7 @@ interface HeatingContext {
   safety: { windowOpen: boolean; forceMinimum: boolean };
   house: { mode: string | null; affectsHeating: boolean };
   manualMode: HeatingMode | null;
+  occupied: boolean;
   schedule: ResolvedSchedule;
   scheduleTimerKey: string;
   manualTimerKey: string;
@@ -183,6 +185,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       { type: 'state_changed', entity: 'input_boolean.wfh_adam' },
       { type: 'state_changed', entity: 'input_boolean.wfh_sarah' },
       { type: 'state_changed', entity: manualSelectEntity },
+      { type: 'state_changed', entity: `sensor.${location}_occupied` },
       { type: 'timer_expired', timerKey: scheduleTimerKey },
       { type: 'timer_expired', timerKey: manualTimerKey },
       { type: 'on_start' },
@@ -216,6 +219,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
         ? (manualSelectState as HeatingMode)
         : null;
 
+      const occupied = state(`sensor.${location}_occupied`)?.state === 'occupied';
       const schedule = resolveSchedule(scheduleConfig, weekday, wfhAdam, wfhSarah, now);
 
       return {
@@ -225,6 +229,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
         safety: { windowOpen, forceMinimum },
         house: { mode: houseMode, affectsHeating },
         manualMode,
+        occupied,
         schedule,
         scheduleTimerKey,
         manualTimerKey,
@@ -236,6 +241,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
           houseMode,
           affectsHeating,
           manualMode,
+          occupied,
           wfhAdam,
           wfhSarah,
           weekday,
@@ -251,7 +257,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
     },
 
     reduce: (ctx) => {
-      const { automationEnabled, currentMode, safety, house, manualMode, schedule, scheduleTimerKey, manualTimerKey, now } = ctx;
+      const { automationEnabled, currentMode, safety, house, manualMode, occupied, schedule, scheduleTimerKey, manualTimerKey, now } = ctx;
       const actions: Action[] = [];
       const nowMs = now.getTime();
 
@@ -297,12 +303,13 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
         actions.push({ type: 'timer.cancel', timerKey: manualTimerKey });
       }
 
-      // Stage 5 — schedule
+      // Stage 5 — schedule (with optional occupancy upgrade)
       if (!targetMode && schedule.requestedMode) {
-        targetMode = schedule.requestedMode;
+        const occupiedMode = schedule.block?.occupiedMode;
+        targetMode = (occupied && occupiedMode) ? occupiedMode : schedule.requestedMode;
         source = 'schedule';
         decision = 'set_mode';
-        reason = 'schedule';
+        reason = (occupied && occupiedMode) ? 'schedule_occupied' : 'schedule';
       }
 
       // Stage 6 — no schedule match

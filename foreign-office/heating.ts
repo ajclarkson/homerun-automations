@@ -6,12 +6,13 @@ export default makeHeatingAutomation({
   scheduleConfig: {
     byContext: {
       weekday_wfh_adam: [
-        { start: '07:15', end: '22:00', mode: 'baseline_day' },
+        { start: '07:15', end: '08:30', mode: 'baseline_day' },
+        { start: '08:30', end: '22:00', mode: 'minimum', occupiedMode: 'baseline_day' },
         { start: '22:00', end: '07:15', mode: 'minimum' },
       ],
       default: [
-        { start: '00:00', end: '12:00', mode: 'minimum' },
-        { start: '12:00', end: '00:00', mode: 'minimum' },
+        { start: '06:00', end: '22:00', mode: 'minimum', occupiedMode: 'baseline_day' },
+        { start: '22:00', end: '06:00', mode: 'minimum' },
       ],
     },
   },
