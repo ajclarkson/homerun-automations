@@ -88,9 +88,17 @@ export default defineAutomation({
     const eventType = justEnteredFeeder ? 'eating'
       : (isNewDetection ? 'spotted' : null);
 
-    if (!eventType) return abort('no_actionable_event');
-
     const now = Date.now();
+
+    if (!eventType) {
+      return {
+        eventType: null as null,
+        camera, cam, now,
+        cooldownActive: false, eatingEnabled: false, spottedEnabled: false,
+        existingEating: [], existingSpotted: [], eventId: payload.after.id,
+        inputs: { eventType: null, camera, room: cam.room, cooldownActive: false, eatingEnabled: false, spottedEnabled: false },
+      };
+    }
 
     const eatingCooldownActive   = isCooldownActive(state('input_text.mo_cooldown_eating')?.state, now);
     const spottedCooldownActive  = isCooldownActive(state(cam.spottedCooldownEntity as Parameters<typeof state>[0])?.state, now);
@@ -124,6 +132,10 @@ export default defineAutomation({
       eatingEnabled, spottedEnabled,
       existingEating, existingSpotted, eventId,
     } = ctx;
+
+    if (!eventType) {
+      return { decision: 'no_action', reason: 'not_actionable', inputs: ctx.inputs, actions: [] };
+    }
 
     if (cooldownActive) {
       return { decision: 'no_action', reason: 'cooldown_active', inputs: ctx.inputs, actions: [] };

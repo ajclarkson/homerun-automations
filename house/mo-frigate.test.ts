@@ -63,12 +63,13 @@ describe('event classification', () => {
     expect(result.reason).toBe('spotted');
   });
 
-  it('aborts type:update without feeder entry (no actionable event)', () => {
-    const result = testAbort(automation, {
+  it('takes no action for type:update without feeder entry (routine Frigate noise)', () => {
+    const result = testAutomation(automation, {
       event: mqttEvent({ type: 'update', after: { label: 'cat', camera: 'kitchen', entered_zones: [], id: 'e' }, before: { entered_zones: [] } }),
       state: baseState,
     });
-    expect(result.reason).toBe('no_actionable_event');
+    expect(result.decision).toBe('no_action');
+    expect(result.reason).toBe('not_actionable');
   });
 
   it('aborts when label is not cat', () => {
