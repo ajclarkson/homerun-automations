@@ -34,6 +34,7 @@ interface LightingContext {
   externalSuppressActive: boolean;
   isDay: boolean;
   guestModeActive: boolean;
+  isCurrentlyOff: boolean;
   scenes: SceneSet;
   recentAutoOffMs: number;
   inputs: Record<string, unknown>;
@@ -158,6 +159,7 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
       const blockedBySleep = houseMode === 'sleep' && disableInSleepMode;
 
       const scenes: SceneSet = { off: offScene, daylight: daylightScene, night: nightScene, ordered };
+      const isCurrentlyOff = activeScene === toSceneKey(offScene);
 
       const inputs = {
         trigger,
@@ -166,6 +168,7 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
         luxThreshold,
         occupied,
         activeScene,
+        isCurrentlyOff,
         houseMode,
         blockedBySleep,
         recentAutoOff,
@@ -178,7 +181,7 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
       return {
         location, trigger, automationEnabled, lux, luxThreshold, occupied, activeScene,
         houseMode, blockedBySleep, recentAutoOff, externalSuppressActive, isDay,
-        guestModeActive, scenes, recentAutoOffMs, inputs,
+        guestModeActive, isCurrentlyOff, scenes, recentAutoOffMs, inputs,
       };
     },
 
@@ -186,10 +189,8 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
       const {
         location, trigger, automationEnabled, lux, luxThreshold, occupied, activeScene,
         blockedBySleep, recentAutoOff, externalSuppressActive, isDay, guestModeActive,
-        scenes, recentAutoOffMs,
+        isCurrentlyOff, scenes, recentAutoOffMs,
       } = ctx;
-
-      const isCurrentlyOff = activeScene === toSceneKey(scenes.off);
 
       // Rule 0: timer expired — clear the recent_auto_off flag
       if (trigger.type === 'timer') {

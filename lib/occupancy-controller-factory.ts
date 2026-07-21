@@ -23,6 +23,7 @@ interface OccupancyContext {
   motionActive: boolean;
   pirTriggered: boolean;
   strongHoldActive: boolean;
+  evidenceNow: boolean;
   isDoorMsg: boolean;
   sealedNow: boolean;
   occupiedBefore: boolean;
@@ -109,16 +110,17 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
 
       const occupiedBefore = state(`binary_sensor.${location}_occupied`)?.state === 'on';
       const containedBefore = state(`binary_sensor.${location}_occupied_contained`)?.state === 'on';
+      const evidenceNow = strongHoldActive || motionActive;
 
       return {
         location, trigger,
         motionEnabled, pirRaw, motionActive, pirTriggered,
-        strongHoldActive, isDoorMsg, sealedNow,
+        strongHoldActive, evidenceNow, isDoorMsg, sealedNow,
         occupiedBefore, containedBefore,
         sourceEntity, sourceValue,
         inputs: {
           trigger, motionEnabled, pirRaw, motionActive, pirTriggered,
-          strongHoldActive, sealedNow, occupiedBefore, containedBefore,
+          strongHoldActive, evidenceNow, sealedNow, occupiedBefore, containedBefore,
           sourceEntity, sourceValue,
         },
       };
@@ -127,7 +129,7 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
     reduce: (ctx) => {
       const {
         trigger, motionEnabled, pirRaw, motionActive, pirTriggered,
-        strongHoldActive, isDoorMsg, sealedNow,
+        strongHoldActive, evidenceNow, isDoorMsg, sealedNow,
         occupiedBefore, containedBefore,
         sourceValue,
       } = ctx;
@@ -151,7 +153,6 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
         if (containedNext !== containedBefore) publish(containedTopic, containedNext ? 'ON' : 'OFF');
       };
 
-      const evidenceNow = strongHoldActive || motionActive;
       const isTimer = trigger.type === 'timer';
 
       // Branch 0: PIR fired while motion gate is off — complete no-op, don't touch timers.
