@@ -30,7 +30,7 @@ const cheapRateNudge = defineAutomation({
     const nextTime = cheapest?.attributes?.['next_time'] as string | undefined;
     const nextRate = cheapest?.attributes?.['next_average_value'] as number | undefined;
 
-    if (!nextTime || nextRate === undefined || nextRate === null) {
+    if (!nextTime || nextRate === undefined || !Number.isFinite(nextRate)) {
       return abort('cheapest_window_data_unavailable');
     }
 

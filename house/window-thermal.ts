@@ -123,9 +123,9 @@ export default defineAutomation({
 
     let decision = 'no_action';
     let reason = 'conditions_not_met';
-    let title: string | null = null;
-    let message: string | null = null;
-    let dedupeEntity: string | null = null;
+    let title = 'uninitialised';
+    let message = 'uninitialised';
+    let dedupeEntity = 'uninitialised';
 
     const closeSentToday = sentCloseBedroom === today || sentCloseHO === today || sentCloseBoth === today;
 
@@ -161,8 +161,8 @@ export default defineAutomation({
     }
 
     const notifyActions = [
-      ...(adamHome  ? [notifyAction('mobile_app_adams_iphone',  title!, message!)] : []),
-      ...(sarahHome ? [notifyAction('mobile_app_sarahs_iphone', title!, message!)] : []),
+      ...(adamHome  ? [notifyAction('mobile_app_adams_iphone',  title, message)] : []),
+      ...(sarahHome ? [notifyAction('mobile_app_sarahs_iphone', title, message)] : []),
     ];
 
     return {
@@ -171,7 +171,7 @@ export default defineAutomation({
       inputs: ctx.inputs,
       actions: [
         ...hotEventActions,
-        setInputText(dedupeEntity!, today),
+        setInputText(dedupeEntity, today),
         ...notifyActions,
       ],
     };

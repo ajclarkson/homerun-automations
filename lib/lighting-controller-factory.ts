@@ -40,6 +40,9 @@ interface LightingContext {
   inputs: Record<string, unknown>;
 }
 
+const MIN_TIMER_DELAY_MS =      1_000; // 1 second
+const MAX_TIMER_DELAY_MS = 3_600_000; // 1 hour
+
 // HA active_scene sensor stores scene name without 'scene.' prefix.
 const toSceneKey = (entityId: string) =>
   entityId.startsWith('scene.') ? entityId.slice(6) : entityId;
@@ -83,7 +86,7 @@ function planRecentAutoOffCancel(location: string) {
 
 export function makeLightingAutomation(config: LightingRoomConfig) {
   const { location, disableInSleepMode = true, recentAutoOffMins = 5 } = config;
-  const recentAutoOffMs = recentAutoOffMins * 60 * 1000;
+  const recentAutoOffMs = Math.min(Math.max(recentAutoOffMins * 60 * 1000, MIN_TIMER_DELAY_MS), MAX_TIMER_DELAY_MS);
 
   const buttonEntity = new RegExp(`sensor\\.${location}_button_.*_action`);
 
