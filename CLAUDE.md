@@ -30,6 +30,10 @@ Use `testAutomation` from `@ajclarkson/homerun/testing`. Tests live alongside th
 
 Write tests from domain intent, not code structure. Describe blocks should read like behaviour specifications, not branch labels. Every meaningful permutation of inputs should be covered — see `lib/occupancy-controller-factory.test.ts` as the reference example.
 
+## Before writing an automation
+
+Read `agent_docs/principles.md` — these are the rules that produce correct behaviour under real conditions. Read `agent_docs/framework.md` for the full trigger, action, and testing API.
+
 ## Porting from an existing flow
 
 When the task involves examining or porting an existing automation, read `agent_docs/node-red.md` before starting.
