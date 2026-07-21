@@ -1,4 +1,4 @@
-import { defineAutomation, abort, type Action } from '@ajclarkson/homerun';
+import { defineAutomation, abort, HomeAssistant, type Action } from '@ajclarkson/homerun';
 
 // ---- Types ----
 
@@ -155,10 +155,12 @@ interface HeatingContext {
   safety: { windowOpen: boolean; forceMinimum: boolean };
   house: { mode: string | null; affectsHeating: boolean };
   manualMode: HeatingMode | null;
+  manualExpiring: boolean;
   occupied: boolean;
   schedule: ResolvedSchedule;
   scheduleTimerKey: string;
   manualTimerKey: string;
+  manualSelectEntity: string;
   inputs: Record<string, unknown>;
 }
 
@@ -191,9 +193,10 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       { type: 'on_start' },
     ],
 
-    context: (state, _ha, _event) => {
+    context: (state, _ha, event) => {
       const now = new Date();
       const weekday = now.getDay() !== 0 && now.getDay() !== 6;
+      const manualExpiring = event.type === 'timer_expired' && event.timerKey === manualTimerKey;
 
       const automationEnabledState = state(`input_boolean.${location}_automation_heating_enabled`)?.state;
       if (!automationEnabledState || automationEnabledState === 'unavailable' || automationEnabledState === 'unknown') {
@@ -215,7 +218,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       const wfhSarah = state('input_boolean.wfh_sarah')?.state === 'on';
 
       const manualSelectState = state(manualSelectEntity)?.state ?? 'auto';
-      const manualMode = (manualSelectState !== 'auto' && VALID_HEATING_MODES.has(manualSelectState))
+      const manualMode = (!manualExpiring && manualSelectState !== 'auto' && VALID_HEATING_MODES.has(manualSelectState))
         ? (manualSelectState as HeatingMode)
         : null;
 
@@ -229,10 +232,12 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
         safety: { windowOpen, forceMinimum },
         house: { mode: houseMode, affectsHeating },
         manualMode,
+        manualExpiring,
         occupied,
         schedule,
         scheduleTimerKey,
         manualTimerKey,
+        manualSelectEntity,
         inputs: {
           automationEnabled,
           currentMode,
@@ -257,7 +262,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
     },
 
     reduce: (ctx) => {
-      const { automationEnabled, currentMode, safety, house, manualMode, occupied, schedule, scheduleTimerKey, manualTimerKey, now } = ctx;
+      const { automationEnabled, currentMode, safety, house, manualMode, manualExpiring, occupied, schedule, scheduleTimerKey, manualTimerKey, manualSelectEntity, now } = ctx;
       const actions: Action[] = [];
       const nowMs = now.getTime();
 
@@ -301,6 +306,9 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
         actions.push(...planTimer(manualTimerKey, schedule.validUntilMs, nowMs));
       } else {
         actions.push({ type: 'timer.cancel', timerKey: manualTimerKey });
+        if (manualExpiring) {
+          actions.push(HomeAssistant.input_select.select_option({ entity_id: manualSelectEntity }, { option: 'auto' }));
+        }
       }
 
       // Stage 5 — schedule (with optional occupancy upgrade)
