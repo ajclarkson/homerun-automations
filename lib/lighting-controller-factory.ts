@@ -144,7 +144,8 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
       const luxRaw = parseFloat(state(`sensor.${location}_sensor_motion_illuminance`)?.state ?? '');
       const lux = Number.isFinite(luxRaw) ? luxRaw : null;
       const luxThreshRaw = parseFloat(state(`input_number.${location}_automation_lux_threshold_dark`)?.state ?? '');
-      const luxThreshold = Number.isFinite(luxThreshRaw) ? luxThreshRaw : 15;
+      if (!Number.isFinite(luxThreshRaw)) return abort(`lux_threshold_unavailable:${location}`);
+      const luxThreshold = luxThreshRaw;
       const automationEnabled = state(`input_boolean.${location}_automation_lights_enabled`)?.state === 'on';
       const houseMode = state('sensor.house_active_mode')?.state ?? 'unknown';
       const houseModifier = state('input_select.house_active_mode_modifier')?.state ?? 'none';
