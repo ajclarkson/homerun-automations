@@ -22,13 +22,19 @@ Current state of the Node-RED → homerun migration. When porting a new automati
 
 | Automation | Notes |
 |---|---|
-| ~~WFH Adam / WFH Sarah / WFH Weekend~~ | Done — `house/wfh.ts`, merged PR #47 |
-| Window thermal notifications | Clean v3 pipeline |
-| Cheap rate nudge | `schedule` trigger, reads cheapest window sensor + presence, emits notify action |
-| Rates tomorrow notification | `state_changed` on forecast availability sensor, emits notify action |
-| Outdoor temp history | `schedule` at 23:00, shifts 7-entry history array, writes to `input_text` |
-| Mo/Frigate notifications | Needs `mqtt_in` trigger on Frigate topic; cooldown via timer, camera-to-room mapping |
 | back-garden lighting | Lighting controller — check Node-RED config for any back-garden specific behaviour |
+
+### Done
+
+| Automation | Notes |
+|---|---|
+| WFH Adam / WFH Sarah / WFH Reset | `house/wfh.ts`, merged PR #47 |
+| Cheap rate nudge | `house/octopus-rates.ts`, merged PR #48 |
+| Rates tomorrow notification | `house/octopus-rates.ts`, merged PR #48 |
+| Window thermal notifications | `house/window-thermal.ts`, merged PR #49 |
+| Foreign Office door ventilation | `foreign-office/door-ventilation.ts`, merged PR #50 |
+| Outdoor temp history | `house/outdoor-temp-history.ts`, merged PR #51 |
+| Mo/Frigate notifications | `house/mo-frigate.ts`, merged PR #52 |
 
 ---
 
