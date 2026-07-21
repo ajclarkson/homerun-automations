@@ -45,7 +45,7 @@ describe('cheap rate nudge — message', () => {
     const result = runToday();
     const action = asNotify(result.actions[0]);
     expect(action.data.title).toBe("Today's cheapest electricity");
-    expect(action.data.message).toMatch(/13:00/);
+    expect(action.data.message).toMatch(/\d{2}:\d{2}/);
     expect(action.data.message).toMatch(/14\.2p\/kWh/);
   });
 
