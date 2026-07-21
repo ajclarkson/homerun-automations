@@ -52,7 +52,37 @@ Direct reads of another room's entity inside an automation create hidden couplin
 
 ---
 
-**6. Guard every numeric state read against NaN.**
+**6. A wrong decision silently made is always worse than a loud abort.**
+
+When an automation encounters unexpected or missing state, it must abort with a named reason rather than fall through on a default. A room where a light doesn't come on because an automation aborted is a recoverable situation. A room where heating is set to 0°C because a `NaN` was silently treated as `false` is not.
+
+Return `abort('reason')` from the context builder, or include `decision: 'no_action', reason: 'sensor_unavailable'` in the reducer output. Either way, the failure is recorded in observability and visible in Loki. A silent wrong decision leaves no trace.
+
+---
+
+**7. Validate inputs and outputs — assert both what you expect and what you don't.**
+
+Defensive validation has two sides. Assert the positive space (the value is a number, is finite, is within a plausible range) and the negative space (the value is not `NaN`, not negative, not above a physical maximum).
+
+For numeric HA state reads: `Number.isFinite(value)` is the minimum check, not the complete check. A temperature sensor returning `999` is finite but wrong. Clamp or reject values outside a physically plausible range.
+
+For action outputs: before returning an action plan, verify that computed values (topic strings, payload values, timer delays) are well-formed. A topic of `undefined/occupied/state` or a delay of `NaN` milliseconds will execute silently and incorrectly.
+
+---
+
+**8. Clamp all derived numeric values before emitting them as actions.**
+
+Any numeric value that flows from HA state into an action — a setpoint, a delay, a brightness — must be clamped to a known-safe range before it appears in the action plan. Even if upstream validation passed, clamping at the output is a second, independent safety layer.
+
+```typescript
+const delayMs = Math.min(Math.max(computedDelay, MIN_DELAY_MS), MAX_DELAY_MS);
+```
+
+Define `MIN_*` and `MAX_*` constants at the top of the factory. These bounds are the specification — they document what the automation considers valid and enforce it unconditionally.
+
+---
+
+**9. Guard every numeric state read against NaN.**
 
 `parseFloat(state('sensor.x')?.state)` returns `NaN` when the entity is unavailable. `NaN > 15` is silently `false` — an unavailable sensor becomes indistinguishable from one that hasn't crossed the threshold, with no error and a wrong decision.
 
@@ -60,7 +90,7 @@ Always validate with `Number.isFinite()` before use. If the value is required an
 
 ---
 
-**7. Timer keys and MQTT topics follow the naming scheme.**
+**10. Timer keys and MQTT topics follow the naming scheme.**
 
 | Thing | Pattern | Example |
 |---|---|---|
