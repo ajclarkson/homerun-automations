@@ -146,10 +146,10 @@ export default defineAutomation({
 
     let updatedEating  = existingEating;
     let updatedSpotted = existingSpotted;
-    let stateStr: string;
-    let cooldownEntity: string;
-    let notificationsEnabled: boolean;
-    let notifyTitle: string;
+    let stateStr = 'uninitialised';
+    let cooldownEntity = '';
+    let notificationsEnabled = false;
+    let notifyTitle = 'uninitialised';
 
     if (eventType === 'eating') {
       updatedEating = [entry, ...existingEating].slice(0, 20);

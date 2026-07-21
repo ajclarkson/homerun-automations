@@ -35,9 +35,9 @@ export default defineAutomation({
   reduce: (ctx) => {
     const { heatingEnabled, callingRooms, demand } = ctx;
 
-    let decision: string;
-    let reason: string;
-    let setpoint: number;
+    let decision = 'uninitialised';
+    let reason = 'uninitialised';
+    let setpoint = 5;
 
     if (!heatingEnabled) {
       decision = 'boiler_off';
