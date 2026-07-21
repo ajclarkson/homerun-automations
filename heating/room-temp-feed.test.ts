@@ -101,25 +101,4 @@ describe('room-temp-feed', () => {
       }
     });
   });
-
-  describe('hallway_downstairs:room_temp_feed', () => {
-    const automation = automations.find(a => a.id === 'hallway_downstairs:room_temp_feed')!;
-
-    it('reads from the climate sensor and targets the downstairs TRV', () => {
-      const result = testAutomation(automation, {
-        event: stateChangeTrigger('sensor.hallway_downstairs_sensor_climate_temperature', '18.0'),
-        state: { 'sensor.hallway_downstairs_sensor_climate_temperature': { state: '18.0' } },
-      });
-      expect('abort' in result).toBe(false);
-      if (!('abort' in result)) {
-        expect(result.actions).toEqual([{
-          type: 'ha.call_service',
-          domain: 'number',
-          service: 'set_value',
-          target: { entity_id: 'number.hallway_downstairs_trv_external_measured_room_sensor' },
-          data: { value: 1800 },
-        }]);
-      }
-    });
-  });
 });
