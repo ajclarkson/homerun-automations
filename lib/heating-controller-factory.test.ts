@@ -192,6 +192,25 @@ describe('manual override', () => {
     expect(cancel).toBeDefined();
   });
 
+  it('resets input_select to auto and falls through to schedule when manual timer expires', () => {
+    const automation = makeHeatingAutomation(baseConfig);
+    const result = testAutomation(automation, {
+      event: { type: 'timer_expired', timerKey: `${LOCATION}:heating:manual_override_expiry`, correlation_id: 'test-cid' },
+      state: {
+        ...baseState,
+        [`input_select.${LOCATION}_heating_manual_mode`]: { state: 'comfort' },
+        [`sensor.${LOCATION}_active_heating`]: { state: 'comfort' },
+      },
+    });
+    const reset = result.actions.find(
+      a => a.type === 'ha.call_service' && (a as any).domain === 'input_select' && (a as any).service === 'select_option',
+    );
+    expect(reset).toBeDefined();
+    expect((reset as any).data?.option).toBe('auto');
+    expectModePublished(result.actions, 'baseline_day');
+    expect(result.reason).toBe('schedule');
+  });
+
   it('manual override takes precedence over schedule', () => {
     // At 10:00 schedule says baseline_day; manual says comfort
     const result = run({ [`input_select.${LOCATION}_heating_manual_mode`]: { state: 'baseline_night' } });
