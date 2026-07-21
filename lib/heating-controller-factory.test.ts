@@ -35,6 +35,7 @@ const baseState = {
   'input_boolean.wfh_adam': { state: 'off' },
   'input_boolean.wfh_sarah': { state: 'off' },
   [`input_select.${LOCATION}_heating_manual_mode`]: { state: 'auto' },
+  [`sensor.${LOCATION}_occupied`]: { state: 'unoccupied' },
 };
 
 const onStartEvent = { type: 'on_start' as const, correlation_id: 'test-cid' };
@@ -311,6 +312,77 @@ describe('schedule resolution', () => {
     const timer = result.actions.find(a => a.type === 'timer.start' && (a as any).timerKey.includes('schedule'));
     expect(timer).toBeDefined();
     expect((timer as any).delayMs).toBeCloseTo(6 * 60 * 60 * 1000, -3);
+  });
+});
+
+// ---- Stage 5: occupancy upgrade ----
+
+describe('occupancy upgrade', () => {
+  const occupancyConfig: HeatingRoomConfig = {
+    location: LOCATION,
+    scheduleConfig: {
+      byContext: {
+        weekday: [
+          { start: '06:00', end: '16:00', mode: 'baseline_day', occupiedMode: 'comfort' },
+          { start: '16:00', end: '22:00', mode: 'comfort' },
+          { start: '22:00', end: '06:00', mode: 'baseline_night' },
+        ],
+      },
+    },
+  };
+
+  it('upgrades to occupiedMode when room is occupied', () => {
+    const result = run(
+      { [`sensor.${LOCATION}_occupied`]: { state: 'occupied' }, [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } },
+      occupancyConfig,
+    );
+    expectModePublished(result.actions, 'comfort');
+    expect(result.reason).toBe('schedule_occupied');
+  });
+
+  it('uses base mode when room is unoccupied', () => {
+    const result = run(
+      { [`sensor.${LOCATION}_occupied`]: { state: 'unoccupied' }, [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } },
+      occupancyConfig,
+    );
+    expectModePublished(result.actions, 'baseline_day');
+    expect(result.reason).toBe('schedule');
+  });
+
+  it('ignores occupiedMode when not set on the block', () => {
+    // 16:00 block has no occupiedMode
+    pinTime('2026-01-07T18:00:00.000Z');
+    const result = run(
+      { [`sensor.${LOCATION}_occupied`]: { state: 'occupied' }, [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } },
+      occupancyConfig,
+    );
+    expectModePublished(result.actions, 'comfort');
+    expect(result.reason).toBe('schedule');
+  });
+
+  it('safety overrides occupied mode', () => {
+    const result = run(
+      {
+        [`sensor.${LOCATION}_occupied`]: { state: 'occupied' },
+        [`binary_sensor.${LOCATION}_external_openings`]: { state: 'on' },
+      },
+      occupancyConfig,
+    );
+    expectModePublished(result.actions, 'minimum');
+    expect(result.reason).toBe('safety_window_open');
+  });
+
+  it('manual override takes precedence over occupied mode', () => {
+    const result = run(
+      {
+        [`sensor.${LOCATION}_occupied`]: { state: 'occupied' },
+        [`input_select.${LOCATION}_heating_manual_mode`]: { state: 'baseline_night' },
+        [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' },
+      },
+      occupancyConfig,
+    );
+    expectModePublished(result.actions, 'baseline_night');
+    expect(result.reason).toBe('manual_override');
   });
 });
 
