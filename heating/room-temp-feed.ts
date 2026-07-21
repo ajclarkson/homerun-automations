@@ -1,5 +1,8 @@
 import { defineAutomation, abort } from '@ajclarkson/homerun';
 
+const MIN_ROOM_TEMP_C = 0;
+const MAX_ROOM_TEMP_C = 40;
+
 const ROOMS: Array<{ location: string; sensor: string }> = [
   { location: 'parlour',            sensor: 'sensor.parlour_sensor_climate_temperature' },
   { location: 'kitchen',            sensor: 'sensor.kitchen_sensor_climate_temperature' },
@@ -24,6 +27,7 @@ function makeTempFeedAutomation(location: string, sensorEntity: string) {
       const tempStr = state(sensorEntity)?.state;
       const temp = parseFloat(tempStr ?? '');
       if (!Number.isFinite(temp)) return abort(`temp_unavailable:${tempStr}`);
+      if (temp < MIN_ROOM_TEMP_C || temp > MAX_ROOM_TEMP_C) return abort(`temp_out_of_range:${temp}`);
       return { temp, reason: event.type === 'schedule' ? 'heartbeat' : 'temp_changed', inputs: { sensorEntity, temp } };
     },
 

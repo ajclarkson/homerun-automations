@@ -82,6 +82,30 @@ describe('house:trv_actuation', () => {
     }
   });
 
+  it('clamps setpoint to MAX_SETPOINT_C and records it in the reason when helper value is above the safe range', () => {
+    const result = testAutomation(automation, {
+      event: activeHeatingTrigger('parlour', 'comfort'),
+      state: { ...baseState, 'input_number.global_temperature_comfort': { state: '30' } },
+    });
+    expect('abort' in result).toBe(false);
+    if (!('abort' in result)) {
+      expect(result.actions[0]).toMatchObject({ data: { temperature: 25 } });
+      expect(result.reason).toContain('clamped_from_30');
+    }
+  });
+
+  it('clamps setpoint to MIN_SETPOINT_C and records it in the reason when helper value is below the safe range', () => {
+    const result = testAutomation(automation, {
+      event: activeHeatingTrigger('parlour', 'minimum'),
+      state: { ...baseState, 'sensor.parlour_active_heating': { state: 'minimum' }, 'input_number.global_temperature_minimum': { state: '1' } },
+    });
+    expect('abort' in result).toBe(false);
+    if (!('abort' in result)) {
+      expect(result.actions[0]).toMatchObject({ data: { temperature: 5 } });
+      expect(result.reason).toContain('clamped_from_1');
+    }
+  });
+
   it('uses hallway_downstairs TRV entity', () => {
     const result = testAutomation(automation, {
       event: activeHeatingTrigger('hallway_downstairs', 'baseline_night'),

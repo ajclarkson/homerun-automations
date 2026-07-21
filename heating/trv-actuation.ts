@@ -20,6 +20,9 @@ const MODE_DEFAULTS: Record<string, number> = {
   comfort: 20, baseline_day: 18, baseline_night: 16, minimum: 5,
 };
 
+const MIN_SETPOINT_C = 5;
+const MAX_SETPOINT_C = 25;
+
 export default defineAutomation({
   id: 'house:trv_actuation',
   location: 'house',
@@ -68,10 +71,12 @@ export default defineAutomation({
         actions.push(HomeAssistant.climate.set_hvac_mode({ entity_id: trvEntity }, { hvac_mode: 'off' }));
         roomSummary.push(`${room}:off`);
       } else {
-        const temperature = modeToTemp[mode];
-        if (temperature === undefined) continue;
+        const raw = modeToTemp[mode];
+        if (raw === undefined) continue;
+        const temperature = Math.min(Math.max(raw, MIN_SETPOINT_C), MAX_SETPOINT_C);
         actions.push(HomeAssistant.climate.set_temperature({ entity_id: trvEntity }, { hvac_mode: 'heat', temperature }));
-        roomSummary.push(`${room}:${mode}@${temperature}`);
+        const clampNote = temperature !== raw ? `(clamped_from_${raw})` : '';
+        roomSummary.push(`${room}:${mode}@${temperature}${clampNote}`);
       }
     }
 
