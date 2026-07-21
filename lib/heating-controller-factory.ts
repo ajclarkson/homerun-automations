@@ -8,8 +8,6 @@ export type HeatingSource = 'schedule' | 'manual' | 'house_mode' | 'safety' | 'n
 export type ScheduleContextKey =
   | 'weekday_wfh_adam'
   | 'weekday_wfh_sarah'
-  | 'weekend_wfh_adam'
-  | 'weekend_wfh_sarah'
   | 'weekend'
   | 'weekday'
   | 'default';
@@ -93,8 +91,6 @@ function buildContextKeys(weekday: boolean, wfhAdam: boolean, wfhSarah: boolean)
   const keys: ScheduleContextKey[] = [];
   if (weekday && wfhAdam) keys.push('weekday_wfh_adam');
   if (weekday && wfhSarah) keys.push('weekday_wfh_sarah');
-  if (!weekday && wfhAdam) keys.push('weekend_wfh_adam');
-  if (!weekday && wfhSarah) keys.push('weekend_wfh_sarah');
   if (!weekday) keys.push('weekend');
   if (weekday) keys.push('weekday');
   keys.push('default');
