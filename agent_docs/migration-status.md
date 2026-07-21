@@ -44,7 +44,7 @@ Use `makeOccupancyAutomation`. Rooms with door contact entities labelled `presen
 | Rates tomorrow notification | `state_changed` on forecast availability sensor, emits notify action |
 | Outdoor temp history | `schedule` at 23:00, shifts 7-entry history array, writes to `input_text` |
 | Mo/Frigate notifications | Needs `mqtt_in` trigger on Frigate topic; cooldown via timer, camera-to-room mapping |
-| Active scene publish | Requires area registry fetch — resolve by writing a template sensor in HA and reading it like any other entity |
+| ~~Active scene publish~~ | Replaced by trigger-based template sensors in `homeassistant-config/packages/templates.yaml`. MQTT sensors removed from `packages/mqtt.yaml`. Node-RED flow c6868348837317f0 can be dropped. |
 
 ---
 
