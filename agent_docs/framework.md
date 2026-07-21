@@ -5,7 +5,7 @@ The framework lives at `~/workspace/homerun`. This covers what you need to write
 ## Trigger types
 
 ```typescript
-{ type: 'state_changed'; entity: string | RegExp }
+{ type: 'state_changed'; entity: string | RegExp; to?: string | string[] }
 { type: 'timer_expired'; timerKey: string }
 { type: 'button'; entity: string | RegExp; gesture: 'single_press' | 'double_press' | 'hold' }
 { type: 'schedule'; cron: string }
@@ -14,6 +14,8 @@ The framework lives at `~/workspace/homerun`. This covers what you need to write
 ```
 
 `on_start` fires once after the state cache is populated on startup. Use it to establish initial state.
+
+`state_changed` fires on every HA state_changed event, including attribute-only updates where the state string itself doesn't change. Use `to` to filter to specific state values and avoid spurious triggers — e.g. `{ type: 'state_changed', entity: 'sun.sun', to: 'below_horizon' }` fires only at sunset, not on every elevation update throughout the day. `to` accepts a single string or an array.
 
 ## Action types
 
@@ -34,7 +36,7 @@ context: (state, ha, event) => { ... }
 - `ha.entitiesByLabel(label)` — entity IDs carrying that label (from HA entity registry, loaded at startup)
 - `ha.entitiesByArea(area)` — entity IDs in that area
 - `ha.labelsFor(entityId)` — labels on a specific entity
-- `event` — the raw trigger event; inspect `event.type` to determine which trigger fired
+- `event` — the raw trigger event; inspect `event.type` to determine which trigger fired. For `state_changed`: `event.entity_id`, `event.new_state`, `event.old_state` (may be `undefined` for new entities)
 
 All three are synchronous. `ha.*` reads from the registry snapshot, not live HA. Return `abort('reason')` to short-circuit — the abort is recorded in observability and `reduce` is never called.
 
