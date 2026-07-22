@@ -5,7 +5,6 @@ function notifyAction(service: string, title: string, message: string) {
     type: 'ha.call_service' as const,
     domain: 'notify',
     service,
-    target: { entity_id: `notify.${service}` },
     data: { title, message },
   };
 }

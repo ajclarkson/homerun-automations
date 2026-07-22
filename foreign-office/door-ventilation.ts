@@ -104,7 +104,6 @@ export default defineAutomation({
             type: 'ha.call_service',
             domain: 'notify',
             service: 'mobile_app_adams_iphone',
-            target: { entity_id: 'notify.mobile_app_adams_iphone' },
             data: { title: 'Open the foreign office door', message: ventMessage },
           },
         ],
@@ -128,7 +127,6 @@ export default defineAutomation({
             type: 'ha.call_service',
             domain: 'notify',
             service: 'mobile_app_adams_iphone',
-            target: { entity_id: 'notify.mobile_app_adams_iphone' },
             data: {
               title: 'Close the foreign office door',
               message: `Outside (${outdoorTemp}°C) is warmer than indoors — close the door to keep the heat out`,

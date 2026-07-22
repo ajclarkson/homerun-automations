@@ -45,8 +45,8 @@ export default defineAutomation({
       reason: `valve_characteristic_lost:${ctx.room}`,
       inputs: ctx.inputs,
       actions: [
-        { type: 'ha.call_service', domain: 'notify', service: 'mobile_app_adams_iphone',  target: { entity_id: '' }, data: { title, message } },
-        { type: 'ha.call_service', domain: 'notify', service: 'mobile_app_sarahs_iphone', target: { entity_id: '' }, data: { title, message } },
+        { type: 'ha.call_service', domain: 'notify', service: 'mobile_app_adams_iphone', data: { title, message } },
+        { type: 'ha.call_service', domain: 'notify', service: 'mobile_app_sarahs_iphone', data: { title, message } },
       ],
     };
   },

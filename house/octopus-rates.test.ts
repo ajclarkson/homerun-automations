@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
 import { cheapRateNudge, tomorrowRatesNudge } from './octopus-rates.js';
 
-type NotifyAction = { data: { title: string; message: string; data: { url: string } }; target: { entity_id: string } };
+type NotifyAction = { service: string; data: { title: string; message: string; data: { url: string } } };
 const asNotify = (a: unknown) => a as NotifyAction;
 
 const scheduleEvent = { type: 'schedule' as const, cron: '0 9 * * *', correlation_id: 'test-cid' };
@@ -74,23 +74,23 @@ describe('cheap rate nudge — presence routing', () => {
     expect(result.decision).toBe('notify');
     expect(result.reason).toBe('adam_and_sarah');
     expect(result.actions).toHaveLength(2);
-    const targets = result.actions.map((a) => asNotify(a).target.entity_id);
-    expect(targets).toContain('notify.mobile_app_adams_iphone');
-    expect(targets).toContain('notify.mobile_app_sarahs_iphone');
+    const targets = result.actions.map((a) => asNotify(a).service);
+    expect(targets).toContain('mobile_app_adams_iphone');
+    expect(targets).toContain('mobile_app_sarahs_iphone');
   });
 
   it('notifies only adam when sarah is away', () => {
     const result = runToday({ 'person.sarah': { state: 'not_home' } });
     expect(result.reason).toBe('adam');
     expect(result.actions).toHaveLength(1);
-    expect(asNotify(result.actions[0]).target.entity_id).toBe('notify.mobile_app_adams_iphone');
+    expect(asNotify(result.actions[0]).service).toBe('mobile_app_adams_iphone');
   });
 
   it('notifies only sarah when adam is away', () => {
     const result = runToday({ 'person.adam': { state: 'not_home' } });
     expect(result.reason).toBe('sarah');
     expect(result.actions).toHaveLength(1);
-    expect(asNotify(result.actions[0]).target.entity_id).toBe('notify.mobile_app_sarahs_iphone');
+    expect(asNotify(result.actions[0]).service).toBe('mobile_app_sarahs_iphone');
   });
 
   it('takes no action when nobody is home', () => {
@@ -182,9 +182,9 @@ describe('tomorrow rates nudge — always notifies both people', () => {
     const result = runTomorrow();
     expect(result.decision).toBe('notify');
     expect(result.actions).toHaveLength(2);
-    const targets = result.actions.map((a) => asNotify(a).target.entity_id);
-    expect(targets).toContain('notify.mobile_app_adams_iphone');
-    expect(targets).toContain('notify.mobile_app_sarahs_iphone');
+    const targets = result.actions.map((a) => asNotify(a).service);
+    expect(targets).toContain('mobile_app_adams_iphone');
+    expect(targets).toContain('mobile_app_sarahs_iphone');
   });
 });
 

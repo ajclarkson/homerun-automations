@@ -10,7 +10,6 @@ function notifyAction(service: string, payload: NotifyPayload) {
     type: 'ha.call_service' as const,
     domain: 'notify',
     service,
-    target: { entity_id: `notify.${service}` },
     data: { title: payload.title, message: payload.message, data: { url: '/mobile-dashboard/energy' } },
   };
 }

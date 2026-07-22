@@ -242,8 +242,8 @@ describe('presence routing', () => {
       (a as { domain?: string }).domain === 'notify'
     );
     expect(notifyActions).toHaveLength(1);
-    expect((notifyActions[0] as { target: { entity_id: string } }).target.entity_id)
-      .toBe('notify.mobile_app_adams_iphone');
+    expect((notifyActions[0] as { service: string }).service)
+      .toBe('mobile_app_adams_iphone');
   });
 
   it('takes no notify action when nobody home but still records hot event', () => {
