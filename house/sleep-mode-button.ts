@@ -10,7 +10,7 @@ export default defineAutomation({
   ],
 
   context: (state) => {
-    const bedOccupied = state('binary_sensor.bedroom_sensor_bed_occupancy')?.state;
+    const bedOccupied = state('binary_sensor.bedroom_bed_occupied')?.state;
     if (!bedOccupied || bedOccupied === 'unavailable' || bedOccupied === 'unknown') {
       return abort(`bed_sensor_unavailable:${bedOccupied}`);
     }
