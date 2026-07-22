@@ -7,7 +7,8 @@
     "codegen": "homerun-generate-ha-types",
     "postinstall": "git config core.hooksPath .githooks || true",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "typecheck": "tsc"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",
@@ -15,6 +16,6 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
-    "@ajclarkson/homerun": "0.0.1-edge.77108cc"
+    "@ajclarkson/homerun": "0.0.1-edge.675d0b1"
   }
 }

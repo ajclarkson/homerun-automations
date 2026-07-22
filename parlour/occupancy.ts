@@ -5,7 +5,7 @@ export default makeOccupancyAutomation({
   extraTriggers: [
     { type: 'state_changed', entity: 'binary_sensor.parlour_sensor_door_contact' },
     { type: 'state_changed', entity: 'binary_sensor.parlour_sensor_door_patio_contact' },
-    { type: 'state_changed', entity: 'binary_sensor.parlour_sensor_sofa_occupancy' },
+    { type: 'state_changed', entity: 'binary_sensor.parlour_sofa_occupied' },
     { type: 'state_changed', entity: 'binary_sensor.parlour_media_active' },
   ],
 });
