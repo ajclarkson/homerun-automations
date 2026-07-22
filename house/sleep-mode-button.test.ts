@@ -11,7 +11,7 @@ const holdTrigger = (entity: string) => ({
 });
 
 const baseState = {
-  'binary_sensor.bedroom_sensor_bed_occupancy': { state: 'on' },
+  'binary_sensor.bedroom_bed_occupied': { state: 'on' },
   'sensor.house_active_mode': { state: 'normal' },
   'binary_sensor.parlour_media_active': { state: 'off' },
 };
@@ -47,7 +47,7 @@ describe('house:sleep_mode_button', () => {
   it('returns no_action when bed is not occupied', () => {
     const result = testAutomation(automation, {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
-      state: { ...baseState, 'binary_sensor.bedroom_sensor_bed_occupancy': { state: 'off' } },
+      state: { ...baseState, 'binary_sensor.bedroom_bed_occupied': { state: 'off' } },
     });
     expect(result).toMatchObject({ decision: 'no_action', reason: 'bed_not_occupied' });
   });
@@ -63,7 +63,7 @@ describe('house:sleep_mode_button', () => {
   it('aborts when bed sensor is unavailable', () => {
     const result = testAbort(automation, {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
-      state: { ...baseState, 'binary_sensor.bedroom_sensor_bed_occupancy': { state: 'unavailable' } },
+      state: { ...baseState, 'binary_sensor.bedroom_bed_occupied': { state: 'unavailable' } },
     });
     expect(result.reason).toEqual(expect.stringContaining('bed_sensor_unavailable'));
   });
