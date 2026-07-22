@@ -301,6 +301,12 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
         };
       }
 
+      // Rule 8: on_start — no scene resync (would clobber manual overrides); this tick's
+      // only job is exercising the validation above (scene labels, lux threshold) at boot.
+      if (trigger.type === 'system') {
+        return { decision: 'no_action', reason: 'startup_check_ok', inputs: ctx.inputs, actions: [] };
+      }
+
       return { decision: 'no_action', reason: 'no_matching_rule', inputs: ctx.inputs, actions: [] };
     },
   });

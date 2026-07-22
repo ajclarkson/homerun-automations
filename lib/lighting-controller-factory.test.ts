@@ -72,6 +72,11 @@ const timerEvent = () => ({
   correlation_id: 'test-cid',
 });
 
+const onStartEvent = () => ({
+  type: 'on_start' as const,
+  correlation_id: 'test-cid',
+});
+
 describe('makeLightingAutomation', () => {
   describe('occupancy on', () => {
     it('activates night scene when lux is low at night', () => {
@@ -332,6 +337,22 @@ describe('makeLightingAutomation', () => {
       expect(result.actions).toContainEqual({
         type: 'mqtt.publish', topic: `${LOCATION}/lighting/recent_auto_off`, payload: 'OFF', retain: true,
       });
+    });
+  });
+
+  describe('startup', () => {
+    it('does not resync the scene on restart, since that would clobber a manual override', () => {
+      const result = testAutomation(automation, {
+        event: onStartEvent(),
+        state: {
+          ...baseState,
+          [`binary_sensor.${LOCATION}_occupied`]: { state: 'on' },
+          [`sensor.${LOCATION}_active_scene`]: { state: `${LOCATION}_off` },
+        },
+        ha: makeHa(),
+      });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'startup_check_ok' });
+      expect(result.actions).toEqual([]);
     });
   });
 
