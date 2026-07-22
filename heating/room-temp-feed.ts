@@ -13,12 +13,12 @@ function makeTempFeedAutomation(location: string) {
     subsystem: 'heating',
 
     triggers: [
-      { type: 'state_changed', entity: sensorEntity },
+      { type: 'state_changed', entity: sensorEntity as keyof HAEntities },
       { type: 'schedule', cron: '*/30 * * * *' },
     ],
 
     context: (state, _ha, event) => {
-      const tempStr = state(sensorEntity)?.state;
+      const tempStr = state(sensorEntity as keyof HAEntities)?.state;
       const temp = parseFloat(tempStr ?? '');
       if (!Number.isFinite(temp)) return abort(`temp_unavailable:${tempStr}`);
       if (temp < MIN_ROOM_TEMP_C || temp > MAX_ROOM_TEMP_C) return abort(`temp_out_of_range:${temp}`);

@@ -100,7 +100,7 @@ export default defineAutomation({
 
     if (!eventType) return noAction('not_actionable');
 
-    const eatingCooldownActive   = isCooldownActive(state('input_text.mo_cooldown_eating')?.state, now);
+    const eatingCooldownActive   = isCooldownActive(state('input_text.mo_cooldown_eating' as keyof HAEntities)?.state, now);
     const spottedCooldownActive  = isCooldownActive(state(cam.spottedCooldownEntity as Parameters<typeof state>[0])?.state, now);
     const cooldownActive = eventType === 'eating' ? eatingCooldownActive : spottedCooldownActive;
 

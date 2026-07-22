@@ -16,7 +16,7 @@ const automationWithDoor = makeOccupancyAutomation({
   delayMins: 2,
   reopenTightenMins: 1,
   containmentMaxMins: 60,
-  extraTriggers: [{ type: 'state_changed', entity: DOOR_ENTITY }],
+  extraTriggers: [{ type: 'state_changed', entity: DOOR_ENTITY as keyof HAEntities }],
 });
 
 // ---------- HA context helpers ----------

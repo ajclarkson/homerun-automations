@@ -30,12 +30,12 @@ export function makeSonosAutomation(config: SonosRoomConfig) {
     subsystem: 'sonos',
 
     triggers: [
-      { type: 'state_changed', entity: occupiedSensor },
-      { type: 'state_changed', entity: automationToggle },
+      { type: 'state_changed', entity: occupiedSensor as keyof HAEntities },
+      { type: 'state_changed', entity: automationToggle as keyof HAEntities },
     ],
 
     context: (state, _ha, event) => {
-      const automationEnabled = state(automationToggle)?.state === 'on';
+      const automationEnabled = state(automationToggle as keyof HAEntities)?.state === 'on';
 
       let trigger: SonosTrigger = 'system';
       let triggerTo = '';

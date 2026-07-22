@@ -20,7 +20,7 @@ export default defineAutomation({
 
     const heatingEnabled = heatingEnabledState === 'on';
     const callingRooms = HEATING_ROOMS.filter(
-      room => state(`binary_sensor.${room}_trv_heat_required`)?.state === 'on'
+      room => state(`binary_sensor.${room}_trv_heat_required` as keyof HAEntities)?.state === 'on'
     );
     const demand = callingRooms.length > 0;
 

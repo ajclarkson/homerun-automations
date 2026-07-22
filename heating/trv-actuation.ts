@@ -24,7 +24,7 @@ export default defineAutomation({
   context: (state, _ha, event) => {
     const modeToTemp: Record<string, number> = {};
     for (const [mode, helper] of Object.entries(MODE_HELPERS)) {
-      const val = parseFloat(state(helper)?.state ?? '');
+      const val = parseFloat(state(helper as keyof HAEntities)?.state ?? '');
       if (Number.isFinite(val)) modeToTemp[mode] = val;
     }
 
@@ -41,7 +41,7 @@ export default defineAutomation({
     const rooms = targetRooms.map(room => ({
       room,
       trvEntity: `climate.${room}_trv`,
-      mode: state(`sensor.${room}_active_heating`)?.state ?? null,
+      mode: state(`sensor.${room}_active_heating` as keyof HAEntities)?.state ?? null,
     }));
 
     return { rooms, modeToTemp, inputs: { rooms, modeToTemp } };

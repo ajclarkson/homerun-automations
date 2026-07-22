@@ -180,14 +180,14 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
     subsystem: 'heating',
 
     triggers: [
-      { type: 'state_changed', entity: `input_boolean.${location}_automation_heating_enabled` },
+      { type: 'state_changed', entity: `input_boolean.${location}_automation_heating_enabled` as keyof HAEntities },
       { type: 'state_changed', entity: 'sensor.house_active_mode' },
       { type: 'state_changed', entity: 'input_boolean.house_heating_enabled' },
-      { type: 'state_changed', entity: windowEntity },
+      { type: 'state_changed', entity: windowEntity as keyof HAEntities },
       { type: 'state_changed', entity: 'input_boolean.wfh_adam' },
       { type: 'state_changed', entity: 'input_boolean.wfh_sarah' },
-      { type: 'state_changed', entity: manualSelectEntity },
-      { type: 'state_changed', entity: `sensor.${location}_occupied` },
+      { type: 'state_changed', entity: manualSelectEntity as keyof HAEntities },
+      { type: 'state_changed', entity: `sensor.${location}_occupied` as keyof HAEntities },
       { type: 'timer_expired', timerKey: scheduleTimerKey },
       { type: 'timer_expired', timerKey: manualTimerKey },
       { type: 'on_start' },
@@ -198,15 +198,15 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       const weekday = now.getDay() !== 0 && now.getDay() !== 6;
       const manualExpiring = event.type === 'timer_expired' && event.timerKey === manualTimerKey;
 
-      const automationEnabledState = state(`input_boolean.${location}_automation_heating_enabled`)?.state;
+      const automationEnabledState = state(`input_boolean.${location}_automation_heating_enabled` as keyof HAEntities)?.state;
       if (!automationEnabledState || automationEnabledState === 'unavailable' || automationEnabledState === 'unknown') {
         return abort(`automation_enabled_unavailable:${automationEnabledState}`);
       }
       const automationEnabled = automationEnabledState === 'on';
 
-      const currentMode = state(`sensor.${location}_active_heating`)?.state ?? null;
+      const currentMode = state(`sensor.${location}_active_heating` as keyof HAEntities)?.state ?? null;
 
-      const windowOpen = state(windowEntity)?.state === 'on';
+      const windowOpen = state(windowEntity as keyof HAEntities)?.state === 'on';
 
       const heatingSystemEnabled = state('input_boolean.house_heating_enabled')?.state === 'on';
       const forceMinimum = !independent && !heatingSystemEnabled;
@@ -217,12 +217,12 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       const wfhAdam = state('input_boolean.wfh_adam')?.state === 'on';
       const wfhSarah = state('input_boolean.wfh_sarah')?.state === 'on';
 
-      const manualSelectState = state(manualSelectEntity)?.state ?? 'auto';
+      const manualSelectState = state(manualSelectEntity as keyof HAEntities)?.state ?? 'auto';
       const manualMode = (!manualExpiring && manualSelectState !== 'auto' && VALID_HEATING_MODES.has(manualSelectState))
         ? (manualSelectState as HeatingMode)
         : null;
 
-      const occupied = state(`sensor.${location}_occupied`)?.state === 'occupied';
+      const occupied = state(`sensor.${location}_occupied` as keyof HAEntities)?.state === 'occupied';
       const schedule = resolveSchedule(scheduleConfig, weekday, wfhAdam, wfhSarah, now);
 
       return {

@@ -24,7 +24,7 @@ export default defineAutomation({
     const windows = targetRooms.map(room => ({
       room,
       switchEntity: `switch.${room}_trv_window_open_external`,
-      open: state(`binary_sensor.${room}_external_openings`)?.state === 'on',
+      open: state(`binary_sensor.${room}_external_openings` as keyof HAEntities)?.state === 'on',
     }));
 
     return { windows, inputs: { windows } };

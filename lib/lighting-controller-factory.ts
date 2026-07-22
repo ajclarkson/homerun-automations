@@ -96,7 +96,7 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
     subsystem: 'lighting',
 
     triggers: [
-      { type: 'state_changed', entity: `binary_sensor.${location}_occupied` },
+      { type: 'state_changed', entity: `binary_sensor.${location}_occupied` as keyof HAEntities },
       { type: 'button', entity: buttonEntity, gesture: 'single_press' },
       { type: 'button', entity: buttonEntity, gesture: 'hold' },
       { type: 'state_changed', entity: 'sensor.house_active_mode' },
@@ -143,21 +143,21 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
       // Entities suppressing motion-triggered on (e.g. bed occupancy in hallway_upstairs)
       const suppressEntities = ha.entitiesByLabel('lighting_suppress_when_on')
         .filter(e => areaEntities.includes(e));
-      const externalSuppressActive = suppressEntities.some(e => state(e)?.state === 'on');
+      const externalSuppressActive = suppressEntities.some(e => state(e as keyof HAEntities)?.state === 'on');
 
-      const luxRaw = parseFloat(state(`sensor.${location}_sensor_motion_illuminance`)?.state ?? '');
+      const luxRaw = parseFloat(state(`sensor.${location}_sensor_motion_illuminance` as keyof HAEntities)?.state ?? '');
       const lux = Number.isFinite(luxRaw) ? luxRaw : null;
-      const luxThreshRaw = parseFloat(state(`input_number.${location}_automation_lux_threshold_dark`)?.state ?? '');
+      const luxThreshRaw = parseFloat(state(`input_number.${location}_automation_lux_threshold_dark` as keyof HAEntities)?.state ?? '');
       if (!Number.isFinite(luxThreshRaw)) return abort(`lux_threshold_unavailable:${location}`);
       const luxThreshold = luxThreshRaw;
-      const automationEnabled = state(`input_boolean.${location}_automation_lights_enabled`)?.state === 'on';
+      const automationEnabled = state(`input_boolean.${location}_automation_lights_enabled` as keyof HAEntities)?.state === 'on';
       const houseMode = state('sensor.house_active_mode')?.state ?? 'unknown';
       const houseModifier = state('input_select.house_active_mode_modifier')?.state ?? 'none';
-      const presenceOverride = state(`input_boolean.${location}_automation_presence_override`)?.state === 'on';
+      const presenceOverride = state(`input_boolean.${location}_automation_presence_override` as keyof HAEntities)?.state === 'on';
       const guestModeActive = houseModifier === 'guest' && presenceOverride;
-      const occupied = state(`binary_sensor.${location}_occupied`)?.state === 'on';
-      const activeScene = state(`sensor.${location}_active_scene`)?.state ?? null;
-      const recentAutoOff = state(`binary_sensor.${location}_lighting_recent_auto_off`)?.state === 'on';
+      const occupied = state(`binary_sensor.${location}_occupied` as keyof HAEntities)?.state === 'on';
+      const activeScene = state(`sensor.${location}_active_scene` as keyof HAEntities)?.state ?? null;
+      const recentAutoOff = state(`binary_sensor.${location}_lighting_recent_auto_off` as keyof HAEntities)?.state === 'on';
       const isDay = state('sun.sun')?.state === 'above_horizon';
       const blockedBySleep = houseMode === 'sleep' && disableInSleepMode;
 

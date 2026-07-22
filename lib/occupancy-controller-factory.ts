@@ -58,9 +58,9 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
     subsystem: 'occupied',
 
     triggers: [
-      { type: 'state_changed', entity: motionSensor },
-      { type: 'state_changed', entity: motionGate },
-      { type: 'state_changed', entity: presenceOverride },
+      { type: 'state_changed', entity: motionSensor as keyof HAEntities },
+      { type: 'state_changed', entity: motionGate as keyof HAEntities },
+      { type: 'state_changed', entity: presenceOverride as keyof HAEntities },
       ...(config.extraTriggers ?? []),
       { type: 'timer_expired', timerKey },
       { type: 'on_start' },
@@ -83,8 +83,8 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
 
       // Prefer event payload over cached HA state for the triggered entity
       const readState = (entityId: string): string | undefined => {
-        if (sourceEntity === entityId) return sourceValue ?? state(entityId)?.state;
-        return state(entityId)?.state;
+        if (sourceEntity === entityId) return sourceValue ?? state(entityId as keyof HAEntities)?.state;
+        return state(entityId as keyof HAEntities)?.state;
       };
 
       // Discover hold entities via HA labels, filtered to this room's area
@@ -108,8 +108,8 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
         doorEntities.length > 0 &&
         doorEntities.every(e => readState(e) === 'off');
 
-      const occupiedBefore = state(`binary_sensor.${location}_occupied`)?.state === 'on';
-      const containedBefore = state(`binary_sensor.${location}_occupied_contained`)?.state === 'on';
+      const occupiedBefore = state(`binary_sensor.${location}_occupied` as keyof HAEntities)?.state === 'on';
+      const containedBefore = state(`binary_sensor.${location}_occupied_contained` as keyof HAEntities)?.state === 'on';
       const evidenceNow = strongHoldActive || motionActive;
 
       return {
