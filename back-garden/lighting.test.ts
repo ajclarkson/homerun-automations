@@ -24,8 +24,18 @@ const sunriseEvent = {
 const scheduleEvent = { type: 'schedule' as const, cron: '0 22 * * *', correlation_id: 'test-cid' };
 const onStartEvent = { type: 'on_start' as const, correlation_id: 'test-cid' };
 
+function houseModeEvent(to: string) {
+  return {
+    type: 'state_changed' as const,
+    entity_id: 'sensor.house_active_mode',
+    old_state: { entity_id: 'sensor.house_active_mode', state: 'home', attributes: {}, last_changed: '', last_updated: '' },
+    new_state: { entity_id: 'sensor.house_active_mode', state: to, attributes: {}, last_changed: '', last_updated: '' },
+    correlation_id: 'test-cid',
+  };
+}
+
 function run(
-  event: typeof sunsetEvent | typeof scheduleEvent | typeof onStartEvent | typeof sunriseEvent,
+  event: typeof sunsetEvent | typeof scheduleEvent | typeof onStartEvent | typeof sunriseEvent | ReturnType<typeof houseModeEvent>,
   overrideState: Record<string, { state: string }> = {},
 ) {
   return testAutomation(automation, { event, state: { ...baseState, ...overrideState } });
@@ -98,6 +108,29 @@ describe('startup sync', () => {
     vi.setSystemTime(new Date('2026-01-07T22:30:00.000Z'));
     const result = run(onStartEvent, { 'sun.sun': { state: 'below_horizon' } });
     expect(result.decision).toBe('turn_off');
+    expectSceneOff(result.actions);
+  });
+});
+
+describe('sleep mode trigger', () => {
+  it('turns lights off when house enters sleep mode', () => {
+    const result = run(houseModeEvent('sleep'), {
+      'sun.sun': { state: 'below_horizon' },
+      'sensor.house_active_mode': { state: 'sleep' },
+    });
+    expect(result.decision).toBe('turn_off');
+    expect(result.reason).toBe('house_sleep_mode');
+    expectSceneOff(result.actions);
+  });
+
+  it('turns lights off on sleep mode even when automation would otherwise be in on-window', () => {
+    vi.setSystemTime(new Date('2026-01-07T20:00:00.000Z'));
+    const result = run(houseModeEvent('sleep'), {
+      'sun.sun': { state: 'below_horizon' },
+      'sensor.house_active_mode': { state: 'sleep' },
+    });
+    expect(result.decision).toBe('turn_off');
+    expect(result.reason).toBe('house_sleep_mode');
     expectSceneOff(result.actions);
   });
 });
