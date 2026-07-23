@@ -128,10 +128,11 @@ describe('timeline update', () => {
     expect(published.spotted[0].camera).toBe('kitchen');
   });
 
-  it('publishes with retain: true', () => {
+  it('publishes with retain: true and implies the timeline entity', () => {
     const result = run(spottedPayload);
-    const mqtt = result.actions.find((a: unknown) => (a as { type: string }).type === 'mqtt.publish') as { retain: boolean } | undefined;
+    const mqtt = result.actions.find((a: unknown) => (a as { type: string }).type === 'mqtt.publish') as { retain: boolean; impliesEntity?: string } | undefined;
     expect(mqtt?.retain).toBe(true);
+    expect(mqtt?.impliesEntity).toBe('sensor.mo_timeline');
   });
 
   it('handles empty timeline on first run', () => {

@@ -45,7 +45,7 @@ export default defineAutomation({
       reason: 'button_hold_bed_occupied',
       inputs: ctx.inputs,
       actions: [
-        { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'sleep' },
+        { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'sleep', impliesEntity: 'sensor.house_active_mode' },
       ],
     };
   },

@@ -34,7 +34,7 @@ export default defineAutomation({
       reason: 'double_press_bypass',
       inputs: ctx.inputs,
       actions: [
-        { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'sleep' },
+        { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'sleep', impliesEntity: 'sensor.house_active_mode' },
       ],
     };
   },

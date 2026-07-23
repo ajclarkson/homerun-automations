@@ -21,7 +21,7 @@ describe('bedroom:sleep_mode_bypass', () => {
     });
     expect(result.decision).toBe('set_sleep_bypass');
     expect(result.actions).toEqual([
-      { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'sleep' },
+      { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'sleep', impliesEntity: 'sensor.house_active_mode' },
     ]);
   });
 

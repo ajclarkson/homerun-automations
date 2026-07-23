@@ -65,7 +65,7 @@ export default defineAutomation({
       reason: 'button_pressed',
       inputs: ctx.inputs,
       actions: [
-        { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'normal' },
+        { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'normal', impliesEntity: 'sensor.house_active_mode' },
       ],
     };
   },

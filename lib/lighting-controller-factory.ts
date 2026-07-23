@@ -66,20 +66,20 @@ function planScene(scene: string) {
 
 function planRecentAutoOffOn(location: string, delayMs: number) {
   return [
-    { type: 'mqtt.publish' as const, topic: `${location}/lighting/recent_auto_off`, payload: 'ON', retain: true },
+    { type: 'mqtt.publish' as const, topic: `${location}/lighting/recent_auto_off`, payload: 'ON', retain: true, impliesEntity: `binary_sensor.${location}_lighting_recent_auto_off` },
     { type: 'timer.start' as const, timerKey: `${location}:lighting_recent_auto_off`, delayMs },
   ];
 }
 
 function planRecentAutoOffOff(location: string) {
   return [
-    { type: 'mqtt.publish' as const, topic: `${location}/lighting/recent_auto_off`, payload: 'OFF', retain: true },
+    { type: 'mqtt.publish' as const, topic: `${location}/lighting/recent_auto_off`, payload: 'OFF', retain: true, impliesEntity: `binary_sensor.${location}_lighting_recent_auto_off` },
   ];
 }
 
 function planRecentAutoOffCancel(location: string) {
   return [
-    { type: 'mqtt.publish' as const, topic: `${location}/lighting/recent_auto_off`, payload: 'OFF', retain: true },
+    { type: 'mqtt.publish' as const, topic: `${location}/lighting/recent_auto_off`, payload: 'OFF', retain: true, impliesEntity: `binary_sensor.${location}_lighting_recent_auto_off` },
     { type: 'timer.cancel' as const, timerKey: `${location}:lighting_recent_auto_off` },
   ];
 }

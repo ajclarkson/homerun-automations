@@ -168,7 +168,7 @@ export default defineAutomation({
 
     const actions: Action[] = [
       setInputText(cooldownEntity, nowIso),
-      { type: 'mqtt.publish' as const, topic: TIMELINE_TOPIC, payload: timelinePayload, retain: true },
+      { type: 'mqtt.publish' as const, topic: TIMELINE_TOPIC, payload: timelinePayload, retain: true, impliesEntity: 'sensor.mo_timeline' },
     ];
 
     if (notificationsEnabled) {
