@@ -36,16 +36,17 @@ export default defineAutomation({
   ],
 
   context: (state) => {
-    const frameThreshold = parseFloat(state('input_number.bedroom_automation_window_frame_threshold')?.state ?? '');
-    const openDelta      = parseFloat(state('input_number.bedroom_automation_window_open_delta')?.state ?? '');
-    const openHour       = parseInt(state('input_number.bedroom_automation_window_open_hour')?.state ?? '', 10);
-    const rightTemp      = parseFloat(state('sensor.bedroom_sensor_window_right_device_temperature')?.state ?? '');
-    const leftTemp       = parseFloat(state('sensor.bedroom_sensor_window_left_device_temperature')?.state ?? '');
-    const hoIndoorTemp   = parseFloat(state('sensor.home_office_sensor_climate_temperature')?.state ?? '');
-    const bedroomTemp    = parseFloat(state('sensor.bedroom_sensor_climate_temperature')?.state ?? '');
-    const outdoorTemp    = state('weather.forecast_home')?.attributes?.['temperature'] as number | undefined;
+    const frameThreshold   = parseFloat(state('input_number.bedroom_automation_window_frame_threshold')?.state ?? '');
+    const openDelta        = parseFloat(state('input_number.bedroom_automation_window_open_delta')?.state ?? '');
+    const openHour         = parseInt(state('input_number.bedroom_automation_window_open_hour')?.state ?? '', 10);
+    const comfortThreshold = parseFloat(state('input_number.bedroom_automation_window_indoor_comfort_threshold')?.state ?? '');
+    const rightTemp        = parseFloat(state('sensor.bedroom_sensor_window_right_device_temperature')?.state ?? '');
+    const leftTemp         = parseFloat(state('sensor.bedroom_sensor_window_left_device_temperature')?.state ?? '');
+    const hoIndoorTemp     = parseFloat(state('sensor.home_office_sensor_climate_temperature')?.state ?? '');
+    const bedroomTemp      = parseFloat(state('sensor.bedroom_sensor_climate_temperature')?.state ?? '');
+    const outdoorTemp      = state('weather.forecast_home')?.attributes?.['temperature'] as number | undefined;
 
-    const required = { frameThreshold, openDelta, openHour, rightTemp, leftTemp, hoIndoorTemp, bedroomTemp };
+    const required = { frameThreshold, openDelta, openHour, comfortThreshold, rightTemp, leftTemp, hoIndoorTemp, bedroomTemp };
     for (const [name, val] of Object.entries(required)) {
       if (!Number.isFinite(val)) return abort(`sensor_unavailable:${name}`);
     }
@@ -60,11 +61,13 @@ export default defineAutomation({
     const avgIndoorTemp   = (hoIndoorTemp + bedroomTemp) / 2;
     const bedroomOpen     = state('binary_sensor.bedroom_external_openings')?.state === 'on';
     const hoOpen          = state('binary_sensor.home_office_external_openings')?.state === 'on';
-    const bedroomFrameHot     = maxDeviceTemp >= frameThreshold;
-    const outsideWarmerThanHO = outdoorTemp > hoIndoorTemp;
-    const outsideCooler       = outdoorTemp < avgIndoorTemp - openDelta;
-    const openWindowAllowed   = hour >= openHour;
-    const eitherClosed        = !bedroomOpen || !hoOpen;
+    const bedroomFrameHot        = maxDeviceTemp >= frameThreshold;
+    const outsideWarmerThanHO    = outdoorTemp > hoIndoorTemp;
+    const outsideWarmerThanBedroom = outdoorTemp > bedroomTemp;
+    const bedroomActuallyWarm    = bedroomTemp >= comfortThreshold;
+    const outsideCooler          = outdoorTemp < avgIndoorTemp - openDelta;
+    const openWindowAllowed      = hour >= openHour;
+    const eitherClosed           = !bedroomOpen || !hoOpen;
 
     const sentCloseBedroom = state('input_text.window_notification_close_bedroom')?.state;
     const sentCloseHO      = state('input_text.window_notification_close_home_office')?.state;
@@ -84,6 +87,8 @@ export default defineAutomation({
       hoOpen,
       bedroomFrameHot,
       outsideWarmerThanHO,
+      outsideWarmerThanBedroom,
+      bedroomActuallyWarm,
       outsideCooler,
       openWindowAllowed,
       eitherClosed,
@@ -97,7 +102,7 @@ export default defineAutomation({
       inputs: {
         maxDeviceTemp, outdoorTemp, avgIndoorTemp,
         bedroomOpen, hoOpen,
-        bedroomFrameHot, outsideWarmerThanHO, outsideCooler,
+        bedroomFrameHot, outsideWarmerThanHO, outsideWarmerThanBedroom, bedroomActuallyWarm, outsideCooler,
         openWindowAllowed, eitherClosed, hotEventToday,
         sentCloseBedroom, sentCloseHO, sentCloseBoth, sentOpenBoth,
         adamHome, sarahHome,
@@ -109,7 +114,7 @@ export default defineAutomation({
     const {
       today, maxDeviceTemp, outdoorTemp, avgIndoorTemp,
       bedroomOpen, hoOpen,
-      bedroomFrameHot, outsideWarmerThanHO, outsideCooler,
+      bedroomFrameHot, outsideWarmerThanHO, outsideWarmerThanBedroom, bedroomActuallyWarm, outsideCooler,
       openWindowAllowed, eitherClosed, hotEventToday,
       sentCloseBedroom, sentCloseHO, sentCloseBoth, sentOpenBoth,
       adamHome, sarahHome,
@@ -134,7 +139,7 @@ export default defineAutomation({
       title = 'Close bedroom and home office windows';
       message = `South frames at ${maxDeviceTemp}°C and outside air is warmer than indoors`;
       dedupeEntity = 'input_text.window_notification_close_both';
-    } else if (bedroomFrameHot && bedroomOpen && sentCloseBedroom !== today && sentCloseBoth !== today) {
+    } else if (bedroomFrameHot && outsideWarmerThanBedroom && bedroomActuallyWarm && bedroomOpen && sentCloseBedroom !== today && sentCloseBoth !== today) {
       decision = 'notify';
       reason = 'close_bedroom';
       title = 'Close the bedroom windows';

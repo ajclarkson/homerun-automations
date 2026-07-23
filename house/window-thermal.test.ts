@@ -26,6 +26,7 @@ const baseState = {
   'input_number.bedroom_automation_window_frame_threshold': { state: '35' },
   'input_number.bedroom_automation_window_open_delta': { state: '3' },
   'input_number.bedroom_automation_window_open_hour': { state: '9' },
+  'input_number.bedroom_automation_window_indoor_comfort_threshold': { state: '24' },
   'sensor.bedroom_sensor_window_right_device_temperature': { state: '28' },
   'sensor.bedroom_sensor_window_left_device_temperature': { state: '27' },
   'sensor.bedroom_sensor_climate_temperature': { state: '22' },
@@ -106,13 +107,18 @@ describe('close_both', () => {
 // ─── close_bedroom ───────────────────────────────────────────────────────────
 
 describe('close_bedroom', () => {
+  // Frame hot (solar gain on the sensor), but also: outside genuinely warmer than the
+  // bedroom's own air, and the bedroom is already at/above the comfort threshold.
+  // Home office stays out of it (hoIndoorTemp above outdoor) so close_both/close_home_office don't fire.
   const hotFrameState = {
     'sensor.bedroom_sensor_window_right_device_temperature': { state: '38' },
-    'weather.forecast_home': { state: 'sunny', attributes: { temperature: 18 } }, // cooler than indoors
+    'sensor.bedroom_sensor_climate_temperature': { state: '25' }, // >= comfort threshold (24)
+    'sensor.home_office_sensor_climate_temperature': { state: '27' }, // outdoor stays below this
+    'weather.forecast_home': { state: 'sunny', attributes: { temperature: 26 } }, // > bedroomTemp, < hoIndoorTemp
     'binary_sensor.bedroom_external_openings': { state: 'on' },
   };
 
-  it('notifies when frames hot but outside is not warmer than home office', () => {
+  it('notifies when frames hot, outside warmer than bedroom, and bedroom air is actually warm', () => {
     const result = run(hotFrameState);
     expect(result.decision).toBe('notify');
     expect(result.reason).toBe('close_bedroom');
@@ -132,6 +138,24 @@ describe('close_bedroom', () => {
 
   it('no_action when bedroom window is already closed', () => {
     const result = run({ ...hotFrameState, 'binary_sensor.bedroom_external_openings': { state: 'off' } });
+    expect(result.decision).toBe('no_action');
+  });
+
+  it('no_action when frame is hot from direct sun but outside is not actually warmer than the bedroom', () => {
+    // This is the real-world case that motivated the extra gates: a mild ~25°C day where the
+    // frame sensor spikes from direct sun (33-36°C) while indoor air and outdoor temp stay unremarkable.
+    const result = run({
+      ...hotFrameState,
+      'weather.forecast_home': { state: 'sunny', attributes: { temperature: 18 } },
+    });
+    expect(result.decision).toBe('no_action');
+  });
+
+  it('no_action when outside is warmer than bedroom but the bedroom itself is not yet warm', () => {
+    const result = run({
+      ...hotFrameState,
+      'sensor.bedroom_sensor_climate_temperature': { state: '20' }, // below comfort threshold (24)
+    });
     expect(result.decision).toBe('no_action');
   });
 });
