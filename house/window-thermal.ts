@@ -39,7 +39,8 @@ export default defineAutomation({
     const frameThreshold   = parseFloat(state('input_number.bedroom_automation_window_frame_threshold')?.state ?? '');
     const openDelta        = parseFloat(state('input_number.bedroom_automation_window_open_delta')?.state ?? '');
     const openHour         = parseInt(state('input_number.bedroom_automation_window_open_hour')?.state ?? '', 10);
-    const comfortThreshold = parseFloat(state('input_number.bedroom_automation_window_indoor_comfort_threshold')?.state ?? '');
+    // Cast until `npm run codegen` picks up the new helper (entity doesn't exist in HA yet).
+    const comfortThreshold = parseFloat(state('input_number.bedroom_automation_window_indoor_comfort_threshold' as keyof HAEntities)?.state ?? '');
     const rightTemp        = parseFloat(state('sensor.bedroom_sensor_window_right_device_temperature')?.state ?? '');
     const leftTemp         = parseFloat(state('sensor.bedroom_sensor_window_left_device_temperature')?.state ?? '');
     const hoIndoorTemp     = parseFloat(state('sensor.home_office_sensor_climate_temperature')?.state ?? '');
