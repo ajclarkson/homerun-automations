@@ -167,7 +167,7 @@ describe('makeLightingAutomation', () => {
         target: { entity_id: `scene.${LOCATION}_off` }, data: { transition: 0.5 },
       });
       expect(result.actions).toContainEqual({
-        type: 'mqtt.publish', topic: `${LOCATION}/lighting/recent_auto_off`, payload: 'ON', retain: true,
+        type: 'mqtt.publish', topic: `${LOCATION}/lighting/recent_auto_off`, payload: 'ON', retain: true, impliesEntity: `binary_sensor.${LOCATION}_lighting_recent_auto_off`,
       });
       expect(result.actions).toContainEqual(
         expect.objectContaining({ type: 'timer.start', timerKey: `${LOCATION}:lighting_recent_auto_off` }),
@@ -239,7 +239,7 @@ describe('makeLightingAutomation', () => {
         target: { entity_id: `scene.${LOCATION}_off` }, data: { transition: 0.5 },
       });
       expect(result.actions).toContainEqual({
-        type: 'mqtt.publish', topic: `${LOCATION}/lighting/recent_auto_off`, payload: 'ON', retain: true,
+        type: 'mqtt.publish', topic: `${LOCATION}/lighting/recent_auto_off`, payload: 'ON', retain: true, impliesEntity: `binary_sensor.${LOCATION}_lighting_recent_auto_off`,
       });
     });
   });
@@ -335,7 +335,7 @@ describe('makeLightingAutomation', () => {
       });
       expect(result).toMatchObject({ decision: 'clear_recent_auto_off', reason: 'recent_auto_off_expired' });
       expect(result.actions).toContainEqual({
-        type: 'mqtt.publish', topic: `${LOCATION}/lighting/recent_auto_off`, payload: 'OFF', retain: true,
+        type: 'mqtt.publish', topic: `${LOCATION}/lighting/recent_auto_off`, payload: 'OFF', retain: true, impliesEntity: `binary_sensor.${LOCATION}_lighting_recent_auto_off`,
       });
     });
   });

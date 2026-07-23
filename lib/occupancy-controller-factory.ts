@@ -46,7 +46,9 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
   const motionGate = `input_boolean.${location}_sensor_motion_enabled`;
   const presenceOverride = `input_boolean.${location}_automation_presence_override`;
   const occupiedTopic = `${location}/occupied/state`;
+  const occupiedEntity = `binary_sensor.${location}_occupied`;
   const containedTopic = `${location}/occupied/contained/state`;
+  const containedEntity = `binary_sensor.${location}_occupied_contained`;
 
   const delayMs = delayMins * 60_000;
   const containmentMaxMs = containmentMaxMins * 60_000;
@@ -135,8 +137,8 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
       } = ctx;
 
       const actions: Action[] = [];
-      const publish = (topic: string, payload: string) =>
-        actions.push({ type: 'mqtt.publish', topic, payload, retain: true });
+      const publish = (topic: string, payload: string, impliesEntity: string) =>
+        actions.push({ type: 'mqtt.publish', topic, payload, retain: true, impliesEntity });
       const timerStart = (ms: number) =>
         actions.push({ type: 'timer.start', timerKey, delayMs: ms });
       const timerCancel = () =>
@@ -150,7 +152,7 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
       if (isDoorMsg && sourceValue === 'on') containedNext = false;
 
       const publishContainedIfChanged = () => {
-        if (containedNext !== containedBefore) publish(containedTopic, containedNext ? 'ON' : 'OFF');
+        if (containedNext !== containedBefore) publish(containedTopic, containedNext ? 'ON' : 'OFF', containedEntity);
       };
 
       const isTimer = trigger.type === 'timer';
@@ -164,7 +166,7 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
 
       // Branch 1: Evidence present — set occupied, cancel any pending clear timer
       if (evidenceNow) {
-        if (!occupiedBefore) publish(occupiedTopic, 'ON');
+        if (!occupiedBefore) publish(occupiedTopic, 'ON', occupiedEntity);
         publishContainedIfChanged();
         timerCancel();
         return {
@@ -176,10 +178,10 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
 
       // Branch 2: Clear timer fired — mark unoccupied
       if (isTimer) {
-        if (occupiedBefore) publish(occupiedTopic, 'OFF');
+        if (occupiedBefore) publish(occupiedTopic, 'OFF', occupiedEntity);
         // Explicitly clear containment regardless of computed containedNext,
         // because the timer expiry always terminates containment
-        if (containedBefore) publish(containedTopic, 'OFF');
+        if (containedBefore) publish(containedTopic, 'OFF', containedEntity);
         return {
           decision: occupiedBefore ? 'clear_occupied' : 'no_change',
           reason: containedBefore ? 'containment_failsafe_expired' : 'timer_expired',

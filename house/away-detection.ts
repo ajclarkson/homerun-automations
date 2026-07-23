@@ -53,18 +53,18 @@ export default defineAutomation({
 
   reduce: (ctx) => {
     const { noneHome, doorRecentlyChanged, houseMode } = ctx;
-    const actions: { type: 'mqtt.publish'; topic: string; payload: string }[] = [];
+    const actions: { type: 'mqtt.publish'; topic: string; payload: string; impliesEntity?: string }[] = [];
     let decision = 'uninitialised';
     let reason = 'uninitialised';
 
     if (noneHome && doorRecentlyChanged) {
       decision = 'set_away';
       reason = 'all_left_door_recently';
-      actions.push({ type: 'mqtt.publish', topic: 'house/mode/active', payload: 'away' });
+      actions.push({ type: 'mqtt.publish', topic: 'house/mode/active', payload: 'away', impliesEntity: 'sensor.house_active_mode' });
     } else if (!noneHome && houseMode === 'away') {
       decision = 'set_normal';
       reason = 'someone_returned';
-      actions.push({ type: 'mqtt.publish', topic: 'house/mode/active', payload: 'normal' });
+      actions.push({ type: 'mqtt.publish', topic: 'house/mode/active', payload: 'normal', impliesEntity: 'sensor.house_active_mode' });
     } else if (noneHome) {
       decision = 'no_action';
       reason = 'no_door_event';

@@ -29,7 +29,7 @@ describe('house:away-detection', () => {
     expect(result.decision).toBe('set_away');
     expect(result.reason).toBe('all_left_door_recently');
     expect(result.actions).toEqual([
-      { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'away' },
+      { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'away', impliesEntity: 'sensor.house_active_mode' },
     ]);
   });
 
@@ -60,7 +60,7 @@ describe('house:away-detection', () => {
     expect(result.decision).toBe('set_normal');
     expect(result.reason).toBe('someone_returned');
     expect(result.actions).toEqual([
-      { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'normal' },
+      { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'normal', impliesEntity: 'sensor.house_active_mode' },
     ]);
   });
 

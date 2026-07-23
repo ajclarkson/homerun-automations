@@ -85,7 +85,7 @@ describe('makeOccupancyAutomation', () => {
         ha: noHolds,
       });
       expect(result).toMatchObject({ decision: 'set_occupied', reason: 'motion_detected' });
-      expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/state`, payload: 'ON', retain: true });
+      expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/state`, payload: 'ON', retain: true, impliesEntity: `binary_sensor.${LOCATION}_occupied` });
       expect(result.actions).toContainEqual({ type: 'timer.cancel', timerKey: TIMER_KEY });
     });
 
@@ -107,7 +107,7 @@ describe('makeOccupancyAutomation', () => {
         ha: withStrongHold,
       });
       expect(result).toMatchObject({ decision: 'set_occupied', reason: 'strong_hold_active' });
-      expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/state`, payload: 'ON', retain: true });
+      expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/state`, payload: 'ON', retain: true, impliesEntity: `binary_sensor.${LOCATION}_occupied` });
     });
 
     it('cancels any pending clear timer when a presence hold is active and room was already occupied', () => {
@@ -240,7 +240,7 @@ describe('makeOccupancyAutomation', () => {
         ha: noHolds,
       });
       expect(result).toMatchObject({ decision: 'clear_occupied', reason: 'timer_expired' });
-      expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/state`, payload: 'OFF', retain: true });
+      expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/state`, payload: 'OFF', retain: true, impliesEntity: `binary_sensor.${LOCATION}_occupied` });
     });
 
     it('does nothing if the timer fires when room is already unoccupied', () => {
@@ -264,8 +264,8 @@ describe('makeOccupancyAutomation', () => {
         ha: withDoor,
       });
       expect(result).toMatchObject({ decision: 'clear_occupied', reason: 'containment_failsafe_expired' });
-      expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/state`, payload: 'OFF', retain: true });
-      expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/contained/state`, payload: 'OFF', retain: true });
+      expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/state`, payload: 'OFF', retain: true, impliesEntity: `binary_sensor.${LOCATION}_occupied` });
+      expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/contained/state`, payload: 'OFF', retain: true, impliesEntity: `binary_sensor.${LOCATION}_occupied_contained` });
     });
   });
 
@@ -277,7 +277,7 @@ describe('makeOccupancyAutomation', () => {
         ha: withDoor,
       });
       expect(result).toMatchObject({ decision: 'set_occupied' });
-      expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/contained/state`, payload: 'ON', retain: true });
+      expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/contained/state`, payload: 'ON', retain: true, impliesEntity: `binary_sensor.${LOCATION}_occupied_contained` });
     });
 
     it('does not mark contained when motion fires with a door open', () => {
@@ -314,7 +314,7 @@ describe('makeOccupancyAutomation', () => {
         ha: withDoor,
       });
       expect(result).toMatchObject({ decision: 'no_change', reason: 'door_open_tighten_timer' });
-      expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/contained/state`, payload: 'OFF', retain: true });
+      expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/contained/state`, payload: 'OFF', retain: true, impliesEntity: `binary_sensor.${LOCATION}_occupied_contained` });
       expect(result.actions).toContainEqual(expect.objectContaining({ type: 'timer.start', delayMs: 1 * 60_000 }));
     });
   });
@@ -353,7 +353,7 @@ describe('makeOccupancyAutomation', () => {
         },
         ha: withDoor,
       });
-      expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/contained/state`, payload: 'OFF', retain: true });
+      expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/contained/state`, payload: 'OFF', retain: true, impliesEntity: `binary_sensor.${LOCATION}_occupied_contained` });
     });
 
     it('drops containment but leaves timer untouched when PIR fires with gate off in a contained room', () => {
@@ -368,7 +368,7 @@ describe('makeOccupancyAutomation', () => {
         ha: withDoor,
       });
       expect(result).toMatchObject({ decision: 'no_change', reason: 'motion_disabled_ignore_pir' });
-      expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/contained/state`, payload: 'OFF', retain: true });
+      expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/contained/state`, payload: 'OFF', retain: true, impliesEntity: `binary_sensor.${LOCATION}_occupied_contained` });
       expect(result.actions).not.toContainEqual(expect.objectContaining({ type: 'timer.start' }));
       expect(result.actions).not.toContainEqual(expect.objectContaining({ type: 'timer.cancel' }));
     });

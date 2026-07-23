@@ -23,7 +23,7 @@ describe('house:exit_sleep_button', () => {
     });
     expect(result.decision).toBe('exit_sleep');
     expect(result.actions).toEqual([
-      { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'normal' },
+      { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'normal', impliesEntity: 'sensor.house_active_mode' },
     ]);
   });
 

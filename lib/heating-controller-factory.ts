@@ -172,7 +172,9 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
   const manualTimerKey = `${location}:${MANUAL_TIMER_SUFFIX}`;
   const manualSelectEntity = `input_select.${location}_heating_manual_mode`;
   const activeHeatingTopic = `${location}/heating/active`;
+  const activeHeatingEntity = `sensor.${location}_active_heating`;
   const sourceTopic = `${location}/heating/source`;
+  const sourceEntity = `sensor.${location}_heating_source`;
 
   return defineAutomation<HeatingContext>({
     id: `${location}:heating`,
@@ -332,8 +334,8 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       }
 
       // Stage 8 — emit mode + source
-      actions.push({ type: 'mqtt.publish', topic: activeHeatingTopic, payload: targetMode, retain: true });
-      actions.push({ type: 'mqtt.publish', topic: sourceTopic, payload: source, retain: true });
+      actions.push({ type: 'mqtt.publish', topic: activeHeatingTopic, payload: targetMode, retain: true, impliesEntity: activeHeatingEntity });
+      actions.push({ type: 'mqtt.publish', topic: sourceTopic, payload: source, retain: true, impliesEntity: sourceEntity });
       actions.push(...planTimer(scheduleTimerKey, schedule.validUntilMs, nowMs));
 
       return { decision, reason, inputs: ctx.inputs, actions };

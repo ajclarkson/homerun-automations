@@ -453,6 +453,7 @@ function expectModePublished(actions: Action[], mode: string) {
   expect(pub).toBeDefined();
   expect((pub as any).payload).toBe(mode);
   expect((pub as any).retain).toBe(true);
+  expect((pub as any).impliesEntity).toBe(`sensor.${LOCATION}_active_heating`);
 }
 
 function expectSourcePublished(actions: Action[], source: string) {
@@ -461,6 +462,7 @@ function expectSourcePublished(actions: Action[], source: string) {
   );
   expect(pub).toBeDefined();
   expect((pub as any).payload).toBe(source);
+  expect((pub as any).impliesEntity).toBe(`sensor.${LOCATION}_heating_source`);
 }
 
 type Action = { type: string; [key: string]: unknown };
