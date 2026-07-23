@@ -116,23 +116,27 @@ const wfhReset = defineAutomation({
   context: (state) => {
     const workday = state('binary_sensor.workday_sensor')?.state;
 
-    if (workday !== 'off') return abort('not_a_non_workday');
-
     return {
       workday,
       inputs: { workday },
     };
   },
 
-  reduce: (ctx) => ({
-    decision: 'clear',
-    reason: 'non_workday',
-    inputs: ctx.inputs,
-    actions: [
-      HomeAssistant.input_boolean.turn_off({ entity_id: 'input_boolean.wfh_adam' }),
-      HomeAssistant.input_boolean.turn_off({ entity_id: 'input_boolean.wfh_sarah' }),
-    ],
-  }),
+  reduce: (ctx) => {
+    if (ctx.workday !== 'off') {
+      return { decision: 'no_action', reason: 'not_a_non_workday', inputs: ctx.inputs, actions: [] };
+    }
+
+    return {
+      decision: 'clear',
+      reason: 'non_workday',
+      inputs: ctx.inputs,
+      actions: [
+        HomeAssistant.input_boolean.turn_off({ entity_id: 'input_boolean.wfh_adam' }),
+        HomeAssistant.input_boolean.turn_off({ entity_id: 'input_boolean.wfh_sarah' }),
+      ],
+    };
+  },
 });
 
 export { adamWfh, sarahWfh, wfhReset };

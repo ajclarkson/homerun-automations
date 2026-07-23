@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAutomation } from '@ajclarkson/homerun/testing';
 import { adamWfh, sarahWfh, wfhReset } from './wfh.js';
 
 const WED = new Date('2026-07-22T06:00:00.000Z'); // Wednesday
@@ -144,11 +144,13 @@ describe('WFH reset', () => {
     expectBooleanOff(result.actions, 'input_boolean.wfh_sarah');
   });
 
-  it('aborts when workday sensor turns on (not a clear event)', () => {
-    const result = testAbort(wfhReset, {
+  it('takes no action when workday sensor turns on (not a clear event)', () => {
+    const result = testAutomation(wfhReset, {
       event: workdayOnEvent,
       state: baseState,
     });
+    expect(result.decision).toBe('no_action');
     expect(result.reason).toBe('not_a_non_workday');
+    expect(result.actions).toHaveLength(0);
   });
 });
