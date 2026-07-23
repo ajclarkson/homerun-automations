@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "codegen": "homerun-generate-ha-types",
+    "codegen": "homerun-generate-ha-types && node scripts/filter-ha-types.mjs",
     "postinstall": "git config core.hooksPath .githooks || true",
     "test": "vitest",
     "test:run": "vitest run",
