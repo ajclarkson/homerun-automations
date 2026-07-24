@@ -45,7 +45,6 @@ export default defineAutomation({
       today,
       todayHigh,
       history,
-      inputs: { today, todayHigh, historyRaw, existingDate: history.date, entryCount: history.temps.length },
     };
   },
 
@@ -53,7 +52,7 @@ export default defineAutomation({
     const { today, todayHigh, history } = ctx;
 
     if (history.date === today) {
-      return { decision: 'no_action', reason: 'already_recorded_today', inputs: ctx.inputs, actions: [] };
+      return { decision: 'no_action', reason: 'already_recorded_today', actions: [] };
     }
 
     const temps = [...history.temps, todayHigh];
@@ -64,7 +63,6 @@ export default defineAutomation({
     return {
       decision: 'record',
       reason: 'end_of_day',
-      inputs: ctx.inputs,
       actions: [
         {
           type: 'ha.call_service',

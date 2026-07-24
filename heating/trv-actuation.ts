@@ -44,7 +44,7 @@ export default defineAutomation({
       mode: state(`sensor.${room}_active_heating` as keyof HAEntities)?.state ?? null,
     }));
 
-    return { rooms, modeToTemp, inputs: { rooms, modeToTemp } };
+    return { rooms, modeToTemp };
   },
 
   reduce: (ctx) => {
@@ -78,7 +78,6 @@ export default defineAutomation({
     return {
       decision: actions.length > 0 ? 'set_trvs' : 'no_action',
       reason: roomSummary.length > 0 ? roomSummary.join(';') : 'no_valid_rooms',
-      inputs: ctx.inputs,
       actions,
     };
   },

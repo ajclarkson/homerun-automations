@@ -22,13 +22,12 @@ function makeTempFeedAutomation(location: string) {
       const temp = parseFloat(tempStr ?? '');
       if (!Number.isFinite(temp)) return abort(`temp_unavailable:${tempStr}`);
       if (temp < MIN_ROOM_TEMP_C || temp > MAX_ROOM_TEMP_C) return abort(`temp_out_of_range:${temp}`);
-      return { temp, reason: event.type === 'schedule' ? 'heartbeat' : 'temp_changed', inputs: { sensorEntity, temp } };
+      return { temp, reason: event.type === 'schedule' ? 'heartbeat' : 'temp_changed', sensorEntity };
     },
 
     reduce: (ctx) => ({
       decision: 'update_external_temp',
       reason: ctx.reason,
-      inputs: ctx.inputs,
       actions: [{
         type: 'ha.call_service',
         domain: 'number',

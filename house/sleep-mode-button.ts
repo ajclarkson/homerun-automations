@@ -26,24 +26,22 @@ export default defineAutomation({
       bedOccupied: bedOccupied === 'on',
       houseMode,
       parlourActive,
-      inputs: { bedOccupied, houseMode, parlourActive },
     };
   },
 
   reduce: (ctx) => {
     if (!ctx.bedOccupied) {
-      return { decision: 'no_action', reason: 'bed_not_occupied', inputs: ctx.inputs, actions: [] };
+      return { decision: 'no_action', reason: 'bed_not_occupied', actions: [] };
     }
     if (ctx.parlourActive) {
-      return { decision: 'no_action', reason: 'parlour_active', inputs: ctx.inputs, actions: [] };
+      return { decision: 'no_action', reason: 'parlour_active', actions: [] };
     }
     if (ctx.houseMode === 'sleep') {
-      return { decision: 'no_action', reason: 'already_in_sleep_mode', inputs: ctx.inputs, actions: [] };
+      return { decision: 'no_action', reason: 'already_in_sleep_mode', actions: [] };
     }
     return {
       decision: 'set_sleep',
       reason: 'button_hold_bed_occupied',
-      inputs: ctx.inputs,
       actions: [
         { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'sleep', impliesEntity: 'sensor.house_active_mode' },
       ],

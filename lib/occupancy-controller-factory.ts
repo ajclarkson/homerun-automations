@@ -30,7 +30,6 @@ interface OccupancyContext {
   containedBefore: boolean;
   sourceEntity: string | null;
   sourceValue: string | null;
-  inputs: Record<string, unknown>;
 }
 
 export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
@@ -120,11 +119,6 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
         strongHoldActive, evidenceNow, isDoorMsg, sealedNow,
         occupiedBefore, containedBefore,
         sourceEntity, sourceValue,
-        inputs: {
-          trigger, motionEnabled, pirRaw, motionActive, pirTriggered,
-          strongHoldActive, evidenceNow, sealedNow, occupiedBefore, containedBefore,
-          sourceEntity, sourceValue,
-        },
       };
     },
 
@@ -161,7 +155,7 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
       // The gate means "ignore PIR entirely"; the existing clear timer should keep ticking.
       if (pirTriggered && !motionEnabled) {
         publishContainedIfChanged();
-        return { decision: 'no_change', reason: 'motion_disabled_ignore_pir', inputs: ctx.inputs, actions };
+        return { decision: 'no_change', reason: 'motion_disabled_ignore_pir', actions };
       }
 
       // Branch 1: Evidence present — set occupied, cancel any pending clear timer
@@ -172,7 +166,7 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
         return {
           decision: occupiedBefore ? 'no_change' : 'set_occupied',
           reason: strongHoldActive ? 'strong_hold_active' : 'motion_detected',
-          inputs: ctx.inputs, actions,
+          actions,
         };
       }
 
@@ -185,7 +179,7 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
         return {
           decision: occupiedBefore ? 'clear_occupied' : 'no_change',
           reason: containedBefore ? 'containment_failsafe_expired' : 'timer_expired',
-          inputs: ctx.inputs, actions,
+          actions,
         };
       }
 
@@ -194,19 +188,19 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
         publishContainedIfChanged();
         if (isDoorMsg && sourceValue === 'on' && !strongHoldActive && !pirRaw) {
           timerStart(reopenTightenMs);
-          return { decision: 'no_change', reason: 'door_open_tighten_timer', inputs: ctx.inputs, actions };
+          return { decision: 'no_change', reason: 'door_open_tighten_timer', actions };
         }
         if (containedNext && sealedNow) {
           timerStart(containmentMaxMs);
-          return { decision: 'no_change', reason: 'contained_failsafe_wait', inputs: ctx.inputs, actions };
+          return { decision: 'no_change', reason: 'contained_failsafe_wait', actions };
         }
         timerStart(delayMs);
-        return { decision: 'no_change', reason: 'normal_clear_timer', inputs: ctx.inputs, actions };
+        return { decision: 'no_change', reason: 'normal_clear_timer', actions };
       }
 
       // Branch 4: No evidence, already unoccupied — idempotent timer cancel
       timerCancel();
-      return { decision: 'no_change', reason: 'already_unoccupied', inputs: ctx.inputs, actions };
+      return { decision: 'no_change', reason: 'already_unoccupied', actions };
     },
   });
 }

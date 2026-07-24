@@ -41,13 +41,6 @@ export default defineAutomation({
       noneHome,
       doorRecentlyChanged,
       houseMode,
-      inputs: {
-        personCount,
-        noneHome,
-        houseMode,
-        timeSinceDoorsChangedMs,
-        doorRecentlyChanged,
-      },
     };
   },
 
@@ -76,7 +69,6 @@ export default defineAutomation({
     return {
       decision,
       reason,
-      inputs: ctx.inputs,
       actions,
     };
   },

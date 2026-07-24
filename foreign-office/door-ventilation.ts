@@ -58,13 +58,7 @@ export default defineAutomation({
       outdoorCoolerThanIndoor,
       outdoorWarmerThanIndoor,
       fanRunning,
-      inputs: {
-        foIndoorTemp, outdoorTemp, fanPower,
-        doorOpen, foOccupied, wfhAdam,
-        openDelta, cooldownMins,
-        openCooldownActive, closeCooldownActive,
-        outdoorCoolerThanIndoor, outdoorWarmerThanIndoor, fanRunning,
-      },
+      fanPower,
     };
   },
 
@@ -78,7 +72,7 @@ export default defineAutomation({
     } = ctx;
 
     if (!foOccupied || !wfhAdam) {
-      return { decision: 'no_action', reason: 'not_active', inputs: ctx.inputs, actions: [] };
+      return { decision: 'no_action', reason: 'not_active', actions: [] };
     }
 
     const nowIso = new Date().toISOString();
@@ -91,7 +85,6 @@ export default defineAutomation({
       return {
         decision: 'notify',
         reason: 'open_door',
-        inputs: ctx.inputs,
         actions: [
           {
             type: 'ha.call_service',
@@ -114,7 +107,6 @@ export default defineAutomation({
       return {
         decision: 'notify',
         reason: 'close_door',
-        inputs: ctx.inputs,
         actions: [
           {
             type: 'ha.call_service',
@@ -136,6 +128,6 @@ export default defineAutomation({
       };
     }
 
-    return { decision: 'no_action', reason: 'conditions_not_met', inputs: ctx.inputs, actions: [] };
+    return { decision: 'no_action', reason: 'conditions_not_met', actions: [] };
   },
 });

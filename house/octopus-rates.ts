@@ -43,7 +43,6 @@ const cheapRateNudge = defineAutomation({
       negWindows,
       adamHome,
       sarahHome,
-      inputs: { nextTime, nextRate, negWindows, adamHome, sarahHome },
     };
   },
 
@@ -62,7 +61,7 @@ const cheapRateNudge = defineAutomation({
       ? [adamHome && 'adam', sarahHome && 'sarah'].filter(Boolean).join('_and_')
       : 'nobody_home';
 
-    return { decision, reason, inputs: ctx.inputs, actions };
+    return { decision, reason, actions };
   },
 });
 
@@ -117,7 +116,6 @@ const tomorrowRatesNudge = defineAutomation({
       cheapWindows,
       hasNeg,
       hasCheap,
-      inputs: { negWindows, cheapWindows, hasNeg, hasCheap },
     };
   },
 
@@ -125,7 +123,7 @@ const tomorrowRatesNudge = defineAutomation({
     const { negWindows, cheapWindows, hasNeg, hasCheap } = ctx;
 
     if (!hasNeg && !hasCheap) {
-      return { decision: 'no_action', reason: 'no_notable_windows_tomorrow', inputs: ctx.inputs, actions: [] };
+      return { decision: 'no_action', reason: 'no_notable_windows_tomorrow', actions: [] };
     }
 
     const notification = buildTomorrowNotification(negWindows, cheapWindows, hasNeg, hasCheap);
@@ -133,7 +131,6 @@ const tomorrowRatesNudge = defineAutomation({
     return {
       decision: 'notify',
       reason: hasNeg ? 'negative_windows' : 'cheap_windows',
-      inputs: ctx.inputs,
       actions: [
         notifyAction('mobile_app_adams_iphone',  notification),
         notifyAction('mobile_app_sarahs_iphone', notification),
