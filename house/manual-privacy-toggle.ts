@@ -1,4 +1,4 @@
-import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
+import { defineAutomation, requireState, HomeAssistant } from '@ajclarkson/homerun';
 
 export default defineAutomation({
   id: 'house:manual_privacy_toggle',
@@ -10,11 +10,7 @@ export default defineAutomation({
   ],
 
   context: (state) => {
-    const privacyState = state('switch.parlour_privacy')?.state;
-
-    if (!privacyState || privacyState === 'unavailable' || privacyState === 'unknown') {
-      return abort(`privacy_switch_unavailable:${privacyState}`);
-    }
+    const privacyState = requireState(state, 'switch.parlour_privacy');
 
     return {
       privacyOn: privacyState === 'on',

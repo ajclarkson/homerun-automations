@@ -1,4 +1,4 @@
-import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
+import { defineAutomation, requireState, requireNumericState, HomeAssistant } from '@ajclarkson/homerun';
 
 const OVERTEMP_THRESHOLD_C = 25;
 
@@ -14,16 +14,9 @@ export default defineAutomation({
   ],
 
   context: (state) => {
-    const heaterState = state('switch.foreign_office_plug_heater')?.state;
-    if (!heaterState || heaterState === 'unavailable' || heaterState === 'unknown') {
-      return abort(`heater_unavailable:${heaterState}`);
-    }
+    const heaterState = requireState(state, 'switch.foreign_office_plug_heater');
 
-    const tempStr = state('sensor.foreign_office_sensor_climate_temperature')?.state;
-    const temp = parseFloat(tempStr ?? '');
-    if (!Number.isFinite(temp)) {
-      return abort(`temp_unavailable:${tempStr}`);
-    }
+    const temp = requireNumericState(state, 'sensor.foreign_office_sensor_climate_temperature');
 
     return {
       temp,

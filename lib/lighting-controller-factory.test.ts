@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAutomation, testAbort, testUnavailable } from '@ajclarkson/homerun/testing';
 import type { HAContext } from '@ajclarkson/homerun';
 import { makeLightingAutomation } from './lighting-controller-factory.js';
 
@@ -385,12 +385,12 @@ describe('makeLightingAutomation', () => {
 
     it('aborts when the lux threshold helper is missing, surfacing the misconfiguration', () => {
       const { [`input_number.${LOCATION}_automation_lux_threshold_dark`]: _, ...stateWithoutThreshold } = baseState;
-      const result = testAbort(automation, {
+      const entityId = testUnavailable(automation, {
         event: occupancyEvent('on'),
         state: stateWithoutThreshold,
         ha: makeHa(),
       });
-      expect(result.reason).toEqual(expect.stringContaining('lux_threshold_unavailable'));
+      expect(entityId).toBe(`input_number.${LOCATION}_automation_lux_threshold_dark`);
     });
   });
 });

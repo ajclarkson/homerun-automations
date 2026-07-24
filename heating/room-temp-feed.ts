@@ -1,4 +1,4 @@
-import { defineAutomation, abort } from '@ajclarkson/homerun';
+import { defineAutomation, abort, requireNumericState } from '@ajclarkson/homerun';
 import { HEATING_ROOMS } from '../lib/heating-rooms.js';
 
 const MIN_ROOM_TEMP_C = 0;
@@ -18,9 +18,7 @@ function makeTempFeedAutomation(location: string) {
     ],
 
     context: (state, _ha, event) => {
-      const tempStr = state(sensorEntity as keyof HAEntities)?.state;
-      const temp = parseFloat(tempStr ?? '');
-      if (!Number.isFinite(temp)) return abort(`temp_unavailable:${tempStr}`);
+      const temp = requireNumericState(state, sensorEntity as keyof HAEntities);
       if (temp < MIN_ROOM_TEMP_C || temp > MAX_ROOM_TEMP_C) return abort(`temp_out_of_range:${temp}`);
       return { temp, reason: event.type === 'schedule' ? 'heartbeat' : 'temp_changed', sensorEntity };
     },

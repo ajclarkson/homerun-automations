@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAutomation, testAbort, testUnavailable } from '@ajclarkson/homerun/testing';
 import automation from './window-thermal.js';
 
 const TODAY = '2026-07-21';
@@ -289,14 +289,14 @@ describe('presence routing', () => {
 
 describe('abort on missing sensors', () => {
   it('aborts when a window frame temperature is unavailable', () => {
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: triggerEvent,
       state: {
         ...baseState,
         'sensor.bedroom_sensor_window_right_device_temperature': { state: 'unavailable' },
       },
     });
-    expect(result.reason).toMatch(/sensor_unavailable:rightTemp/);
+    expect(entityId).toBe('sensor.bedroom_sensor_window_right_device_temperature');
   });
 
   it('aborts when outdoor temperature is missing from weather attributes', () => {

@@ -1,4 +1,4 @@
-import { defineAutomation, abort, HomeAssistant, type Action } from '@ajclarkson/homerun';
+import { defineAutomation, requireState, HomeAssistant, type Action } from '@ajclarkson/homerun';
 
 // ---- Types ----
 
@@ -199,10 +199,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       const weekday = now.getDay() !== 0 && now.getDay() !== 6;
       const manualExpiring = event.type === 'timer_expired' && event.timerKey === manualTimerKey;
 
-      const automationEnabledState = state(`input_boolean.${location}_automation_heating_enabled` as keyof HAEntities)?.state;
-      if (!automationEnabledState || automationEnabledState === 'unavailable' || automationEnabledState === 'unknown') {
-        return abort(`automation_enabled_unavailable:${automationEnabledState}`);
-      }
+      const automationEnabledState = requireState(state, `input_boolean.${location}_automation_heating_enabled` as keyof HAEntities);
       const automationEnabled = automationEnabledState === 'on';
 
       const currentMode = state(`sensor.${location}_active_heating` as keyof HAEntities)?.state ?? null;

@@ -1,4 +1,4 @@
-import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
+import { defineAutomation, requireState, HomeAssistant } from '@ajclarkson/homerun';
 
 export default defineAutomation({
   id: 'house:patio_door',
@@ -11,20 +11,11 @@ export default defineAutomation({
   ],
 
   context: (state) => {
-    const doorState = state('binary_sensor.parlour_sensor_door_patio_contact')?.state;
-    if (!doorState || doorState === 'unavailable' || doorState === 'unknown') {
-      return abort(`door_unavailable:${doorState}`);
-    }
+    const doorState = requireState(state, 'binary_sensor.parlour_sensor_door_patio_contact');
 
-    const heatingEnabledState = state('input_boolean.house_heating_enabled')?.state;
-    if (!heatingEnabledState || heatingEnabledState === 'unavailable' || heatingEnabledState === 'unknown') {
-      return abort(`heating_enabled_unavailable:${heatingEnabledState}`);
-    }
+    const heatingEnabledState = requireState(state, 'input_boolean.house_heating_enabled');
 
-    const suspendedState = state('input_boolean.patio_door_heating_suspended')?.state;
-    if (!suspendedState || suspendedState === 'unavailable' || suspendedState === 'unknown') {
-      return abort(`suspended_flag_unavailable:${suspendedState}`);
-    }
+    const suspendedState = requireState(state, 'input_boolean.patio_door_heating_suspended');
 
     const doorOpen  = doorState === 'on';
     const heatingOn = heatingEnabledState === 'on';

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAutomation, testUnavailable } from '@ajclarkson/homerun/testing';
 import automation from './overtemp-safety.js';
 
 const tempTrigger = {
@@ -69,25 +69,26 @@ describe('foreign_office:overtemp-safety', () => {
   });
 
   it('aborts when heater switch is unavailable', () => {
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: tempTrigger,
       state: { ...baseState, 'switch.foreign_office_plug_heater': { state: 'unavailable' } },
     });
 
-    expect(result.reason).toMatch(/heater_unavailable/);
+    expect(entityId).toBe('switch.foreign_office_plug_heater');
   });
 
   it('aborts when temp sensor is unavailable', () => {
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: tempTrigger,
       state: { ...baseState, 'sensor.foreign_office_sensor_climate_temperature': { state: 'unavailable' } },
     });
 
-    expect(result.reason).toMatch(/temp_unavailable/);
+    expect(entityId).toBe('sensor.foreign_office_sensor_climate_temperature');
   });
 
   it('aborts when temp sensor is missing from state', () => {
     const { 'sensor.foreign_office_sensor_climate_temperature': _removed, ...stateWithoutTemp } = baseState;
-    testAbort(automation, { event: tempTrigger, state: stateWithoutTemp });
+    const entityId = testUnavailable(automation, { event: tempTrigger, state: stateWithoutTemp });
+    expect(entityId).toBe('sensor.foreign_office_sensor_climate_temperature');
   });
 });

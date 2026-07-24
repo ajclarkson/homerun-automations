@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAutomation, testAbort, testUnavailable } from '@ajclarkson/homerun/testing';
 import automation from './exit-sleep-button.js';
 
 const buttonTrigger = (entity: string) => ({
@@ -68,26 +68,26 @@ describe('house:exit_sleep_button', () => {
   });
 
   it('aborts when house mode is unavailable', () => {
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: buttonTrigger('sensor.hallway_downstairs_button_wall_action'),
       state: { ...baseState, 'sensor.house_active_mode': { state: 'unavailable' } },
     });
-    expect(result.reason).toEqual(expect.stringContaining('house_mode_unavailable'));
+    expect(entityId).toBe('sensor.house_active_mode');
   });
 
   it('aborts when bed sensor is unavailable for bedroom button', () => {
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: buttonTrigger('sensor.bedroom_button_adam_action'),
       state: { ...baseState, 'binary_sensor.bedroom_sensor_bed_occupancy': { state: 'unavailable' } },
     });
-    expect(result.reason).toEqual(expect.stringContaining('bed_sensor_unavailable'));
+    expect(entityId).toBe('binary_sensor.bedroom_sensor_bed_occupancy');
   });
 
   it('aborts when modifier is unavailable for home office button', () => {
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: buttonTrigger('sensor.home_office_button_wall_action'),
       state: { ...baseState, 'input_select.house_active_mode_modifier': { state: 'unavailable' } },
     });
-    expect(result.reason).toEqual(expect.stringContaining('modifier_unavailable'));
+    expect(entityId).toBe('input_select.house_active_mode_modifier');
   });
 });

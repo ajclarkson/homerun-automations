@@ -1,4 +1,4 @@
-import { defineAutomation, abort } from '@ajclarkson/homerun';
+import { defineAutomation, abort, requireNumericState } from '@ajclarkson/homerun';
 
 export default defineAutomation({
   id: 'foreign_office:door_ventilation',
@@ -15,15 +15,11 @@ export default defineAutomation({
   ],
 
   context: (state) => {
-    const openDelta    = parseFloat(state('input_number.foreign_office_automation_door_open_delta')?.state ?? '');
-    const cooldownMins = parseInt(state('input_number.foreign_office_automation_door_notification_cooldown_mins')?.state ?? '', 10);
-    const foIndoorTemp = parseFloat(state('sensor.foreign_office_sensor_climate_temperature')?.state ?? '');
+    const openDelta    = requireNumericState(state, 'input_number.foreign_office_automation_door_open_delta');
+    const cooldownMins = requireNumericState(state, 'input_number.foreign_office_automation_door_notification_cooldown_mins');
+    const foIndoorTemp = requireNumericState(state, 'sensor.foreign_office_sensor_climate_temperature');
     const outdoorTemp  = state('weather.forecast_home')?.attributes?.['temperature'] as number | undefined;
 
-    const required = { openDelta, cooldownMins, foIndoorTemp };
-    for (const [name, val] of Object.entries(required)) {
-      if (!Number.isFinite(val)) return abort(`sensor_unavailable:${name}`);
-    }
     if (outdoorTemp === undefined || !Number.isFinite(outdoorTemp)) {
       return abort('sensor_unavailable:outdoorTemp');
     }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAutomation, testAbort, testUnavailable } from '@ajclarkson/homerun/testing';
 import automation from './away-detection.js';
 
 const RECENTLY = new Date(Date.now() - 10 * 60 * 1000).toISOString();
@@ -92,22 +92,22 @@ describe('house:away-detection', () => {
   });
 
   it('aborts when zone.home is unavailable', () => {
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: zoneTrigger,
       state: { ...baseState, 'zone.home': { state: 'unavailable' } },
     });
 
-    expect(result.reason).toMatch(/zone_home_unavailable/);
+    expect(entityId).toBe('zone.home');
   });
 
   it('aborts when house mode is missing', () => {
     const { 'sensor.house_active_mode': _removed, ...stateWithoutMode } = baseState;
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: zoneTrigger,
       state: stateWithoutMode,
     });
 
-    expect(result.reason).toBe('house_mode_unavailable');
+    expect(entityId).toBe('sensor.house_active_mode');
   });
 
   it('aborts when doors entity is missing', () => {

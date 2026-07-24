@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAutomation, testUnavailable } from '@ajclarkson/homerun/testing';
 import automation from './sleep-mode-bypass.js';
 
 const doublePressEvent = {
@@ -34,18 +34,18 @@ describe('bedroom:sleep_mode_bypass', () => {
   });
 
   it('aborts when house mode is unavailable', () => {
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: doublePressEvent,
       state: { 'sensor.house_active_mode': { state: 'unavailable' } },
     });
-    expect(result.reason).toEqual(expect.stringContaining('house_mode_unavailable'));
+    expect(entityId).toBe('sensor.house_active_mode');
   });
 
   it('aborts when house mode is unknown', () => {
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: doublePressEvent,
       state: { 'sensor.house_active_mode': { state: 'unknown' } },
     });
-    expect(result.reason).toEqual(expect.stringContaining('house_mode_unavailable'));
+    expect(entityId).toBe('sensor.house_active_mode');
   });
 });

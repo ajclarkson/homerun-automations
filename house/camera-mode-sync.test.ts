@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAutomation, testUnavailable } from '@ajclarkson/homerun/testing';
 import automation from './camera-mode-sync.js';
 
 const trigger = {
@@ -96,20 +96,20 @@ describe('house:camera-mode-sync', () => {
   });
 
   it('aborts when house mode is unavailable', () => {
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: trigger,
       state: { ...baseState, 'sensor.house_active_mode': { state: 'unavailable' } },
     });
 
-    expect(result.reason).toMatch(/house_mode_unavailable/);
+    expect(entityId).toBe('sensor.house_active_mode');
   });
 
   it('aborts when modifier is unavailable', () => {
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: trigger,
       state: { ...baseState, 'input_select.house_active_mode_modifier': { state: 'unavailable' } },
     });
 
-    expect(result.reason).toMatch(/modifier_unavailable/);
+    expect(entityId).toBe('input_select.house_active_mode_modifier');
   });
 });

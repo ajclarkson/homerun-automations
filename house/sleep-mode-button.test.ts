@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAutomation, testUnavailable } from '@ajclarkson/homerun/testing';
 import automation from './sleep-mode-button.js';
 
 const holdTrigger = (entity: string) => ({
@@ -61,18 +61,18 @@ describe('house:sleep_mode_button', () => {
   });
 
   it('aborts when bed sensor is unavailable', () => {
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
       state: { ...baseState, 'binary_sensor.bedroom_bed_occupied': { state: 'unavailable' } },
     });
-    expect(result.reason).toEqual(expect.stringContaining('bed_sensor_unavailable'));
+    expect(entityId).toBe('binary_sensor.bedroom_bed_occupied');
   });
 
   it('aborts when house mode is unavailable', () => {
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
       state: { ...baseState, 'sensor.house_active_mode': { state: 'unavailable' } },
     });
-    expect(result.reason).toEqual(expect.stringContaining('house_mode_unavailable'));
+    expect(entityId).toBe('sensor.house_active_mode');
   });
 });

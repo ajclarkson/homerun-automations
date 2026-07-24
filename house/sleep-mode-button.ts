@@ -1,4 +1,4 @@
-import { defineAutomation, abort } from '@ajclarkson/homerun';
+import { defineAutomation, requireState } from '@ajclarkson/homerun';
 
 export default defineAutomation({
   id: 'house:sleep_mode_button',
@@ -10,15 +10,9 @@ export default defineAutomation({
   ],
 
   context: (state) => {
-    const bedOccupied = state('binary_sensor.bedroom_bed_occupied')?.state;
-    if (!bedOccupied || bedOccupied === 'unavailable' || bedOccupied === 'unknown') {
-      return abort(`bed_sensor_unavailable:${bedOccupied}`);
-    }
+    const bedOccupied = requireState(state, 'binary_sensor.bedroom_bed_occupied');
 
-    const houseMode = state('sensor.house_active_mode')?.state;
-    if (!houseMode || houseMode === 'unavailable' || houseMode === 'unknown') {
-      return abort(`house_mode_unavailable:${houseMode}`);
-    }
+    const houseMode = requireState(state, 'sensor.house_active_mode');
 
     const parlourActive = state('binary_sensor.parlour_media_active')?.state === 'on';
 

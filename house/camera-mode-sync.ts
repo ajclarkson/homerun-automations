@@ -1,4 +1,4 @@
-import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
+import { defineAutomation, requireState, HomeAssistant } from '@ajclarkson/homerun';
 
 export default defineAutomation({
   id: 'house:camera_mode_sync',
@@ -12,15 +12,9 @@ export default defineAutomation({
   ],
 
   context: (state) => {
-    const houseMode = state('sensor.house_active_mode')?.state;
-    if (!houseMode || houseMode === 'unavailable' || houseMode === 'unknown') {
-      return abort(`house_mode_unavailable:${houseMode}`);
-    }
+    const houseMode = requireState(state, 'sensor.house_active_mode');
 
-    const modifier = state('input_select.house_active_mode_modifier')?.state;
-    if (!modifier || modifier === 'unavailable' || modifier === 'unknown') {
-      return abort(`modifier_unavailable:${modifier}`);
-    }
+    const modifier = requireState(state, 'input_select.house_active_mode_modifier');
 
     return {
       houseMode,

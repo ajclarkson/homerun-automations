@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAutomation, testAbort, testUnavailable } from '@ajclarkson/homerun/testing';
 import automations from './room-temp-feed.js';
 
 const stateChangeTrigger = (entity: string, state: string) => ({
@@ -64,11 +64,11 @@ describe('room-temp-feed', () => {
     });
 
     it('aborts when temp is unavailable', () => {
-      const result = testAbort(automation, {
+      const entityId = testUnavailable(automation, {
         event: stateChangeTrigger('sensor.parlour_sensor_climate_temperature', 'unavailable'),
         state: { 'sensor.parlour_sensor_climate_temperature': { state: 'unavailable' } },
       });
-      expect(result.reason).toEqual(expect.stringContaining('temp_unavailable'));
+      expect(entityId).toBe('sensor.parlour_sensor_climate_temperature');
     });
 
     it('uses reason temp_changed on state_changed trigger', () => {

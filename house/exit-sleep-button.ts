@@ -1,4 +1,4 @@
-import { defineAutomation, abort } from '@ajclarkson/homerun';
+import { defineAutomation, abort, requireState } from '@ajclarkson/homerun';
 import type { TriggerEvent } from '@ajclarkson/homerun';
 
 export default defineAutomation({
@@ -13,10 +13,7 @@ export default defineAutomation({
   context: (state, _ha, event: TriggerEvent) => {
     if (event.type !== 'button') return abort('unexpected_trigger_type');
 
-    const houseMode = state('sensor.house_active_mode')?.state;
-    if (!houseMode || houseMode === 'unavailable' || houseMode === 'unknown') {
-      return abort(`house_mode_unavailable:${houseMode}`);
-    }
+    const houseMode = requireState(state, 'sensor.house_active_mode');
 
     const entityId = event.entity_id;
     const isBedroomButton = entityId.startsWith('sensor.bedroom_button');
@@ -24,19 +21,13 @@ export default defineAutomation({
 
     let bedOccupied: boolean | null = null;
     if (isBedroomButton) {
-      const bedState = state('binary_sensor.bedroom_sensor_bed_occupancy')?.state;
-      if (!bedState || bedState === 'unavailable' || bedState === 'unknown') {
-        return abort(`bed_sensor_unavailable:${bedState}`);
-      }
+      const bedState = requireState(state, 'binary_sensor.bedroom_sensor_bed_occupancy');
       bedOccupied = bedState === 'on';
     }
 
     let guestModeActive: boolean | null = null;
     if (isHomeOfficeButton) {
-      const modifier = state('input_select.house_active_mode_modifier')?.state;
-      if (!modifier || modifier === 'unavailable' || modifier === 'unknown') {
-        return abort(`modifier_unavailable:${modifier}`);
-      }
+      const modifier = requireState(state, 'input_select.house_active_mode_modifier');
       guestModeActive = modifier === 'guest';
     }
 
