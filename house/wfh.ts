@@ -25,7 +25,6 @@ const adamWfh = defineAutomation({
       workday,
       adamHome,
       alwaysOn,
-      inputs: { houseMode, workday, adamHome, alwaysOn },
     };
   },
 
@@ -44,7 +43,6 @@ const adamWfh = defineAutomation({
     return {
       decision,
       reason,
-      inputs: ctx.inputs,
       actions: [
         decision === 'on'
           ? HomeAssistant.input_boolean.turn_on({ entity_id: 'input_boolean.wfh_adam' })
@@ -75,7 +73,6 @@ const sarahWfh = defineAutomation({
       houseMode,
       workday,
       sarahHome,
-      inputs: { houseMode, workday, sarahHome },
     };
   },
 
@@ -93,7 +90,6 @@ const sarahWfh = defineAutomation({
     return {
       decision,
       reason,
-      inputs: ctx.inputs,
       actions: [
         decision === 'on'
           ? HomeAssistant.input_boolean.turn_on({ entity_id: 'input_boolean.wfh_sarah' })
@@ -118,19 +114,17 @@ const wfhReset = defineAutomation({
 
     return {
       workday,
-      inputs: { workday },
     };
   },
 
   reduce: (ctx) => {
     if (ctx.workday !== 'off') {
-      return { decision: 'no_action', reason: 'not_a_non_workday', inputs: ctx.inputs, actions: [] };
+      return { decision: 'no_action', reason: 'not_a_non_workday', actions: [] };
     }
 
     return {
       decision: 'clear',
       reason: 'non_workday',
-      inputs: ctx.inputs,
       actions: [
         HomeAssistant.input_boolean.turn_off({ entity_id: 'input_boolean.wfh_adam' }),
         HomeAssistant.input_boolean.turn_off({ entity_id: 'input_boolean.wfh_sarah' }),

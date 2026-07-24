@@ -78,7 +78,7 @@ describe('event classification', () => {
       state: baseState,
     });
     expect(result.decision).toBe('no_action');
-    expect((result.inputs as { filterReason?: string })?.filterReason).toBe('not_a_cat_event');
+    expect((result.conditions as { filterReason?: string })?.filterReason).toBe('not_a_cat_event');
   });
 
   it('aborts for unknown camera', () => {

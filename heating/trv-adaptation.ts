@@ -24,7 +24,7 @@ export default defineAutomation({
       .replace('_trv_adaptation_run_status', '')
       .replace(/_/g, ' ');
 
-    return { room, status, inputs: { entityId, room, status } };
+    return { room, status, entityId };
   },
 
   reduce: (ctx) => {
@@ -32,7 +32,6 @@ export default defineAutomation({
       return {
         decision: 'no_action',
         reason: `status_not_critical:${ctx.status}`,
-        inputs: ctx.inputs,
         actions: [],
       };
     }
@@ -43,7 +42,6 @@ export default defineAutomation({
     return {
       decision: 'notify',
       reason: `valve_characteristic_lost:${ctx.room}`,
-      inputs: ctx.inputs,
       actions: [
         { type: 'ha.call_service', domain: 'notify', service: 'mobile_app_adams_iphone', data: { title, message } },
         { type: 'ha.call_service', domain: 'notify', service: 'mobile_app_sarahs_iphone', data: { title, message } },

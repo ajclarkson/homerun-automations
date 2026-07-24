@@ -78,7 +78,7 @@ export default defineAutomation({
       camera: '', cam: CAMERA_MAP['kitchen'], now: 0,
       cooldownActive: false, eatingEnabled: false, spottedEnabled: false,
       existingEating: [] as TimelineEntry[], existingSpotted: [] as TimelineEntry[], eventId: '',
-      inputs: { eventType: null, camera: '', room: '', cooldownActive: false, eatingEnabled: false, spottedEnabled: false, filterReason: reason },
+      filterReason: reason,
     });
 
     if (payload.after?.label !== 'cat') return noAction('not_a_cat_event');
@@ -121,7 +121,6 @@ export default defineAutomation({
       existingEating,
       existingSpotted,
       eventId: payload.after.id,
-      inputs: { eventType, camera, room: cam.room, cooldownActive, eatingEnabled, spottedEnabled },
     };
   },
 
@@ -133,11 +132,11 @@ export default defineAutomation({
     } = ctx;
 
     if (!eventType) {
-      return { decision: 'no_action', reason: 'not_actionable', inputs: ctx.inputs, actions: [] };
+      return { decision: 'no_action', reason: 'not_actionable', actions: [] };
     }
 
     if (cooldownActive) {
-      return { decision: 'no_action', reason: 'cooldown_active', inputs: ctx.inputs, actions: [] };
+      return { decision: 'no_action', reason: 'cooldown_active', actions: [] };
     }
 
     const entry: TimelineEntry = { room: cam.room, camera, ts: now, event_id: eventId };
@@ -181,7 +180,6 @@ export default defineAutomation({
     return {
       decision: 'notify',
       reason: eventType,
-      inputs: ctx.inputs,
       actions,
     };
   },

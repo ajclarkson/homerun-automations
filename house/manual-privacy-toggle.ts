@@ -18,14 +18,12 @@ export default defineAutomation({
 
     return {
       privacyOn: privacyState === 'on',
-      inputs: { privacyState },
     };
   },
 
   reduce: (ctx) => ({
     decision: ctx.privacyOn ? 'disable_privacy' : 'enable_privacy',
     reason: 'button_double_press',
-    inputs: ctx.inputs,
     actions: [
       ctx.privacyOn
         ? HomeAssistant.switch.turn_off({ entity_id: 'group.cameras_privacy' })

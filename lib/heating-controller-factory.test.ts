@@ -428,16 +428,15 @@ describe('no-op detection', () => {
   });
 });
 
-// ---- Observability: inputs snapshot ----
+// ---- Observability: conditions snapshot ----
 
-describe('inputs snapshot', () => {
+describe('conditions snapshot', () => {
   it('includes all decision-relevant values', () => {
     const result = run();
-    expect(result.inputs).toMatchObject({
+    expect(result.conditions).toMatchObject({
       automationEnabled: true,
-      windowOpen: false,
-      forceMinimum: false,
-      houseMode: 'normal',
+      safety: { windowOpen: false, forceMinimum: false },
+      house: { mode: 'normal' },
       manualMode: null,
       weekday: true,
     });

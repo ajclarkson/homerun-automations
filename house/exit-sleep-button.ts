@@ -46,24 +46,22 @@ export default defineAutomation({
       isHomeOfficeButton,
       bedOccupied,
       guestModeActive,
-      inputs: { entityId, houseMode, bedOccupied, guestModeActive },
     };
   },
 
   reduce: (ctx) => {
     if (ctx.houseMode !== 'sleep') {
-      return { decision: 'no_action', reason: 'not_in_sleep_mode', inputs: ctx.inputs, actions: [] };
+      return { decision: 'no_action', reason: 'not_in_sleep_mode', actions: [] };
     }
     if (ctx.isBedroomButton && ctx.bedOccupied) {
-      return { decision: 'no_action', reason: 'bed_occupied', inputs: ctx.inputs, actions: [] };
+      return { decision: 'no_action', reason: 'bed_occupied', actions: [] };
     }
     if (ctx.isHomeOfficeButton && ctx.guestModeActive) {
-      return { decision: 'no_action', reason: 'guest_mode_active', inputs: ctx.inputs, actions: [] };
+      return { decision: 'no_action', reason: 'guest_mode_active', actions: [] };
     }
     return {
       decision: 'exit_sleep',
       reason: 'button_pressed',
-      inputs: ctx.inputs,
       actions: [
         { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'normal', impliesEntity: 'sensor.house_active_mode' },
       ],

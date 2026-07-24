@@ -30,7 +30,7 @@ export default defineAutomation({
     const heatingOn = heatingEnabledState === 'on';
     const suspended = suspendedState === 'on';
 
-    return { doorOpen, heatingOn, suspended, inputs: { doorOpen, heatingOn, suspended } };
+    return { doorOpen, heatingOn, suspended };
   },
 
   reduce: (ctx) => {
@@ -40,7 +40,6 @@ export default defineAutomation({
       return {
         decision: 'suspend',
         reason: 'door_open_heating_on',
-        inputs: ctx.inputs,
         // Flag written before heating off — crash-safe: on_start re-applies suspend if flag is set
         actions: [
           HomeAssistant.input_boolean.turn_on({ entity_id: 'input_boolean.patio_door_heating_suspended' }),
@@ -53,7 +52,6 @@ export default defineAutomation({
       return {
         decision: 'restore',
         reason: 'door_closed_was_suspended',
-        inputs: ctx.inputs,
         // Heating restored before flag cleared — crash-safe: on_start restores again if both true (idempotent)
         actions: [
           HomeAssistant.input_boolean.turn_on({ entity_id: 'input_boolean.house_heating_enabled' }),
@@ -66,6 +64,6 @@ export default defineAutomation({
       ? 'door_open_heating_already_off'
       : 'door_closed_not_suspended';
 
-    return { decision: 'no_action', reason, inputs: ctx.inputs, actions: [] };
+    return { decision: 'no_action', reason, actions: [] };
   },
 });

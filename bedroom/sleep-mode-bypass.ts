@@ -20,19 +20,17 @@ export default defineAutomation({
 
     return {
       houseMode,
-      inputs: { houseMode },
     };
   },
 
   reduce: (ctx) => {
     if (ctx.houseMode === 'sleep') {
-      return { decision: 'no_action', reason: 'already_in_sleep_mode', inputs: ctx.inputs, actions: [] };
+      return { decision: 'no_action', reason: 'already_in_sleep_mode', actions: [] };
     }
 
     return {
       decision: 'set_sleep_bypass',
       reason: 'double_press_bypass',
-      inputs: ctx.inputs,
       actions: [
         { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'sleep', impliesEntity: 'sensor.house_active_mode' },
       ],

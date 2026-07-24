@@ -161,7 +161,6 @@ interface HeatingContext {
   scheduleTimerKey: string;
   manualTimerKey: string;
   manualSelectEntity: string;
-  inputs: Record<string, unknown>;
 }
 
 export function makeHeatingAutomation(config: HeatingRoomConfig) {
@@ -240,26 +239,9 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
         scheduleTimerKey,
         manualTimerKey,
         manualSelectEntity,
-        inputs: {
-          automationEnabled,
-          currentMode,
-          windowOpen,
-          forceMinimum,
-          houseMode,
-          affectsHeating,
-          manualMode,
-          occupied,
-          wfhAdam,
-          wfhSarah,
-          weekday,
-          schedule: {
-            contextKey: schedule.contextKey,
-            requestedMode: schedule.requestedMode,
-            block: schedule.block
-              ? { start: schedule.block.start, end: schedule.block.end, mode: schedule.block.mode }
-              : null,
-          },
-        },
+        wfhAdam,
+        wfhSarah,
+        weekday,
       };
     },
 
@@ -275,7 +257,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
 
       // Stage 1 — automation disabled
       if (!automationEnabled) {
-        return { decision: 'blocked', reason: 'automation_disabled', inputs: ctx.inputs, actions: [] };
+        return { decision: 'blocked', reason: 'automation_disabled', actions: [] };
       }
 
       // Stage 2 — safety (windowOpen takes precedence over forceMinimum)
@@ -324,13 +306,13 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
 
       // Stage 6 — no schedule match
       if (!targetMode) {
-        return { decision: 'no_action', reason: 'no_schedule_match', inputs: ctx.inputs, actions };
+        return { decision: 'no_action', reason: 'no_schedule_match', actions };
       }
 
       // Stage 7 — no-op detection
       if (targetMode === currentMode) {
         actions.push(...planTimer(scheduleTimerKey, schedule.validUntilMs, nowMs));
-        return { decision: 'maintain', reason: 'no_change', inputs: ctx.inputs, actions };
+        return { decision: 'maintain', reason: 'no_change', actions };
       }
 
       // Stage 8 — emit mode + source
@@ -338,7 +320,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       actions.push({ type: 'mqtt.publish', topic: sourceTopic, payload: source, retain: true, impliesEntity: sourceEntity });
       actions.push(...planTimer(scheduleTimerKey, schedule.validUntilMs, nowMs));
 
-      return { decision, reason, inputs: ctx.inputs, actions };
+      return { decision, reason, actions };
     },
   });
 }

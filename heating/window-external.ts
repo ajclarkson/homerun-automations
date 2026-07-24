@@ -27,7 +27,7 @@ export default defineAutomation({
       open: state(`binary_sensor.${room}_external_openings` as keyof HAEntities)?.state === 'on',
     }));
 
-    return { windows, inputs: { windows } };
+    return { windows };
   },
 
   reduce: (ctx) => {
@@ -42,7 +42,6 @@ export default defineAutomation({
     return {
       decision: 'sync_window_external',
       reason: summary || 'no_rooms',
-      inputs: ctx.inputs,
       actions,
     };
   },

@@ -14,7 +14,6 @@ interface SonosContext {
   automationEnabled: boolean;
   mediaPlayerEntity: string;
   masterPlayer: string;
-  inputs: Record<string, unknown>;
 }
 
 export function makeSonosAutomation(config: SonosRoomConfig) {
@@ -56,7 +55,6 @@ export function makeSonosAutomation(config: SonosRoomConfig) {
         automationEnabled,
         mediaPlayerEntity,
         masterPlayer,
-        inputs: { trigger, triggerTo, automationEnabled, mediaPlayerEntity, masterPlayer },
       };
     },
 
@@ -80,29 +78,29 @@ export function makeSonosAutomation(config: SonosRoomConfig) {
 
       if (trigger === 'automation_toggle') {
         if (triggerTo === 'on') {
-          return { decision: 'join', reason: 'automation_enabled', inputs: ctx.inputs, actions: [joinAction()] };
+          return { decision: 'join', reason: 'automation_enabled', actions: [joinAction()] };
         }
         if (triggerTo === 'off') {
-          return { decision: 'unjoin', reason: 'automation_disabled', inputs: ctx.inputs, actions: [unjoinAction()] };
+          return { decision: 'unjoin', reason: 'automation_disabled', actions: [unjoinAction()] };
         }
-        return { decision: 'no_action', reason: 'automation_toggle_unknown_state', inputs: ctx.inputs, actions: [] };
+        return { decision: 'no_action', reason: 'automation_toggle_unknown_state', actions: [] };
       }
 
       if (!automationEnabled) {
-        return { decision: 'no_action', reason: 'automation_disabled', inputs: ctx.inputs, actions: [] };
+        return { decision: 'no_action', reason: 'automation_disabled', actions: [] };
       }
 
       if (trigger === 'occupancy') {
         if (triggerTo === 'on') {
-          return { decision: 'join', reason: 'occupancy_on', inputs: ctx.inputs, actions: [joinAction()] };
+          return { decision: 'join', reason: 'occupancy_on', actions: [joinAction()] };
         }
         if (triggerTo === 'off') {
-          return { decision: 'unjoin', reason: 'occupancy_off', inputs: ctx.inputs, actions: [unjoinAction()] };
+          return { decision: 'unjoin', reason: 'occupancy_off', actions: [unjoinAction()] };
         }
-        return { decision: 'no_action', reason: 'occupancy_unknown_state', inputs: ctx.inputs, actions: [] };
+        return { decision: 'no_action', reason: 'occupancy_unknown_state', actions: [] };
       }
 
-      return { decision: 'no_action', reason: 'unclassified_trigger', inputs: ctx.inputs, actions: [] };
+      return { decision: 'no_action', reason: 'unclassified_trigger', actions: [] };
     },
   });
 }

@@ -28,7 +28,6 @@ export default defineAutomation({
       heatingEnabled,
       callingRooms,
       demand,
-      inputs: { heatingEnabled, callingRooms, demand },
     };
   },
 
@@ -56,7 +55,6 @@ export default defineAutomation({
     return {
       decision,
       reason,
-      inputs: ctx.inputs,
       actions: [{
         type: 'mqtt.publish',
         topic: 'zigbee2mqtt/boiler_receiver/set',

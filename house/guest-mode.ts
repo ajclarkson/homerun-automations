@@ -19,7 +19,6 @@ export default defineAutomation({
 
     return {
       modifier,
-      inputs: { modifier },
     };
   },
 
@@ -31,7 +30,6 @@ export default defineAutomation({
     return {
       decision: guestActive ? 'guest_active' : 'guest_inactive',
       reason: `modifier_is_${modifier}`,
-      inputs: ctx.inputs,
       actions: [
         guestActive
           ? HomeAssistant.input_boolean.turn_on({ entity_id: 'input_boolean.home_office_automation_presence_override' })

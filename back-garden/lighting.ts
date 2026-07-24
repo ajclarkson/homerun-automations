@@ -11,7 +11,6 @@ interface BackGardenLightingContext {
   automationEnabled: boolean;
   inOnWindow: boolean;
   houseMode: string;
-  inputs: Record<string, unknown>;
 }
 
 export default defineAutomation<BackGardenLightingContext>({
@@ -50,7 +49,6 @@ export default defineAutomation<BackGardenLightingContext>({
       automationEnabled,
       inOnWindow,
       houseMode,
-      inputs: { trigger, automationEnabled, inOnWindow, sunBelowHorizon, hourNow, houseMode },
     };
   },
 
@@ -58,14 +56,13 @@ export default defineAutomation<BackGardenLightingContext>({
     const { trigger, automationEnabled, inOnWindow } = ctx;
 
     if (!automationEnabled) {
-      return { decision: 'no_action', reason: 'automation_disabled', inputs: ctx.inputs, actions: [] };
+      return { decision: 'no_action', reason: 'automation_disabled', actions: [] };
     }
 
     if (trigger === 'sleep_mode') {
       return {
         decision: 'turn_off',
         reason: 'house_sleep_mode',
-        inputs: ctx.inputs,
         actions: [HomeAssistant.scene.turn_on({ entity_id: OFF_SCENE }, { transition: 0.5 })],
       };
     }
@@ -74,7 +71,6 @@ export default defineAutomation<BackGardenLightingContext>({
       return {
         decision: 'turn_on',
         reason: 'sunset',
-        inputs: ctx.inputs,
         actions: [HomeAssistant.scene.turn_on({ entity_id: ON_SCENE }, { transition: 0.5 })],
       };
     }
@@ -83,7 +79,6 @@ export default defineAutomation<BackGardenLightingContext>({
       return {
         decision: 'turn_off',
         reason: trigger,
-        inputs: ctx.inputs,
         actions: [HomeAssistant.scene.turn_on({ entity_id: OFF_SCENE }, { transition: 0.5 })],
       };
     }
@@ -93,11 +88,10 @@ export default defineAutomation<BackGardenLightingContext>({
       return {
         decision: inOnWindow ? 'turn_on' : 'turn_off',
         reason: 'startup_sync',
-        inputs: ctx.inputs,
         actions: [HomeAssistant.scene.turn_on({ entity_id: scene }, { transition: 0.5 })],
       };
     }
 
-    return { decision: 'no_action', reason: 'no_matching_rule', inputs: ctx.inputs, actions: [] };
+    return { decision: 'no_action', reason: 'no_matching_rule', actions: [] };
   },
 });

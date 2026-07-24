@@ -37,7 +37,6 @@ interface LightingContext {
   isCurrentlyOff: boolean;
   scenes: SceneSet;
   recentAutoOffMs: number;
-  inputs: Record<string, unknown>;
 }
 
 const MIN_TIMER_DELAY_MS =      1_000; // 1 second
@@ -164,27 +163,10 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
       const scenes: SceneSet = { off: offScene, daylight: daylightScene, night: nightScene, ordered };
       const isCurrentlyOff = activeScene === toSceneKey(offScene);
 
-      const inputs = {
-        trigger,
-        automationEnabled,
-        lux,
-        luxThreshold,
-        occupied,
-        activeScene,
-        isCurrentlyOff,
-        houseMode,
-        blockedBySleep,
-        recentAutoOff,
-        externalSuppressActive,
-        isDay,
-        guestModeActive,
-        scenes: { off: offScene, daylight: daylightScene, night: nightScene, ordered },
-      };
-
       return {
         location, trigger, automationEnabled, lux, luxThreshold, occupied, activeScene,
         houseMode, blockedBySleep, recentAutoOff, externalSuppressActive, isDay,
-        guestModeActive, isCurrentlyOff, scenes, recentAutoOffMs, inputs,
+        guestModeActive, isCurrentlyOff, scenes, recentAutoOffMs,
       };
     },
 
@@ -200,7 +182,6 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
         return {
           decision: 'clear_recent_auto_off',
           reason: 'recent_auto_off_expired',
-          inputs: ctx.inputs,
           actions: planRecentAutoOffOff(location),
         };
       }
@@ -210,7 +191,6 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
         return {
           decision: 'no_action',
           reason: 'automation_disabled',
-          inputs: ctx.inputs,
           actions: planRecentAutoOffCancel(location),
         };
       }
@@ -218,24 +198,23 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
       // Rule 2: house entering sleep mode
       if (trigger.type === 'house_mode' && trigger.to === 'sleep') {
         if (guestModeActive) {
-          return { decision: 'no_action', reason: 'guest_room_sleep_bypass', inputs: ctx.inputs, actions: [] };
+          return { decision: 'no_action', reason: 'guest_room_sleep_bypass', actions: [] };
         }
         return {
           decision: 'turn_off',
           reason: 'house_sleep_mode',
-          inputs: ctx.inputs,
           actions: [...planScene(scenes.off), ...planRecentAutoOffCancel(location)],
         };
       }
 
       // Rule 3: sleep mode blocks occupancy-triggered on
       if (blockedBySleep && occupied) {
-        return { decision: 'no_action', reason: 'sleep_mode', inputs: ctx.inputs, actions: [] };
+        return { decision: 'no_action', reason: 'sleep_mode', actions: [] };
       }
 
       // Rule 4: external suppress blocks motion-triggered on
       if (externalSuppressActive && trigger.type === 'occupancy' && trigger.to === 'occupied') {
-        return { decision: 'no_action', reason: 'external_suppress_active', inputs: ctx.inputs, actions: [] };
+        return { decision: 'no_action', reason: 'external_suppress_active', actions: [] };
       }
 
       // Rule 5: occupancy cleared
@@ -243,7 +222,6 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
         return {
           decision: 'turn_off',
           reason: 'occupancy_off',
-          inputs: ctx.inputs,
           actions: [...planScene(scenes.off), ...planRecentAutoOffOn(location, recentAutoOffMs)],
         };
       }
@@ -254,14 +232,12 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
           return {
             decision: 'turn_off',
             reason: 'button_off',
-            inputs: ctx.inputs,
             actions: [...planScene(scenes.off), ...planRecentAutoOffOn(location, recentAutoOffMs)],
           };
         }
         return {
           decision: 'activate_scene',
           reason: 'button_cycle',
-          inputs: ctx.inputs,
           actions: [...planScene(nextCycleScene(scenes, activeScene)), ...planRecentAutoOffCancel(location)],
         };
       }
@@ -272,7 +248,6 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
           return {
             decision: 'no_action',
             reason: 'already_on',
-            inputs: ctx.inputs,
             actions: planRecentAutoOffCancel(location),
           };
         }
@@ -281,7 +256,6 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
           return {
             decision: 'activate_scene',
             reason: 'recent_auto_off',
-            inputs: ctx.inputs,
             actions: [...planScene(autoScene), ...planRecentAutoOffCancel(location)],
           };
         }
@@ -289,14 +263,12 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
           return {
             decision: 'no_action',
             reason: 'lux_high',
-            inputs: ctx.inputs,
             actions: planRecentAutoOffCancel(location),
           };
         }
         return {
           decision: 'activate_scene',
           reason: 'lux_low',
-          inputs: ctx.inputs,
           actions: [...planScene(autoScene), ...planRecentAutoOffCancel(location)],
         };
       }
@@ -304,10 +276,10 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
       // Rule 8: on_start — no scene resync (would clobber manual overrides); this tick's
       // only job is exercising the validation above (scene labels, lux threshold) at boot.
       if (trigger.type === 'system') {
-        return { decision: 'no_action', reason: 'startup_check_ok', inputs: ctx.inputs, actions: [] };
+        return { decision: 'no_action', reason: 'startup_check_ok', actions: [] };
       }
 
-      return { decision: 'no_action', reason: 'no_matching_rule', inputs: ctx.inputs, actions: [] };
+      return { decision: 'no_action', reason: 'no_matching_rule', actions: [] };
     },
   });
 }

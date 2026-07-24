@@ -99,14 +99,6 @@ export default defineAutomation({
       hotEventToday,
       adamHome,
       sarahHome,
-      inputs: {
-        maxDeviceTemp, outdoorTemp, avgIndoorTemp,
-        bedroomOpen, hoOpen,
-        bedroomFrameHot, outsideWarmerThanHO, outsideWarmerThanBedroom, bedroomActuallyWarm, outsideCooler,
-        openWindowAllowed, eitherClosed, hotEventToday,
-        sentCloseBedroom, sentCloseHO, sentCloseBoth, sentOpenBoth,
-        adamHome, sarahHome,
-      },
     };
   },
 
@@ -161,7 +153,7 @@ export default defineAutomation({
     }
 
     if (decision !== 'notify') {
-      return { decision, reason, inputs: ctx.inputs, actions: hotEventActions };
+      return { decision, reason, actions: hotEventActions };
     }
 
     const notifyActions = [
@@ -172,7 +164,6 @@ export default defineAutomation({
     return {
       decision,
       reason,
-      inputs: ctx.inputs,
       actions: [
         ...hotEventActions,
         setInputText(dedupeEntity, today),

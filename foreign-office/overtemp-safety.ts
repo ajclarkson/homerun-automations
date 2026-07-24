@@ -28,7 +28,6 @@ export default defineAutomation({
     return {
       temp,
       heaterOn: heaterState === 'on',
-      inputs: { temp, heaterState },
     };
   },
 
@@ -39,7 +38,6 @@ export default defineAutomation({
       return {
         decision: 'turn_off_heater',
         reason: 'overtemp_heater_on',
-        inputs: ctx.inputs,
         actions: [
           HomeAssistant.switch.turn_off({ entity_id: 'switch.foreign_office_plug_heater' }),
         ],
@@ -49,7 +47,6 @@ export default defineAutomation({
     return {
       decision: 'no_action',
       reason: temp > OVERTEMP_THRESHOLD_C ? 'overtemp_heater_already_off' : 'temp_normal',
-      inputs: ctx.inputs,
       actions: [],
     };
   },

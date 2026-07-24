@@ -25,7 +25,7 @@ export default defineAutomation({
     return {
       houseMode,
       guestPresent: modifier === 'guest',
-      inputs: { houseMode, modifier },
+      modifier,
     };
   },
 
@@ -36,7 +36,6 @@ export default defineAutomation({
       return {
         decision: 'cameras_on',
         reason: 'house_away',
-        inputs: ctx.inputs,
         actions: [
           HomeAssistant.switch.turn_off({ entity_id: 'group.cameras_privacy' }),
         ],
@@ -47,7 +46,6 @@ export default defineAutomation({
       return {
         decision: 'no_action',
         reason: 'away_but_guest_present',
-        inputs: ctx.inputs,
         actions: [],
       };
     }
@@ -56,7 +54,6 @@ export default defineAutomation({
       return {
         decision: 'sleep_mo_monitoring',
         reason: 'sleep_kitchen_camera_on',
-        inputs: ctx.inputs,
         actions: [
           HomeAssistant.switch.turn_on({ entity_id: 'group.cameras_privacy' }),
           HomeAssistant.switch.turn_off({ entity_id: 'switch.kitchen_privacy' }),
@@ -68,7 +65,6 @@ export default defineAutomation({
       return {
         decision: 'cameras_off',
         reason: 'house_not_away',
-        inputs: ctx.inputs,
         actions: [
           HomeAssistant.switch.turn_on({ entity_id: 'group.cameras_privacy' }),
         ],
@@ -78,7 +74,6 @@ export default defineAutomation({
     return {
       decision: 'no_action',
       reason: `mode_not_managed:${houseMode}`,
-      inputs: ctx.inputs,
       actions: [],
     };
   },
