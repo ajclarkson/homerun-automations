@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAutomation, testUnavailable } from '@ajclarkson/homerun/testing';
 import automation from './manual-privacy-toggle.js';
 
 const trigger = {
@@ -41,18 +41,20 @@ describe('house:manual-privacy-toggle', () => {
   });
 
   it('aborts when privacy switch is unavailable', () => {
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: trigger,
       state: { 'switch.parlour_privacy': { state: 'unavailable' } },
     });
 
-    expect(result.reason).toMatch(/privacy_switch_unavailable/);
+    expect(entityId).toBe('switch.parlour_privacy');
   });
 
   it('aborts when privacy switch is missing from state', () => {
-    testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: trigger,
       state: {},
     });
+
+    expect(entityId).toBe('switch.parlour_privacy');
   });
 });

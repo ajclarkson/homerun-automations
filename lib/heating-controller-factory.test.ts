@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAutomation, testUnavailable } from '@ajclarkson/homerun/testing';
 import { makeHeatingAutomation, type HeatingRoomConfig } from './heating-controller-factory.js';
 
 // ---- Test fixtures ----
@@ -70,10 +70,11 @@ function run(
 describe('aborts', () => {
   it('aborts when automation_enabled entity is unavailable', () => {
     const automation = makeHeatingAutomation(baseConfig);
-    testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: onStartEvent,
       state: { ...baseState, [`input_boolean.${LOCATION}_automation_heating_enabled`]: { state: 'unavailable' } },
     });
+    expect(entityId).toBe(`input_boolean.${LOCATION}_automation_heating_enabled`);
   });
 });
 

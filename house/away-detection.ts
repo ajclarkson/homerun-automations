@@ -1,4 +1,4 @@
-import { defineAutomation, abort } from '@ajclarkson/homerun';
+import { defineAutomation, abort, requireState, requireNumericState } from '@ajclarkson/homerun';
 
 const DOOR_WINDOW_MS = 15 * 60 * 1000;
 
@@ -13,16 +13,9 @@ export default defineAutomation({
   ],
 
   context: (state) => {
-    const zoneHome = state('zone.home');
-    const personCount = parseInt(zoneHome?.state ?? '', 10);
-    if (!Number.isFinite(personCount)) {
-      return abort(`zone_home_unavailable:${zoneHome?.state}`);
-    }
+    const personCount = requireNumericState(state, 'zone.home');
 
-    const houseMode = state('sensor.house_active_mode')?.state;
-    if (!houseMode) {
-      return abort('house_mode_unavailable');
-    }
+    const houseMode = requireState(state, 'sensor.house_active_mode');
 
     const doorsEntity = state('binary_sensor.external_doors_state');
     if (!doorsEntity) {

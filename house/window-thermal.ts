@@ -1,4 +1,4 @@
-import { defineAutomation, abort } from '@ajclarkson/homerun';
+import { defineAutomation, abort, requireNumericState } from '@ajclarkson/homerun';
 
 function notifyAction(service: string, title: string, message: string) {
   return {
@@ -36,20 +36,16 @@ export default defineAutomation({
   ],
 
   context: (state) => {
-    const frameThreshold   = parseFloat(state('input_number.bedroom_automation_window_frame_threshold')?.state ?? '');
-    const openDelta        = parseFloat(state('input_number.bedroom_automation_window_open_delta')?.state ?? '');
-    const openHour         = parseInt(state('input_number.bedroom_automation_window_open_hour')?.state ?? '', 10);
-    const comfortThreshold = parseFloat(state('input_number.bedroom_automation_window_indoor_comfort_threshold')?.state ?? '');
-    const rightTemp        = parseFloat(state('sensor.bedroom_sensor_window_right_device_temperature')?.state ?? '');
-    const leftTemp         = parseFloat(state('sensor.bedroom_sensor_window_left_device_temperature')?.state ?? '');
-    const hoIndoorTemp     = parseFloat(state('sensor.home_office_sensor_climate_temperature')?.state ?? '');
-    const bedroomTemp      = parseFloat(state('sensor.bedroom_sensor_climate_temperature')?.state ?? '');
+    const frameThreshold   = requireNumericState(state, 'input_number.bedroom_automation_window_frame_threshold');
+    const openDelta        = requireNumericState(state, 'input_number.bedroom_automation_window_open_delta');
+    const openHour         = requireNumericState(state, 'input_number.bedroom_automation_window_open_hour');
+    const comfortThreshold = requireNumericState(state, 'input_number.bedroom_automation_window_indoor_comfort_threshold');
+    const rightTemp        = requireNumericState(state, 'sensor.bedroom_sensor_window_right_device_temperature');
+    const leftTemp         = requireNumericState(state, 'sensor.bedroom_sensor_window_left_device_temperature');
+    const hoIndoorTemp     = requireNumericState(state, 'sensor.home_office_sensor_climate_temperature');
+    const bedroomTemp      = requireNumericState(state, 'sensor.bedroom_sensor_climate_temperature');
     const outdoorTemp      = state('weather.forecast_home')?.attributes?.['temperature'] as number | undefined;
 
-    const required = { frameThreshold, openDelta, openHour, comfortThreshold, rightTemp, leftTemp, hoIndoorTemp, bedroomTemp };
-    for (const [name, val] of Object.entries(required)) {
-      if (!Number.isFinite(val)) return abort(`sensor_unavailable:${name}`);
-    }
     if (outdoorTemp === undefined || !Number.isFinite(outdoorTemp)) {
       return abort('sensor_unavailable:outdoorTemp');
     }

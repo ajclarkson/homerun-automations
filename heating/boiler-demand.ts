@@ -1,4 +1,4 @@
-import { defineAutomation, abort } from '@ajclarkson/homerun';
+import { defineAutomation, requireState } from '@ajclarkson/homerun';
 import { HEATING_ROOMS } from '../lib/heating-rooms.js';
 
 export default defineAutomation({
@@ -13,10 +13,7 @@ export default defineAutomation({
   ],
 
   context: (state) => {
-    const heatingEnabledState = state('input_boolean.house_heating_enabled')?.state;
-    if (!heatingEnabledState || heatingEnabledState === 'unavailable' || heatingEnabledState === 'unknown') {
-      return abort(`heating_enabled_unavailable:${heatingEnabledState}`);
-    }
+    const heatingEnabledState = requireState(state, 'input_boolean.house_heating_enabled');
 
     const heatingEnabled = heatingEnabledState === 'on';
     const callingRooms = HEATING_ROOMS.filter(

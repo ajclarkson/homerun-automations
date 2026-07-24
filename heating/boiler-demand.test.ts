@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAutomation, testUnavailable } from '@ajclarkson/homerun/testing';
 import automation from './boiler-demand.js';
 
 const heatRequiredTrigger = (room: string) => ({
@@ -75,10 +75,10 @@ describe('house:boiler_demand', () => {
   });
 
   it('aborts when heating enabled state is unavailable', () => {
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: heatRequiredTrigger('parlour'),
       state: { ...baseState, 'input_boolean.house_heating_enabled': { state: 'unavailable' } },
     });
-    expect(result.reason).toEqual(expect.stringContaining('heating_enabled_unavailable'));
+    expect(entityId).toBe('input_boolean.house_heating_enabled');
   });
 });

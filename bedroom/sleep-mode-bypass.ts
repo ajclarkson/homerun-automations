@@ -1,4 +1,4 @@
-import { defineAutomation, abort } from '@ajclarkson/homerun';
+import { defineAutomation, requireState } from '@ajclarkson/homerun';
 
 // Temporary bypass for sleep mode when bed occupancy sensor gives a false negative.
 // Double-press Adam's bedroom button to force sleep mode without checking the bed sensor.
@@ -13,10 +13,7 @@ export default defineAutomation({
   ],
 
   context: (state) => {
-    const houseMode = state('sensor.house_active_mode')?.state;
-    if (!houseMode || houseMode === 'unavailable' || houseMode === 'unknown') {
-      return abort(`house_mode_unavailable:${houseMode}`);
-    }
+    const houseMode = requireState(state, 'sensor.house_active_mode');
 
     return {
       houseMode,

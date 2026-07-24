@@ -1,4 +1,4 @@
-import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
+import { defineAutomation, requireState, HomeAssistant } from '@ajclarkson/homerun';
 
 export default defineAutomation({
   id: 'house:guest_mode',
@@ -11,11 +11,7 @@ export default defineAutomation({
   ],
 
   context: (state) => {
-    const modifier = state('input_select.house_active_mode_modifier')?.state;
-
-    if (!modifier || modifier === 'unavailable' || modifier === 'unknown') {
-      return abort(`modifier_unavailable:${modifier}`);
-    }
+    const modifier = requireState(state, 'input_select.house_active_mode_modifier');
 
     return {
       modifier,

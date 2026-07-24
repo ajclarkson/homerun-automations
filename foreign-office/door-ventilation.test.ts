@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAutomation, testAbort, testUnavailable } from '@ajclarkson/homerun/testing';
 import automation from './door-ventilation.js';
 
 const NOW = new Date('2026-07-21T14:00:00.000Z');
@@ -149,11 +149,11 @@ describe('active gate', () => {
 
 describe('abort on missing sensors', () => {
   it('aborts when indoor temperature is unavailable', () => {
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: triggerEvent,
       state: { ...baseState, 'sensor.foreign_office_sensor_climate_temperature': { state: 'unavailable' } },
     });
-    expect(result.reason).toMatch(/sensor_unavailable:foIndoorTemp/);
+    expect(entityId).toBe('sensor.foreign_office_sensor_climate_temperature');
   });
 
   it('aborts when outdoor temperature is missing', () => {

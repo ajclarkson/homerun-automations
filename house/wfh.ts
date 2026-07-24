@@ -1,4 +1,4 @@
-import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
+import { defineAutomation, requireState, HomeAssistant } from '@ajclarkson/homerun';
 
 // Adam: Wed–Fri always WFH; Mon–Tue inferred from presence at 08:00
 const adamWfh = defineAutomation({
@@ -12,13 +12,11 @@ const adamWfh = defineAutomation({
   ],
 
   context: (state) => {
-    const houseMode = state('sensor.house_active_mode')?.state;
+    const houseMode = requireState(state, 'sensor.house_active_mode');
     const workday = state('binary_sensor.workday_sensor')?.state;
     const adamHome = state('person.adam')?.state === 'home';
     const day = new Date().getDay();
     const alwaysOn = day >= 3 && day <= 5;
-
-    if (!houseMode) return abort('house_mode_unavailable');
 
     return {
       houseMode,
@@ -63,11 +61,9 @@ const sarahWfh = defineAutomation({
   ],
 
   context: (state) => {
-    const houseMode = state('sensor.house_active_mode')?.state;
+    const houseMode = requireState(state, 'sensor.house_active_mode');
     const workday = state('binary_sensor.workday_sensor')?.state;
     const sarahHome = state('person.sarah')?.state === 'home';
-
-    if (!houseMode) return abort('house_mode_unavailable');
 
     return {
       houseMode,

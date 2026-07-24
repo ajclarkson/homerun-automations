@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAutomation, testUnavailable } from '@ajclarkson/homerun/testing';
 import automation from './guest-mode.js';
 
 const trigger = {
@@ -59,18 +59,20 @@ describe('house:guest-mode', () => {
   });
 
   it('aborts when modifier is unavailable', () => {
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: trigger,
       state: { 'input_select.house_active_mode_modifier': { state: 'unavailable' } },
     });
 
-    expect(result.reason).toMatch(/modifier_unavailable/);
+    expect(entityId).toBe('input_select.house_active_mode_modifier');
   });
 
   it('aborts when modifier entity is missing from state', () => {
-    testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: trigger,
       state: {},
     });
+
+    expect(entityId).toBe('input_select.house_active_mode_modifier');
   });
 });

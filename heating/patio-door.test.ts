@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAutomation, testUnavailable } from '@ajclarkson/homerun/testing';
 import automation from './patio-door.js';
 
 const patioDoorTrigger = (open: boolean) => ({
@@ -69,26 +69,26 @@ describe('house:patio_door', () => {
   });
 
   it('aborts when door sensor is unavailable', () => {
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: patioDoorTrigger(true),
       state: { ...baseState, 'binary_sensor.parlour_sensor_door_patio_contact': { state: 'unavailable' } },
     });
-    expect(result.reason).toEqual(expect.stringContaining('door_unavailable'));
+    expect(entityId).toBe('binary_sensor.parlour_sensor_door_patio_contact');
   });
 
   it('aborts when heating enabled helper is unavailable', () => {
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: patioDoorTrigger(false),
       state: { ...baseState, 'input_boolean.house_heating_enabled': { state: 'unavailable' } },
     });
-    expect(result.reason).toEqual(expect.stringContaining('heating_enabled_unavailable'));
+    expect(entityId).toBe('input_boolean.house_heating_enabled');
   });
 
   it('aborts when suspended flag is unavailable', () => {
-    const result = testAbort(automation, {
+    const entityId = testUnavailable(automation, {
       event: patioDoorTrigger(false),
       state: { ...baseState, 'input_boolean.patio_door_heating_suspended': { state: 'unavailable' } },
     });
-    expect(result.reason).toEqual(expect.stringContaining('suspended_flag_unavailable'));
+    expect(entityId).toBe('input_boolean.patio_door_heating_suspended');
   });
 });
