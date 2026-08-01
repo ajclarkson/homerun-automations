@@ -5,7 +5,8 @@ import automation from './exit-sleep-kitchen-motion.js';
 const kitchenOccupiedTrigger = {
   type: 'state_changed' as const,
   entity_id: 'binary_sensor.kitchen_occupied',
-  new_state: { state: 'on' },
+  old_state: { entity_id: 'binary_sensor.kitchen_occupied', state: 'off', attributes: {}, last_changed: '', last_updated: '' },
+  new_state: { entity_id: 'binary_sensor.kitchen_occupied', state: 'on', attributes: {}, last_changed: '', last_updated: '' },
   correlation_id: 'test-cid',
 };
 
