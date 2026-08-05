@@ -4,5 +4,6 @@ export default makeOccupancyAutomation({
   location: 'foreign_office',
   extraTriggers: [
     { type: 'state_changed', entity: 'binary_sensor.foreign_office_sensor_door_contact' },
+    { type: 'state_changed', entity: 'binary_sensor.foreign_office_monitor' },
   ],
 });
