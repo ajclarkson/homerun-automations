@@ -123,6 +123,7 @@ declare global {
     'input_number.bedroom_automation_window_open_delta': { state: string };
     'input_number.bedroom_automation_window_open_hour': { state: string };
     'input_number.bedroom_automation_window_indoor_comfort_threshold': { state: string };
+    'input_number.home_office_automation_window_indoor_comfort_threshold': { state: string };
     'input_number.foreign_office_automation_door_open_delta': { state: string };
     'input_number.foreign_office_automation_door_notification_cooldown_mins': { state: string };
     'binary_sensor.kitchen_external_openings': { state: 'on' | 'off' | 'unavailable' | 'unknown' };
