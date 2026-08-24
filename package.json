@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "codegen": "homerun-generate-ha-types && node scripts/filter-ha-types.mjs",
+    "codegen": "dotenv -e .env -- sh -c 'homerun-generate-ha-types && node scripts/filter-ha-types.mjs'",
     "postinstall": "git config core.hooksPath .githooks || true",
     "test": "vitest",
     "test:run": "vitest run",
@@ -12,6 +12,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.0.0",
+    "dotenv-cli": "^11.0.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   },
