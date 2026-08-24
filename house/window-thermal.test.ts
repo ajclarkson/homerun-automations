@@ -27,6 +27,7 @@ const baseState = {
   'input_number.bedroom_automation_window_open_delta': { state: '3' },
   'input_number.bedroom_automation_window_open_hour': { state: '9' },
   'input_number.bedroom_automation_window_indoor_comfort_threshold': { state: '24' },
+  'input_number.home_office_automation_window_indoor_comfort_threshold': { state: '24' },
   'sensor.bedroom_sensor_window_right_device_temperature': { state: '28' },
   'sensor.bedroom_sensor_window_left_device_temperature': { state: '27' },
   'sensor.bedroom_sensor_climate_temperature': { state: '22' },
@@ -164,11 +165,12 @@ describe('close_bedroom', () => {
 
 describe('close_home_office', () => {
   const warmOutsideState = {
-    'weather.forecast_home': { state: 'sunny', attributes: { temperature: 26 } }, // > hoIndoorTemp (23)
+    'sensor.home_office_sensor_climate_temperature': { state: '25' }, // >= comfort threshold (24)
+    'weather.forecast_home': { state: 'sunny', attributes: { temperature: 27 } }, // > hoIndoorTemp (25)
     'binary_sensor.home_office_external_openings': { state: 'on' },
   };
 
-  it('notifies when outside warmer than home office and window open', () => {
+  it('notifies when outside warmer than home office, home office air is actually warm, and window open', () => {
     const result = run(warmOutsideState);
     expect(result.decision).toBe('notify');
     expect(result.reason).toBe('close_home_office');
@@ -183,6 +185,17 @@ describe('close_home_office', () => {
 
   it('no_action when home office window is closed', () => {
     const result = run({ ...warmOutsideState, 'binary_sensor.home_office_external_openings': { state: 'off' } });
+    expect(result.decision).toBe('no_action');
+  });
+
+  it('no_action when outside is marginally warmer but the home office itself is not yet warm', () => {
+    // This is the case that motivated the gate: a mild day where outdoor temp ticks a
+    // fraction above the current indoor reading while the room is nowhere near uncomfortable.
+    const result = run({
+      ...warmOutsideState,
+      'sensor.home_office_sensor_climate_temperature': { state: '20' }, // below comfort threshold (24)
+      'weather.forecast_home': { state: 'sunny', attributes: { temperature: 21 } }, // still > hoIndoorTemp
+    });
     expect(result.decision).toBe('no_action');
   });
 });
