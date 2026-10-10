@@ -23,7 +23,9 @@ export interface HeatingBlock {
 export interface HeatingRoomConfig {
   location: string;
   scheduleConfig: { byContext: Partial<Record<ScheduleContextKey, HeatingBlock[]>> };
-  /** Opt out of the house_heating_enabled system gate (foreign office only). */
+  /** Opt out of house-wide heating overrides — the house_heating_enabled gate and
+   *  sleep/away/vacation mode forcing (foreign office only). The room's own schedule
+   *  and manual override still apply. */
   independent?: boolean;
 }
 
@@ -213,7 +215,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       const forceMinimum = !independent && !heatingSystemEnabled;
 
       const houseMode = state('sensor.house_active_mode')?.state ?? null;
-      const affectsHeating = houseMode !== null && (HOUSE_MODES_AFFECTING_HEATING as readonly string[]).includes(houseMode);
+      const affectsHeating = !independent && houseMode !== null && (HOUSE_MODES_AFFECTING_HEATING as readonly string[]).includes(houseMode);
 
       const wfhAdam = state('input_boolean.wfh_adam')?.state === 'on';
       const wfhSarah = state('input_boolean.wfh_sarah')?.state === 'on';
