@@ -116,4 +116,95 @@ describe('foreign_office:heating_actuation', () => {
     expect(result.decision).toBe('set_temperature');
     expect(result.actions[0]).toMatchObject({ data: { temperature: 20 } });
   });
+
+  describe('negative-price arbitrage when the room is empty', () => {
+    const arbitrageState = {
+      ...baseState,
+      'sensor.foreign_office_active_heating': { state: 'minimum' },
+      'sensor.foreign_office_heating_source': { state: 'schedule' },
+      'binary_sensor.foreign_office_occupied': { state: 'off' },
+      'sensor.octopus_energy_electricity_24e8140196_1012483035417_current_rate': { state: '-2.5' },
+    };
+
+    it('upgrades an idle schedule default to comfort when price is negative and the room is unoccupied', () => {
+      const result = testAutomation(automation, {
+        event: activeHeatingTrigger('minimum'),
+        state: arbitrageState,
+      });
+      expect(result.decision).toBe('set_temperature');
+      expect(result.actions[0]).toMatchObject({ data: { temperature: 20 } });
+      expect(result.reason).toContain('arbitrage_negative_price');
+    });
+
+    it('does not override when the room is occupied', () => {
+      const result = testAutomation(automation, {
+        event: activeHeatingTrigger('minimum'),
+        state: { ...arbitrageState, 'binary_sensor.foreign_office_occupied': { state: 'on' } },
+      });
+      expect(result.actions[0]).toMatchObject({ data: { temperature: 5 } });
+      expect(result.reason).not.toContain('arbitrage');
+    });
+
+    it('treats unavailable occupancy as occupied rather than risking an empty-room assumption', () => {
+      const result = testAutomation(automation, {
+        event: activeHeatingTrigger('minimum'),
+        state: { ...arbitrageState, 'binary_sensor.foreign_office_occupied': { state: 'unavailable' } },
+      });
+      expect(result.actions[0]).toMatchObject({ data: { temperature: 5 } });
+      expect(result.reason).not.toContain('arbitrage');
+    });
+
+    it('does not override when the price is positive', () => {
+      const result = testAutomation(automation, {
+        event: activeHeatingTrigger('minimum'),
+        state: { ...arbitrageState, 'sensor.octopus_energy_electricity_24e8140196_1012483035417_current_rate': { state: '12.3' } },
+      });
+      expect(result.actions[0]).toMatchObject({ data: { temperature: 5 } });
+      expect(result.reason).not.toContain('arbitrage');
+    });
+
+    it('does not override a manual mode selection even if the room is empty and price is negative', () => {
+      const result = testAutomation(automation, {
+        event: activeHeatingTrigger('minimum'),
+        state: { ...arbitrageState, 'sensor.foreign_office_heating_source': { state: 'manual' } },
+      });
+      expect(result.actions[0]).toMatchObject({ data: { temperature: 5 } });
+      expect(result.reason).not.toContain('arbitrage');
+    });
+
+    it('does not override a safety-forced mode even if the room is empty and price is negative', () => {
+      const result = testAutomation(automation, {
+        event: activeHeatingTrigger('minimum'),
+        state: { ...arbitrageState, 'sensor.foreign_office_heating_source': { state: 'safety' } },
+      });
+      expect(result.actions[0]).toMatchObject({ data: { temperature: 5 } });
+      expect(result.reason).not.toContain('arbitrage');
+    });
+
+    it('is a no-op when the mode is already comfort', () => {
+      const result = testAutomation(automation, {
+        event: activeHeatingTrigger('comfort'),
+        state: { ...arbitrageState, 'sensor.foreign_office_active_heating': { state: 'comfort' } },
+      });
+      expect(result.reason).not.toContain('arbitrage');
+    });
+
+    it('falls back to the base mode temperature when the comfort helper is itself unavailable', () => {
+      const result = testAutomation(automation, {
+        event: activeHeatingTrigger('minimum'),
+        state: { ...arbitrageState, 'input_number.global_temperature_comfort': { state: 'unavailable' } },
+      });
+      expect(result.actions[0]).toMatchObject({ data: { temperature: 5 } });
+      expect(result.reason).not.toContain('arbitrage');
+    });
+
+    it('clamps the arbitrage-upgraded temperature to MAX_SETPOINT_C', () => {
+      const result = testAutomation(automation, {
+        event: activeHeatingTrigger('minimum'),
+        state: { ...arbitrageState, 'input_number.global_temperature_comfort': { state: '30' } },
+      });
+      expect(result.actions[0]).toMatchObject({ data: { temperature: 25 } });
+      expect(result.reason).toContain('arbitrage_negative_price');
+    });
+  });
 });
