@@ -55,7 +55,7 @@ afterEach(() => {
 });
 
 function run(
-  overrideState: Record<string, { state: string }> = {},
+  overrideState: Record<string, { state: string; last_changed?: string }> = {},
   config: HeatingRoomConfig = baseConfig,
 ) {
   const automation = makeHeatingAutomation(config);
