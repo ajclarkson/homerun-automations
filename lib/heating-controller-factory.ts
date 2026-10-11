@@ -44,6 +44,11 @@ const HOUSE_MODE_MAP: Record<HouseMode, HeatingMode> = {
 
 const SCHEDULE_TIMER_SUFFIX = 'heating:schedule_boundary';
 const MANUAL_TIMER_SUFFIX = 'heating:manual_override_expiry';
+const WINDOW_GRACE_TIMER_SUFFIX = 'heating:window_open_grace';
+
+const WINDOW_GRACE_HELPER = 'input_number.global_heating_window_open_grace_minutes';
+const MIN_WINDOW_GRACE_MINUTES = 0;
+const MAX_WINDOW_GRACE_MINUTES = 30;
 
 // Any schedule block can span at most 24h; 25h is a safe ceiling for timer delay.
 const MIN_TIMER_DELAY_MS = 250;
@@ -148,13 +153,48 @@ function planTimer(timerKey: string, validUntilMs: number | null, nowMs: number)
   return [{ type: 'timer.start', timerKey, delayMs }];
 }
 
+// ---- Window-open safety debounce ----
+
+interface WindowSafety {
+  windowOpen: boolean;
+  windowOpenConfirmed: boolean;
+  windowOpenPending: boolean;
+  windowGraceValidUntilMs: number | null;
+}
+
+function resolveWindowSafety(
+  windowState: { state: string; last_changed: string } | undefined,
+  graceHelperState: string | undefined,
+  now: Date,
+): WindowSafety {
+  const windowOpen = windowState?.state === 'on';
+  if (!windowOpen) {
+    return { windowOpen: false, windowOpenConfirmed: false, windowOpenPending: false, windowGraceValidUntilMs: null };
+  }
+
+  const graceMinutesRaw = parseFloat(graceHelperState ?? '');
+  const graceMinutes = Number.isFinite(graceMinutesRaw)
+    ? Math.min(Math.max(graceMinutesRaw, MIN_WINDOW_GRACE_MINUTES), MAX_WINDOW_GRACE_MINUTES)
+    : MIN_WINDOW_GRACE_MINUTES; // helper unavailable — fail toward the stricter immediate-safety behaviour
+  const graceMs = graceMinutes * 60_000;
+
+  const openedAtMs = windowState?.last_changed ? new Date(windowState.last_changed).getTime() : NaN;
+  // Unknown open-since time is treated as already past grace — never delay safety on missing data.
+  const elapsedMs = Number.isFinite(openedAtMs) ? now.getTime() - openedAtMs : Infinity;
+
+  const windowOpenConfirmed = elapsedMs >= graceMs;
+  const windowGraceValidUntilMs = !windowOpenConfirmed && Number.isFinite(openedAtMs) ? openedAtMs + graceMs : null;
+
+  return { windowOpen: true, windowOpenConfirmed, windowOpenPending: !windowOpenConfirmed, windowGraceValidUntilMs };
+}
+
 // ---- Factory ----
 
 interface HeatingContext {
   now: Date;
   automationEnabled: boolean;
   currentMode: string | null;
-  safety: { windowOpen: boolean; forceMinimum: boolean };
+  safety: WindowSafety & { forceMinimum: boolean };
   house: { mode: string | null; affectsHeating: boolean };
   manualMode: HeatingMode | null;
   manualExpiring: boolean;
@@ -163,6 +203,7 @@ interface HeatingContext {
   scheduleTimerKey: string;
   manualTimerKey: string;
   manualSelectEntity: string;
+  windowGraceTimerKey: string;
 }
 
 export function makeHeatingAutomation(config: HeatingRoomConfig) {
@@ -171,6 +212,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
   const windowEntity = `binary_sensor.${location}_external_openings`;
   const scheduleTimerKey = `${location}:${SCHEDULE_TIMER_SUFFIX}`;
   const manualTimerKey = `${location}:${MANUAL_TIMER_SUFFIX}`;
+  const windowGraceTimerKey = `${location}:${WINDOW_GRACE_TIMER_SUFFIX}`;
   const manualSelectEntity = `input_select.${location}_heating_manual_mode`;
   const activeHeatingTopic = `${location}/heating/active`;
   const activeHeatingEntity = `sensor.${location}_active_heating`;
@@ -193,6 +235,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       { type: 'state_changed', entity: `sensor.${location}_occupied` as keyof HAEntities },
       { type: 'timer_expired', timerKey: scheduleTimerKey },
       { type: 'timer_expired', timerKey: manualTimerKey },
+      { type: 'timer_expired', timerKey: windowGraceTimerKey },
       { type: 'on_start' },
     ],
 
@@ -209,7 +252,9 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
 
       const currentMode = state(`sensor.${location}_active_heating` as keyof HAEntities)?.state ?? null;
 
-      const windowOpen = state(windowEntity as keyof HAEntities)?.state === 'on';
+      const windowState = state(windowEntity as keyof HAEntities);
+      const graceHelperState = state(WINDOW_GRACE_HELPER as keyof HAEntities)?.state;
+      const windowSafety = resolveWindowSafety(windowState, graceHelperState, now);
 
       const heatingSystemEnabled = state('input_boolean.house_heating_enabled')?.state === 'on';
       const forceMinimum = !independent && !heatingSystemEnabled;
@@ -232,7 +277,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
         now,
         automationEnabled,
         currentMode,
-        safety: { windowOpen, forceMinimum },
+        safety: { ...windowSafety, forceMinimum },
         house: { mode: houseMode, affectsHeating },
         manualMode,
         manualExpiring,
@@ -241,6 +286,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
         scheduleTimerKey,
         manualTimerKey,
         manualSelectEntity,
+        windowGraceTimerKey,
         wfhAdam,
         wfhSarah,
         weekday,
@@ -248,7 +294,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
     },
 
     reduce: (ctx) => {
-      const { automationEnabled, currentMode, safety, house, manualMode, manualExpiring, occupied, schedule, scheduleTimerKey, manualTimerKey, manualSelectEntity, now } = ctx;
+      const { automationEnabled, currentMode, safety, house, manualMode, manualExpiring, occupied, schedule, scheduleTimerKey, manualTimerKey, manualSelectEntity, windowGraceTimerKey, now } = ctx;
       const actions: Action[] = [];
       const nowMs = now.getTime();
 
@@ -263,7 +309,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       }
 
       // Stage 2 — safety (windowOpen takes precedence over forceMinimum)
-      if (safety.windowOpen) {
+      if (safety.windowOpenConfirmed) {
         targetMode = 'minimum';
         source = 'safety';
         decision = 'set_mode';
@@ -273,6 +319,15 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
         source = 'safety';
         decision = 'set_mode';
         reason = 'safety_heating_disabled';
+      }
+
+      // A window that has only just opened doesn't force minimum yet, but still needs a
+      // timer so the safety override fires the moment it's been open long enough — waiting
+      // for some other trigger to happen to re-check would let it stay open indefinitely.
+      if (safety.windowOpenPending) {
+        actions.push(...planTimer(windowGraceTimerKey, safety.windowGraceValidUntilMs, nowMs));
+      } else {
+        actions.push({ type: 'timer.cancel', timerKey: windowGraceTimerKey });
       }
 
       // Stage 3 — house mode (affectsHeating guarantees mode is non-null and in HOUSE_MODE_MAP)
