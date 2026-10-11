@@ -133,6 +133,35 @@ describe('safety — house heating disabled (forceMinimum)', () => {
   });
 });
 
+describe('independent rooms opt out of house mode overrides', () => {
+  const independentConfig: HeatingRoomConfig = { ...baseConfig, independent: true };
+
+  it('keeps following its own schedule when the house enters sleep mode', () => {
+    const result = run(
+      { 'sensor.house_active_mode': { state: 'sleep' }, [`sensor.${LOCATION}_active_heating`]: { state: 'comfort' } },
+      independentConfig,
+    );
+    expect(result.reason).not.toMatch(/^house_mode/);
+    expect(result.reason).toBe('schedule');
+    expectModePublished(result.actions, 'baseline_day');
+  });
+
+  it('keeps following its own schedule when the house enters away mode', () => {
+    const result = run({ 'sensor.house_active_mode': { state: 'away' } }, independentConfig);
+    expect(result.reason).not.toMatch(/^house_mode/);
+  });
+
+  it('keeps following its own schedule when the house enters vacation mode', () => {
+    const result = run({ 'sensor.house_active_mode': { state: 'vacation' } }, independentConfig);
+    expect(result.reason).not.toMatch(/^house_mode/);
+  });
+
+  it('a non-independent room in the same house mode is still overridden', () => {
+    const result = run({ 'sensor.house_active_mode': { state: 'sleep' } }, baseConfig);
+    expect(result.reason).toBe('house_mode_sleep');
+  });
+});
+
 // ---- Stage 3: house mode ----
 
 describe('house mode overrides', () => {
