@@ -55,7 +55,7 @@ afterEach(() => {
 });
 
 function run(
-  overrideState: Record<string, { state: string }> = {},
+  overrideState: Record<string, { state: string; last_changed?: string }> = {},
   config: HeatingRoomConfig = baseConfig,
 ) {
   const automation = makeHeatingAutomation(config);
@@ -103,6 +103,97 @@ describe('safety — window open', () => {
     const result = run({
       [`binary_sensor.${LOCATION}_external_openings`]: { state: 'on' },
       'sensor.house_active_mode': { state: 'sleep' },
+    });
+    expect(result.reason).toBe('safety_window_open');
+    expectModePublished(result.actions, 'minimum');
+  });
+});
+
+describe('safety — window open grace period', () => {
+  const GRACE_HELPER = 'input_number.global_heating_window_open_grace_minutes';
+  // Pinned time is 2026-01-07T10:00:00.000Z.
+  const justOpened = '2026-01-07T10:00:00.000Z';
+  const openedFiveMinAgo = '2026-01-07T09:55:00.000Z';
+
+  it('does not force minimum while the window has been open less than the grace period', () => {
+    const result = run({
+      [`binary_sensor.${LOCATION}_external_openings`]: { state: 'on', last_changed: justOpened },
+      [GRACE_HELPER]: { state: '2' },
+    });
+    expect(result.reason).not.toBe('safety_window_open');
+  });
+
+  it('starts a grace timer for the remaining time while the window is pending', () => {
+    const result = run({
+      [`binary_sensor.${LOCATION}_external_openings`]: { state: 'on', last_changed: justOpened },
+      [GRACE_HELPER]: { state: '2' },
+    });
+    const timer = result.actions.find(a => a.type === 'timer.start' && (a as any).timerKey.includes('window_open_grace'));
+    expect(timer).toBeDefined();
+    expect((timer as any).delayMs).toBeCloseTo(2 * 60 * 1000, -2);
+  });
+
+  it('forces minimum once the window has been open at least as long as the grace period', () => {
+    const result = run({
+      [`binary_sensor.${LOCATION}_external_openings`]: { state: 'on', last_changed: openedFiveMinAgo },
+      [GRACE_HELPER]: { state: '2' },
+    });
+    expect(result.reason).toBe('safety_window_open');
+    expectModePublished(result.actions, 'minimum');
+  });
+
+  it('cancels the grace timer once the window closes', () => {
+    const result = run({
+      [`binary_sensor.${LOCATION}_external_openings`]: { state: 'off' },
+      [GRACE_HELPER]: { state: '2' },
+    });
+    const cancel = result.actions.find(a => a.type === 'timer.cancel' && (a as any).timerKey.includes('window_open_grace'));
+    expect(cancel).toBeDefined();
+  });
+
+  it('cancels the grace timer once the window has been open long enough to confirm', () => {
+    const result = run({
+      [`binary_sensor.${LOCATION}_external_openings`]: { state: 'on', last_changed: openedFiveMinAgo },
+      [GRACE_HELPER]: { state: '2' },
+    });
+    const cancel = result.actions.find(a => a.type === 'timer.cancel' && (a as any).timerKey.includes('window_open_grace'));
+    expect(cancel).toBeDefined();
+  });
+
+  it('forces minimum immediately when the grace helper is unavailable, failing toward the stricter behaviour', () => {
+    const result = run({
+      [`binary_sensor.${LOCATION}_external_openings`]: { state: 'on', last_changed: justOpened },
+      [GRACE_HELPER]: { state: 'unavailable' },
+    });
+    expect(result.reason).toBe('safety_window_open');
+  });
+
+  it('forces minimum immediately when the open-since timestamp is unknown, failing toward the stricter behaviour', () => {
+    const result = run({
+      [`binary_sensor.${LOCATION}_external_openings`]: { state: 'on' }, // no last_changed
+      [GRACE_HELPER]: { state: '2' },
+    });
+    expect(result.reason).toBe('safety_window_open');
+  });
+
+  it('clamps an excessive grace value to MAX_WINDOW_GRACE_MINUTES', () => {
+    const result = run({
+      [`binary_sensor.${LOCATION}_external_openings`]: { state: 'on', last_changed: justOpened },
+      [GRACE_HELPER]: { state: '999' },
+    });
+    const timer = result.actions.find(a => a.type === 'timer.start' && (a as any).timerKey.includes('window_open_grace'));
+    expect((timer as any).delayMs).toBeCloseTo(30 * 60 * 1000, -2);
+  });
+
+  it('re-evaluates and forces minimum when the grace timer expires with the window still open', () => {
+    const automation = makeHeatingAutomation(baseConfig);
+    const result = testAutomation(automation, {
+      event: { type: 'timer_expired', timerKey: `${LOCATION}:heating:window_open_grace`, correlation_id: 'test-cid' },
+      state: {
+        ...baseState,
+        [`binary_sensor.${LOCATION}_external_openings`]: { state: 'on', last_changed: openedFiveMinAgo },
+        [GRACE_HELPER]: { state: '2' },
+      },
     });
     expect(result.reason).toBe('safety_window_open');
     expectModePublished(result.actions, 'minimum');
