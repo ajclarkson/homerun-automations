@@ -38,7 +38,10 @@ type HouseMode = typeof HOUSE_MODES_AFFECTING_HEATING[number];
 
 const HOUSE_MODE_MAP: Record<HouseMode, HeatingMode> = {
   sleep: 'baseline_night',
-  away: 'minimum',
+  // The cat stays home while we're at work — minimum is for genuinely
+  // nobody-cares situations (safety overrides, off-hours schedule blocks),
+  // not an empty-but-occupied-by-a-cat house.
+  away: 'baseline_night',
   vacation: 'minimum',
 };
 
