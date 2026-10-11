@@ -264,10 +264,10 @@ describe('house mode overrides', () => {
     expectSourcePublished(result.actions, 'house_mode');
   });
 
-  it('away mode maps to minimum', () => {
+  it('away mode maps to baseline_night, not minimum, so the cat is not left in a cold house', () => {
     const result = run({ 'sensor.house_active_mode': { state: 'away' } });
     expect(result.reason).toBe('house_mode_away');
-    expectModePublished(result.actions, 'minimum');
+    expectModePublished(result.actions, 'baseline_night');
   });
 
   it('vacation mode maps to minimum', () => {
@@ -351,7 +351,7 @@ describe('manual override', () => {
       [`input_select.${LOCATION}_heating_manual_mode`]: { state: 'comfort' },
       'sensor.house_active_mode': { state: 'away' },
     });
-    expectModePublished(result.actions, 'minimum');
+    expectModePublished(result.actions, 'baseline_night');
     expect(result.reason).toBe('house_mode_away');
   });
 
