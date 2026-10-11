@@ -1,8 +1,17 @@
-import { defineAutomation, abort } from '@ajclarkson/homerun';
+import { defineAutomation, abort, type Action } from '@ajclarkson/homerun';
 import type { TriggerEvent } from '@ajclarkson/homerun';
 
 const DOOR_WINDOW_MS = 15 * 60 * 1000;
 const MODIFIER_ENTITY = 'input_select.house_active_mode_modifier';
+
+const VACATION_THRESHOLD_HELPER = 'input_number.house_automation_vacation_threshold_hours';
+const MIN_VACATION_THRESHOLD_HOURS = 1;
+const MAX_VACATION_THRESHOLD_HOURS = 168;
+const VACATION_PROMOTION_TIMER = 'house:house_mode:vacation_promotion';
+
+// Threshold can be set up to a week; give the timer delay room above that.
+const MIN_TIMER_DELAY_MS = 250;
+const MAX_TIMER_DELAY_MS = 8 * 24 * 60 * 60 * 1000;
 
 export default defineAutomation({
   id: 'house:away_detection',
@@ -12,6 +21,7 @@ export default defineAutomation({
   triggers: [
     { type: 'state_changed', entity: 'zone.home' },
     { type: 'state_changed', entity: MODIFIER_ENTITY },
+    { type: 'timer_expired', timerKey: VACATION_PROMOTION_TIMER },
     { type: 'on_start' },
   ],
 
@@ -22,7 +32,8 @@ export default defineAutomation({
       return abort(`zone_home_unavailable:${zoneHome?.state}`);
     }
 
-    const houseMode = state('sensor.house_active_mode')?.state;
+    const houseModeEntity = state('sensor.house_active_mode');
+    const houseMode = houseModeEntity?.state;
     if (!houseMode) {
       return abort('house_mode_unavailable');
     }
@@ -51,22 +62,51 @@ export default defineAutomation({
       && event.old_state?.state === 'sitter'
       && modifier !== 'sitter';
 
+    // Away escalating to vacation is a background, duration-based check — it
+    // reads the house mode sensor's own last_changed rather than tracking a
+    // separate "when did away start" flag.
+    const thresholdRaw = parseFloat(state(VACATION_THRESHOLD_HELPER as keyof HAEntities)?.state ?? '');
+    const thresholdHours = Number.isFinite(thresholdRaw)
+      ? Math.min(Math.max(thresholdRaw, MIN_VACATION_THRESHOLD_HOURS), MAX_VACATION_THRESHOLD_HOURS)
+      : null; // helper not yet configured — promotion stays disabled rather than guessing a value
+
+    const awaySinceMs = houseMode === 'away' ? Date.parse(houseModeEntity?.last_changed ?? '') : NaN;
+    // Unknown "since when" never promotes — safer to stay in away than to
+    // guess the house has been empty long enough when we can't tell.
+    const awayElapsedMs = Number.isFinite(awaySinceMs) ? Date.now() - awaySinceMs : 0;
+
+    const vacationEligible = houseMode === 'away' && thresholdHours !== null
+      && awayElapsedMs >= thresholdHours * 60 * 60 * 1000;
+
+    const vacationTimerValidUntilMs = (houseMode === 'away' && thresholdHours !== null && !vacationEligible && Number.isFinite(awaySinceMs))
+      ? awaySinceMs + thresholdHours * 60 * 60 * 1000
+      : null;
+
     return {
       noneHome,
       doorRecentlyChanged,
       houseMode,
       sitterActive,
       sitterJustLeft,
+      vacationEligible,
+      vacationTimerValidUntilMs,
     };
   },
 
   reduce: (ctx) => {
-    const { noneHome, doorRecentlyChanged, houseMode, sitterActive, sitterJustLeft } = ctx;
-    const actions: { type: 'mqtt.publish'; topic: string; payload: string; impliesEntity?: string }[] = [];
+    const { noneHome, doorRecentlyChanged, houseMode, sitterActive, sitterJustLeft, vacationEligible, vacationTimerValidUntilMs } = ctx;
+    const actions: Action[] = [];
     let decision = 'uninitialised';
     let reason = 'uninitialised';
 
-    if (sitterActive && houseMode === 'away') {
+    if (vacationTimerValidUntilMs !== null) {
+      const delayMs = Math.min(Math.max(vacationTimerValidUntilMs - Date.now(), MIN_TIMER_DELAY_MS), MAX_TIMER_DELAY_MS);
+      actions.push({ type: 'timer.start', timerKey: VACATION_PROMOTION_TIMER, delayMs });
+    } else {
+      actions.push({ type: 'timer.cancel', timerKey: VACATION_PROMOTION_TIMER });
+    }
+
+    if (sitterActive && (houseMode === 'away' || houseMode === 'vacation')) {
       decision = 'set_normal';
       reason = 'sitter_present';
       actions.push({ type: 'mqtt.publish', topic: 'house/mode/active', payload: 'normal', impliesEntity: 'sensor.house_active_mode' });
@@ -77,6 +117,10 @@ export default defineAutomation({
       decision = 'set_away';
       reason = 'sitter_mode_ended_house_empty';
       actions.push({ type: 'mqtt.publish', topic: 'house/mode/active', payload: 'away', impliesEntity: 'sensor.house_active_mode' });
+    } else if (noneHome && vacationEligible) {
+      decision = 'set_vacation';
+      reason = 'away_duration_exceeded';
+      actions.push({ type: 'mqtt.publish', topic: 'house/mode/active', payload: 'vacation', impliesEntity: 'sensor.house_active_mode' });
     } else if (noneHome && doorRecentlyChanged) {
       decision = 'set_away';
       reason = 'all_left_door_recently';
