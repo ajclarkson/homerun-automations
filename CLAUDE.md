@@ -21,7 +21,7 @@ For controllers that are identical across rooms (lighting, occupancy, heating), 
 
 - `lib/lighting-controller-factory.ts` — `makeLightingAutomation(config)`
 - `lib/occupancy-controller-factory.ts` — `makeOccupancyAutomation(config)`
-- `lib/outdoor-lighting-factory.ts` — `makeOutdoorLightingAutomation(config)` (gardens: on at sunset, off at 22:00 / sunrise / sleep)
+- `lib/outdoor-lighting-factory.ts` — `makeOutdoorLightingAutomation(config)` (gardens: on at sunset in the selected theme's scene, off at 22:00 / sunrise / sleep)
 
 Room files that use a factory are typically 3-5 lines. All logic lives in the factory; the room file only passes config.
 
