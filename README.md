@@ -8,6 +8,7 @@ This repo contains only automation definitions — no framework code. Homerun ha
 
 ```
 back-garden/    outdoor lighting
+front-garden/   outdoor lighting
 bathroom/       lighting, occupancy, heating
 bedroom/        lighting, occupancy, heating, sleep mode bypass
 foreign-office/ lighting, occupancy, heating, door ventilation, overtemp safety
@@ -17,7 +18,7 @@ home-office/    lighting, occupancy, heating, Sonos
 house/          away detection, camera mode sync, guest mode, sleep mode, WFH inference,
                 Octopus rate nudges, window thermal notifications, Mo/Frigate cat tracking
 kitchen/        lighting, occupancy, heating, Sonos
-lib/            shared factory functions (lighting, occupancy, heating, Sonos)
+lib/            shared factory functions (lighting, outdoor lighting, occupancy, heating, Sonos)
 parlour/        lighting, occupancy, heating
 types/          generated HA entity types
 ```
