@@ -35,7 +35,7 @@ const baseState = {
   'input_boolean.wfh_adam': { state: 'off' },
   'input_boolean.wfh_sarah': { state: 'off' },
   [`input_select.${LOCATION}_heating_manual_mode`]: { state: 'auto' },
-  [`sensor.${LOCATION}_occupied`]: { state: 'unoccupied' },
+  [`binary_sensor.${LOCATION}_occupied`]: { state: 'off' },
 };
 
 const onStartEvent = { type: 'on_start' as const, correlation_id: 'test-cid' };
@@ -472,7 +472,7 @@ describe('occupancy upgrade', () => {
 
   it('upgrades to occupiedMode when room is occupied', () => {
     const result = run(
-      { [`sensor.${LOCATION}_occupied`]: { state: 'occupied' }, [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } },
+      { [`binary_sensor.${LOCATION}_occupied`]: { state: 'on' }, [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } },
       occupancyConfig,
     );
     expectModePublished(result.actions, 'comfort');
@@ -481,7 +481,7 @@ describe('occupancy upgrade', () => {
 
   it('uses base mode when room is unoccupied', () => {
     const result = run(
-      { [`sensor.${LOCATION}_occupied`]: { state: 'unoccupied' }, [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } },
+      { [`binary_sensor.${LOCATION}_occupied`]: { state: 'off' }, [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } },
       occupancyConfig,
     );
     expectModePublished(result.actions, 'baseline_day');
@@ -492,7 +492,7 @@ describe('occupancy upgrade', () => {
     // 16:00 block has no occupiedMode
     pinTime('2026-01-07T18:00:00.000Z');
     const result = run(
-      { [`sensor.${LOCATION}_occupied`]: { state: 'occupied' }, [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } },
+      { [`binary_sensor.${LOCATION}_occupied`]: { state: 'on' }, [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } },
       occupancyConfig,
     );
     expectModePublished(result.actions, 'comfort');
@@ -502,7 +502,7 @@ describe('occupancy upgrade', () => {
   it('safety overrides occupied mode', () => {
     const result = run(
       {
-        [`sensor.${LOCATION}_occupied`]: { state: 'occupied' },
+        [`binary_sensor.${LOCATION}_occupied`]: { state: 'on' },
         [`binary_sensor.${LOCATION}_external_openings`]: { state: 'on' },
       },
       occupancyConfig,
@@ -514,7 +514,7 @@ describe('occupancy upgrade', () => {
   it('manual override takes precedence over occupied mode', () => {
     const result = run(
       {
-        [`sensor.${LOCATION}_occupied`]: { state: 'occupied' },
+        [`binary_sensor.${LOCATION}_occupied`]: { state: 'on' },
         [`input_select.${LOCATION}_heating_manual_mode`]: { state: 'baseline_night' },
         [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' },
       },

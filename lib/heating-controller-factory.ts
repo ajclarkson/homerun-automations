@@ -235,7 +235,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       { type: 'state_changed', entity: 'input_boolean.wfh_adam' },
       { type: 'state_changed', entity: 'input_boolean.wfh_sarah' },
       { type: 'state_changed', entity: manualSelectEntity as keyof HAEntities },
-      { type: 'state_changed', entity: `sensor.${location}_occupied` as keyof HAEntities },
+      { type: 'state_changed', entity: `binary_sensor.${location}_occupied` as keyof HAEntities },
       { type: 'timer_expired', timerKey: scheduleTimerKey },
       { type: 'timer_expired', timerKey: manualTimerKey },
       { type: 'timer_expired', timerKey: windowGraceTimerKey },
@@ -273,7 +273,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
         ? (manualSelectState as HeatingMode)
         : null;
 
-      const occupied = state(`sensor.${location}_occupied` as keyof HAEntities)?.state === 'occupied';
+      const occupied = state(`binary_sensor.${location}_occupied` as keyof HAEntities)?.state === 'on';
       const schedule = resolveSchedule(scheduleConfig, weekday, wfhAdam, wfhSarah, now);
 
       return {
