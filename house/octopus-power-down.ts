@@ -44,7 +44,7 @@ function describeSession(event: AvailableEvent): string {
 
 // Joins every power down session (formerly "saving sessions") as soon as Octopus announces it.
 // `available_events` only lists sessions not yet joined, so a joined session drops out of it and
-// is never re-joined. The schedule and on_start triggers catch anything missed while offline.
+// is never re-joined. on_start catches anything announced while offline.
 export default defineAutomation({
   id: 'house:octopus_power_down_auto_join',
   location: 'house',
@@ -52,7 +52,6 @@ export default defineAutomation({
 
   triggers: [
     { type: 'state_changed', entity: POWER_DOWN_EVENTS },
-    { type: 'schedule', cron: '0 * * * *' },
     { type: 'on_start' },
   ],
 

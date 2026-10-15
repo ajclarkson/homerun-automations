@@ -15,7 +15,6 @@ const stateChanged = {
   new_state: { entity_id: ENTITY, state: '2026-10-15T10:00:00', attributes: {}, last_changed: '', last_updated: '' },
   correlation_id: 'test-cid',
 };
-const scheduled = { type: 'schedule' as const, cron: '0 * * * *', correlation_id: 'test-cid' };
 const onStart = { type: 'on_start' as const, correlation_id: 'test-cid' };
 
 const run = (available: unknown, event: Parameters<typeof testAutomation>[1]['event'] = stateChanged) =>
@@ -54,7 +53,6 @@ describe('power down auto-join — joining announced sessions', () => {
 
   it.each([
     ['the events entity updates', stateChanged],
-    ['the hourly safety-net runs', scheduled],
     ['homerun starts', onStart],
   ])('joins available sessions when %s', (_label, event) => {
     expect(joins(run(one, event).actions)).toHaveLength(1);
@@ -77,7 +75,7 @@ describe('power down auto-join — nothing to join', () => {
   });
 
   it('does nothing when the entity is unavailable', () => {
-    expect(testAbort(automation, { event: scheduled, state: {} })).toMatchObject({ reason: 'no_sessions_to_join' });
+    expect(testAbort(automation, { event: onStart, state: {} })).toMatchObject({ reason: 'no_sessions_to_join' });
   });
 
   it('ignores malformed entries rather than joining with a bad code', () => {
