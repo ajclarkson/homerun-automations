@@ -49,7 +49,7 @@ const SCHEDULE_TIMER_SUFFIX = 'heating:schedule_boundary';
 const MANUAL_TIMER_SUFFIX = 'heating:manual_override_expiry';
 const WINDOW_GRACE_TIMER_SUFFIX = 'heating:window_open_grace';
 
-const WINDOW_GRACE_HELPER = 'input_number.global_heating_window_open_grace_minutes';
+export const WINDOW_GRACE_HELPER = 'input_number.global_heating_window_open_grace_minutes';
 const MIN_WINDOW_GRACE_MINUTES = 0;
 const MAX_WINDOW_GRACE_MINUTES = 30;
 
@@ -165,6 +165,15 @@ interface WindowSafety {
   windowGraceValidUntilMs: number | null;
 }
 
+/** Grace period in ms from the helper's state, clamped to its allowed range. */
+export function resolveGraceMs(graceHelperState: string | undefined): number {
+  const graceMinutesRaw = parseFloat(graceHelperState ?? '');
+  const graceMinutes = Number.isFinite(graceMinutesRaw)
+    ? Math.min(Math.max(graceMinutesRaw, MIN_WINDOW_GRACE_MINUTES), MAX_WINDOW_GRACE_MINUTES)
+    : MIN_WINDOW_GRACE_MINUTES; // helper unavailable — fail toward the stricter immediate-safety behaviour
+  return graceMinutes * 60_000;
+}
+
 function resolveWindowSafety(
   windowState: { state: string; last_changed: string } | undefined,
   graceHelperState: string | undefined,
@@ -175,11 +184,7 @@ function resolveWindowSafety(
     return { windowOpen: false, windowOpenConfirmed: false, windowOpenPending: false, windowGraceValidUntilMs: null };
   }
 
-  const graceMinutesRaw = parseFloat(graceHelperState ?? '');
-  const graceMinutes = Number.isFinite(graceMinutesRaw)
-    ? Math.min(Math.max(graceMinutesRaw, MIN_WINDOW_GRACE_MINUTES), MAX_WINDOW_GRACE_MINUTES)
-    : MIN_WINDOW_GRACE_MINUTES; // helper unavailable — fail toward the stricter immediate-safety behaviour
-  const graceMs = graceMinutes * 60_000;
+  const graceMs = resolveGraceMs(graceHelperState);
 
   const openedAtMs = windowState?.last_changed ? new Date(windowState.last_changed).getTime() : NaN;
   // Unknown open-since time is treated as already past grace — never delay safety on missing data.
