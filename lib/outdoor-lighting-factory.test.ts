@@ -10,6 +10,7 @@ const AUTUMN_SCENE = `scene.${LOCATION}_autumn`;
 const THEME = `input_select.${LOCATION}_light_theme`;
 
 const automation = makeOutdoorLightingAutomation({ location: LOCATION });
+const midnightAutomation = makeOutdoorLightingAutomation({ location: LOCATION, offTime: '00:00' });
 
 // On scene carries scene_order_1, off scene carries scene_control_off, and an autumn theme scene
 // carries scene_theme_autumn — all in this area. No halloween scene exists yet.
@@ -82,6 +83,19 @@ function run(event: AnyEvent, overrideState: Record<string, { state: string }> =
   return testAutomation(automation, { event, state: { ...baseState, ...overrideState }, ha: makeHa() });
 }
 
+function runMidnight(event: AnyEvent, overrideState: Record<string, { state: string }> = {}) {
+  return testAutomation(midnightAutomation, { event, state: { ...baseState, ...overrideState }, ha: makeHa() });
+}
+
+// The test clock is set in local wall-clock time, matching how the automation reads the hour,
+// so these tests pass whatever timezone they run in.
+const clockAt = (day: number, time: string) => {
+  const [h, m] = time.split(':').map(Number);
+  vi.setSystemTime(new Date(2026, 0, day, h, m));
+};
+const at = (time: string) => clockAt(7, time);
+const nextDayAt = (time: string) => clockAt(8, time);
+
 const dark = { 'sun.sun': { state: 'below_horizon' } };
 const light = { 'sun.sun': { state: 'above_horizon' } };
 const disabled = { [`input_boolean.${LOCATION}_automation_lights_enabled`]: { state: 'off' } };
@@ -93,7 +107,7 @@ const expectScene = (actions: unknown[], entity_id: string) =>
 
 beforeEach(() => {
   vi.useFakeTimers();
-  vi.setSystemTime(new Date('2026-01-07T20:00:00.000Z')); // 20:00 — inside the evening window
+  at('20:00'); // 20:00 — inside the evening window
 });
 
 afterEach(() => vi.useRealTimers());
@@ -107,7 +121,7 @@ describe('outdoor lighting', () => {
     });
 
     it('stays off when sunset falls at or after 22:00', () => {
-      vi.setSystemTime(new Date('2026-01-07T22:00:00.000Z'));
+      at('22:00');
       const result = run(sunsetEvent, dark);
       expect(result).toMatchObject({ decision: 'no_action', reason: 'no_matching_rule' });
       expect(result.actions).toEqual([]);
@@ -116,14 +130,14 @@ describe('outdoor lighting', () => {
 
   describe('end of the evening', () => {
     it('turns the garden off at 22:00', () => {
-      vi.setSystemTime(new Date('2026-01-07T22:00:00.000Z'));
+      at('22:00');
       const result = run(scheduleOffEvent, dark);
       expect(result).toMatchObject({ decision: 'turn_off', reason: 'schedule_off' });
       expectScene(result.actions, OFF_SCENE);
     });
 
     it('turns the garden off at sunrise in case anything was left on overnight', () => {
-      vi.setSystemTime(new Date('2026-01-08T08:00:00.000Z'));
+      nextDayAt('08:00');
       const result = run(sunriseEvent, light);
       expect(result).toMatchObject({ decision: 'turn_off', reason: 'sunrise' });
       expectScene(result.actions, OFF_SCENE);
@@ -135,6 +149,12 @@ describe('outdoor lighting', () => {
       const result = run(houseModeEvent('sleep'), { ...dark, 'sensor.house_active_mode': { state: 'sleep' } });
       expect(result).toMatchObject({ decision: 'turn_off', reason: 'house_sleep_mode' });
       expectScene(result.actions, OFF_SCENE);
+    });
+
+    it('does not turn the garden on at sunset if the house is already asleep', () => {
+      const result = run(sunsetEvent, { ...dark, ...asleep });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'sunset_while_house_asleep' });
+      expect(result.actions).toEqual([]);
     });
   });
 
@@ -152,8 +172,14 @@ describe('outdoor lighting', () => {
     });
 
     it('turns the garden off if it is dark but past 22:00', () => {
-      vi.setSystemTime(new Date('2026-01-07T22:30:00.000Z'));
+      at('22:30');
       const result = run(onStartEvent, dark);
+      expect(result).toMatchObject({ decision: 'turn_off', reason: 'startup_sync' });
+      expectScene(result.actions, OFF_SCENE);
+    });
+
+    it('keeps the garden off if the house is already asleep, even in the evening window', () => {
+      const result = run(onStartEvent, { ...dark, ...asleep });
       expect(result).toMatchObject({ decision: 'turn_off', reason: 'startup_sync' });
       expectScene(result.actions, OFF_SCENE);
     });
@@ -240,13 +266,81 @@ describe('outdoor lighting', () => {
 
     it.each([
       ['during the day', light, {}],
-      ['after 22:00', dark, {}, '2026-01-07T22:30:00.000Z'],
+      ['after 22:00', dark, {}, '22:30'],
       ['while the house is asleep', dark, asleep],
     ] as const)('does not turn the garden on %s', (_name, sun, extra, time?: string) => {
-      if (time) vi.setSystemTime(new Date(time));
+      if (time) at(time);
       const result = run(themeEvent('autumn'), { ...sun, ...extra, ...theme('autumn') });
       expect(result).toMatchObject({ decision: 'no_action', reason: 'theme_changed_while_off' });
       expect(result.actions).toEqual([]);
+    });
+  });
+
+  describe('with a later off time for softer accent lighting', () => {
+    it('turns off at 22:00 by default', () => {
+      expect(automation.triggers).toContainEqual({ type: 'schedule', cron: '0 22 * * *' });
+    });
+
+    it('turns off at the configured time instead', () => {
+      expect(midnightAutomation.triggers).toContainEqual({ type: 'schedule', cron: '0 0 * * *' });
+      expect(midnightAutomation.triggers).not.toContainEqual({ type: 'schedule', cron: '0 22 * * *' });
+    });
+
+    it('still turns on at a late sunset that the 22:00 default would have skipped', () => {
+      at('22:30');
+      const result = runMidnight(sunsetEvent, dark);
+      expect(result).toMatchObject({ decision: 'turn_on', reason: 'sunset' });
+    });
+
+    it('turns the garden off when the off time arrives', () => {
+      nextDayAt('00:00');
+      const result = runMidnight(scheduleOffEvent, dark);
+      expect(result).toMatchObject({ decision: 'turn_off', reason: 'schedule_off' });
+      expectScene(result.actions, OFF_SCENE);
+    });
+
+    it.each([
+      ['22:30', at],
+      ['23:59', at],
+    ] as const)('after a restart at %s, puts the garden back on', (time, setClock) => {
+      setClock(time);
+      const result = runMidnight(onStartEvent, dark);
+      expect(result).toMatchObject({ decision: 'turn_on', reason: 'startup_sync' });
+    });
+
+    it.each([
+      ['00:00', nextDayAt],
+      ['00:30', nextDayAt],
+      ['03:00', nextDayAt],
+      ['06:00', nextDayAt],
+    ] as const)('after a restart at %s, keeps the garden off because the window closed at midnight', (time, setClock) => {
+      setClock(time);
+      const result = runMidnight(onStartEvent, dark);
+      expect(result).toMatchObject({ decision: 'turn_off', reason: 'startup_sync' });
+      expectScene(result.actions, OFF_SCENE);
+    });
+
+    it('restyles the garden on a theme change at 23:00, but not at 00:30', () => {
+      at('23:00');
+      expect(runMidnight(themeEvent('autumn'), { ...dark, ...theme('autumn') })).toMatchObject({ decision: 'turn_on', reason: 'theme_changed' });
+      nextDayAt('00:30');
+      expect(runMidnight(themeEvent('autumn'), { ...dark, ...theme('autumn') })).toMatchObject({ decision: 'no_action', reason: 'theme_changed_while_off' });
+    });
+
+    it('handles an off time after midnight as one continuous evening', () => {
+      const lateAutomation = makeOutdoorLightingAutomation({ location: LOCATION, offTime: '01:30' });
+      const restartAt = (setClock: typeof at, time: string) => {
+        setClock(time);
+        return testAutomation(lateAutomation, { event: onStartEvent, state: { ...baseState, ...dark }, ha: makeHa() }).decision;
+      };
+      expect(restartAt(nextDayAt, '01:29')).toBe('turn_on');
+      expect(restartAt(nextDayAt, '01:30')).toBe('turn_off');
+      expect(lateAutomation.triggers).toContainEqual({ type: 'schedule', cron: '30 1 * * *' });
+    });
+
+    it('refuses a malformed off time at startup rather than guessing', () => {
+      expect(() => makeOutdoorLightingAutomation({ location: LOCATION, offTime: '24:00' })).toThrow(/invalid outdoor lighting offTime/);
+      expect(() => makeOutdoorLightingAutomation({ location: LOCATION, offTime: '9pm' })).toThrow(/invalid outdoor lighting offTime/);
     });
   });
 
