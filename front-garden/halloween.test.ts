@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { testAutomation } from '@ajclarkson/homerun/testing';
 import type { HAContext } from '@ajclarkson/homerun';
 import automation, {
-  TIMERS, DRIFT_COLOURS, DRIFT_PERIOD_MS, LIGHTNING_MIN_GAP_MS, LIGHTNING_MAX_GAP_MS,
+  TIMERS, DRIFT_COLOURS, DRIFT_PERIOD_MS, DRIFT_TRANSITION_S, LIGHTNING_MIN_GAP_MS, LIGHTNING_MAX_GAP_MS,
   FLICKER_TO_FLASH_MS, FLASH_TO_RESTORE_MS,
 } from './halloween.js';
 
@@ -117,12 +117,12 @@ describe('Halloween animation', () => {
   });
 
   describe('drift', () => {
-    it('fades the birch to green over a minute on a green period, then waits for the next change', () => {
+    it('fades the birch to green on a green period, then holds it until the next change', () => {
       clockAt('18:30', 'green', 500);
       const result = run(timer(TIMERS.drift), halloweenOn);
       expect(result).toMatchObject({ decision: 'drift', reason: 'drift_to_green' });
       expect(result.actions).toEqual([
-        lightCall(BIRCH, GREEN.rgb, GREEN.brightness, 60),
+        lightCall(BIRCH, GREEN.rgb, GREEN.brightness, DRIFT_TRANSITION_S),
         timerStart(TIMERS.drift, DRIFT_PERIOD_MS - 500 + 500),
       ]);
     });
@@ -131,7 +131,11 @@ describe('Halloween animation', () => {
       clockAt('18:31', 'purple', 500);
       const result = run(timer(TIMERS.drift), halloweenOn);
       expect(result).toMatchObject({ reason: 'drift_to_purple' });
-      expect(result.actions[0]).toEqual(lightCall(BIRCH, PURPLE.rgb, PURPLE.brightness, 60));
+      expect(result.actions[0]).toEqual(lightCall(BIRCH, PURPLE.rgb, PURPLE.brightness, DRIFT_TRANSITION_S));
+    });
+
+    it('holds each colour for most of its period rather than fading continuously', () => {
+      expect(DRIFT_TRANSITION_S * 1000).toBeLessThanOrEqual(DRIFT_PERIOD_MS / 2);
     });
 
     it('starts from the same purple as the Halloween scene, so the first fade is seamless', () => {

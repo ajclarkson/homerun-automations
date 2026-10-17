@@ -3,7 +3,7 @@ import type { Action } from '@ajclarkson/homerun';
 
 // Halloween animation for the front garden's feature light(s) — the birch. Runs only while the
 // Halloween theme scene is active, layered on top of it:
-//   - drift: a slow fade between purple and sickly green
+//   - drift: a fade between purple and sickly green, holding each colour for a while
 //   - lightning: every 3–8 minutes a dim flicker then a brighter flash, until 20:30
 // The accent light (maple) is left alone — its fireplace flicker is an on-bulb effect from
 // front-garden/theme-effects.ts, and a white flash next to the street light would be lost.
@@ -25,8 +25,8 @@ export const DRIFT_COLOURS: Colour[] = [
 ];
 // Colours alternate on fixed clock periods, so the current colour is always derivable from the time —
 // no stored state, and a restart or a lightning restore lands on the right colour.
-export const DRIFT_PERIOD_MS = 90_000;
-const DRIFT_TRANSITION_S = 60;
+export const DRIFT_PERIOD_MS = 60_000;
+export const DRIFT_TRANSITION_S = 20;
 const DRIFT_BOUNDARY_OFFSET_MS = 500;
 
 export const LIGHTNING_MIN_GAP_MS = 3 * 60_000;
