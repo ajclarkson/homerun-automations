@@ -20,6 +20,8 @@ const triggerEvent = {
 // Base: room occupied + wfh, door closed, outdoor cooler, cooldown stale
 const baseState = {
   'input_number.foreign_office_automation_door_open_delta': { state: '3' },
+  'input_number.foreign_office_automation_door_open_min_outdoor': { state: '10' },
+  'input_number.foreign_office_automation_door_indoor_comfort_threshold': { state: '24' },
   'input_number.foreign_office_automation_door_notification_cooldown_mins': { state: '60' },
   'sensor.foreign_office_sensor_climate_temperature': { state: '28' },
   'weather.forecast_home': { state: 'sunny', attributes: { temperature: 20 } }, // 28 - 3 = 25 threshold; 20 < 25 ✓
@@ -70,6 +72,32 @@ describe('open_door', () => {
       (a as { domain?: string }).domain === 'notify'
     ) as { data: { message: string } } | undefined;
     expect(notify?.data.message).toMatch(/cooler air/);
+  });
+
+  it('no_action when outdoor is below the minimum outdoor temperature', () => {
+    const result = run({ 'weather.forecast_home': { state: 'cloudy', attributes: { temperature: 8 } } });
+    expect(result.decision).toBe('no_action');
+  });
+
+  it('notifies when outdoor is exactly at the minimum outdoor temperature', () => {
+    const result = run({ 'weather.forecast_home': { state: 'cloudy', attributes: { temperature: 10 } } });
+    expect(result.reason).toBe('open_door');
+  });
+
+  it('no_action when indoor is below the comfort threshold', () => {
+    const result = run({
+      'sensor.foreign_office_sensor_climate_temperature': { state: '21' },
+      'weather.forecast_home': { state: 'cloudy', attributes: { temperature: 12 } },
+    });
+    expect(result.decision).toBe('no_action');
+  });
+
+  it('notifies when indoor is exactly at the comfort threshold', () => {
+    const result = run({
+      'sensor.foreign_office_sensor_climate_temperature': { state: '24' },
+      'weather.forecast_home': { state: 'sunny', attributes: { temperature: 15 } },
+    });
+    expect(result.reason).toBe('open_door');
   });
 
   it('suppresses when within cooldown window', () => {

@@ -78,6 +78,8 @@ declare global {
     'input_number.bedroom_automation_window_indoor_comfort_threshold': { state: string };
     'input_number.home_office_automation_window_indoor_comfort_threshold': { state: string };
     'input_number.foreign_office_automation_door_open_delta': { state: string };
+    'input_number.foreign_office_automation_door_open_min_outdoor': { state: string };
+    'input_number.foreign_office_automation_door_indoor_comfort_threshold': { state: string };
     'input_number.foreign_office_automation_door_notification_cooldown_mins': { state: string };
     'input_number.house_automation_exit_sleep_earliest_hour': { state: string };
     'input_number.house_automation_exit_sleep_latest_hour': { state: string };
