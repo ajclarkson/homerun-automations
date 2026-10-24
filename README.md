@@ -47,7 +47,7 @@ defineAutomation({
 });
 ```
 
-`context` reads. `reduce` decides. Neither does both. Every code path returns `{ decision, reason, inputs, actions }` — there are no silent no-ops.
+`context` reads. `reduce` decides. Neither does both. Every code path returns `{ decision, reason, conditions, actions }` — there are no silent no-ops.
 
 For rooms that share the same behaviour (lighting, occupancy, heating, Sonos), factory functions in `lib/` own all the logic. A room file looks like this:
 
@@ -60,6 +60,6 @@ Standalone automations (anything in `house/`, `heating/`, `foreign-office/door-v
 
 ## Design principles
 
-The rules that make automations correct under real conditions are in [`agent_docs/principles.md`](agent_docs/principles.md). The full trigger, action, and testing API is in [`agent_docs/framework.md`](agent_docs/framework.md).
+The rules that make automations correct under real conditions are in [`agent_docs/principles.md`](agent_docs/principles.md). The full trigger, action, and testing API is in [`docs/api.md`](https://github.com/ajclarkson/homerun/blob/main/docs/api.md) in the homerun repo.
 
 The short version: guard every numeric read, clamp every numeric output, abort on unexpected state rather than falling through on a default, and make every decision observable.

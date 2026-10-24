@@ -2,7 +2,7 @@
 
 Private consumer repo for the homerun automation framework. All household automations for the Clarkson home live here. No framework code — just automation definitions.
 
-Framework lives at `~/workspace/homerun` (linked via `"@ajclarkson/homerun": "file:../homerun"`). Design principles and entity naming conventions are in `~/workspace/claude-home/CLAUDE.md`.
+Framework: `@ajclarkson/homerun`, installed from npm (pinned to an `edge` build); source at `~/workspace/homerun`. Entity naming and cross-repo design rules are in `~/workspace/homeOS/docs/` (`naming.md`, `architecture.md`); code-level principles are in `agent_docs/principles.md`.
 
 ## How to build and test
 
@@ -34,7 +34,7 @@ Write tests from domain intent, not code structure. Describe blocks should read 
 
 ## Before writing an automation
 
-Read `agent_docs/principles.md` — these are the rules that produce correct behaviour under real conditions. Read `agent_docs/framework.md` for the full trigger, action, and testing API.
+Read `agent_docs/principles.md` — these are the rules that produce correct behaviour under real conditions. Read `~/workspace/homerun/docs/api.md` for the full trigger, action, and testing API.
 
 ## What not to do
 
