@@ -6,9 +6,9 @@ These principles explain the reasoning behind structural decisions. An automatio
 
 **1. Every decision is observable.**
 
-Every code path through a reducer must return `{ decision, reason, inputs, actions }`. There are no silent no-ops. A suppressed action is still a decision: `decision: 'no_action', reason: 'motion_disabled'` — not a missing return.
+Every code path through a reducer must return `{ decision, reason, conditions, actions }`. There are no silent no-ops. A suppressed action is still a decision: `decision: 'no_action', reason: 'motion_disabled'` — not a missing return.
 
-`inputs` must include every value that influenced the outcome. If it affected the decision, it belongs in inputs.
+`conditions` must include every value that influenced the outcome. If it affected the decision, it belongs in conditions. It defaults to the full context object, so set it explicitly only to trim or reshape what is published.
 
 ---
 
@@ -32,7 +32,7 @@ const guestModeActive = houseModifier === 'guest' && presenceOverride;
 if (guestModeActive) { ... }   // not: if (houseModifier === 'guest' && presenceOverride)
 ```
 
-Named booleans appear in `inputs` and make decision snapshots self-explanatory without reading the code.
+Named booleans appear in `conditions` and make decision snapshots self-explanatory without reading the code.
 
 ---
 
