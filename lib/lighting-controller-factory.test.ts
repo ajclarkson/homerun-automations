@@ -175,6 +175,44 @@ describe('makeLightingAutomation', () => {
     });
   });
 
+  describe('occupancy sensor outage / HA restart', () => {
+    const transition = (from: string | null, to: string) => ({
+      type: 'state_changed' as const,
+      entity_id: `binary_sensor.${LOCATION}_occupied`,
+      old_state: from === null ? null : { entity_id: `binary_sensor.${LOCATION}_occupied`, state: from, attributes: {}, last_changed: '', last_updated: '' },
+      new_state: { entity_id: `binary_sensor.${LOCATION}_occupied`, state: to, attributes: {}, last_changed: '', last_updated: '' },
+      correlation_id: 'test-cid',
+    });
+
+    it.each([
+      ['off', 'unavailable'],
+      ['on', 'unavailable'],
+      [null, 'unavailable'],
+      ['unavailable', 'unknown'],
+      ['unknown', 'off'],
+      ['unavailable', 'on'],
+      ['unknown', 'on'],
+    ] as const)('takes no action on %s -> %s', (from, to) => {
+      const result = testAutomation(automation, {
+        event: transition(from, to) as any,
+        state: { ...baseState, [`sensor.${LOCATION}_active_scene`]: { state: `${LOCATION}_low` } },
+        ha: makeHa(),
+      });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'occupancy_sensor_not_valid' });
+      expect(result.actions).toEqual([]);
+    });
+
+    it('still turns the room off on a genuine on -> off', () => {
+      const result = testAutomation(automation, {
+        event: occupancyEvent('off'),
+        state: { ...baseState, [`sensor.${LOCATION}_active_scene`]: { state: `${LOCATION}_low` } },
+        ha: makeHa(),
+      });
+      expect(result).toMatchObject({ decision: 'turn_off', reason: 'occupancy_off' });
+      expect(result.actions.some((a: any) => a.type === 'timer.start')).toBe(true);
+    });
+  });
+
   describe('button', () => {
     it('cycles to first ordered scene when active scene is not in cycle', () => {
       const result = testAutomation(automation, {

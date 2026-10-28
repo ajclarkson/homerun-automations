@@ -8,6 +8,7 @@ export interface LightingRoomConfig {
 
 type LightingTrigger =
   | { type: 'occupancy'; to: 'occupied' | 'unoccupied' }
+  | { type: 'occupancy_invalid' }
   | { type: 'button'; gesture: 'single_press' | 'hold' }
   | { type: 'house_mode'; to: string }
   | { type: 'timer' }
@@ -45,6 +46,19 @@ const MAX_TIMER_DELAY_MS = 3_600_000; // 1 hour
 // HA active_scene sensor stores scene name without 'scene.' prefix.
 const toSceneKey = (entityId: string) =>
   entityId.startsWith('scene.') ? entityId.slice(6) : entityId;
+
+const isValidOccupancyState = (s: unknown): s is 'on' | 'off' => s === 'on' || s === 'off';
+
+// Only a change between two valid states is a real occupancy transition. An HA restart or
+// Z2M outage walks the sensor through null/unavailable/unknown; treating any of those as
+// "unoccupied" switched every light off. unknown -> off is ignored too: the sensor's first
+// post-boot value is not evidence of a real change, and a slow turn-off beats a spurious one.
+function classifyOccupancyChange(oldState: unknown, newState: unknown): LightingTrigger {
+  if (!isValidOccupancyState(oldState) || !isValidOccupancyState(newState)) {
+    return { type: 'occupancy_invalid' };
+  }
+  return { type: 'occupancy', to: newState === 'on' ? 'occupied' : 'unoccupied' };
+}
 
 function selectAutoScene(scenes: SceneSet, isDay: boolean): string {
   if (isDay && scenes.daylight) return scenes.daylight;
@@ -112,7 +126,7 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
         trigger = { type: 'timer' };
       } else if (event.type === 'state_changed') {
         if (event.entity_id === `binary_sensor.${location}_occupied`) {
-          trigger = { type: 'occupancy', to: event.new_state.state === 'on' ? 'occupied' : 'unoccupied' };
+          trigger = classifyOccupancyChange(event.old_state?.state, event.new_state?.state);
         } else if (event.entity_id === 'sensor.house_active_mode') {
           trigger = { type: 'house_mode', to: event.new_state.state };
         } else {
@@ -184,6 +198,11 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
           reason: 'recent_auto_off_expired',
           actions: planRecentAutoOffOff(location),
         };
+      }
+
+      // Rule 0b: occupancy sensor outage/restart noise — never act, never touch recent_auto_off
+      if (trigger.type === 'occupancy_invalid') {
+        return { decision: 'no_action', reason: 'occupancy_sensor_not_valid', actions: [] };
       }
 
       // Rule 1: automation disabled
