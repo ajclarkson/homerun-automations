@@ -4,10 +4,17 @@ export interface LightingRoomConfig {
   location: string;
   disableInSleepMode?: boolean;
   recentAutoOffMins?: number;
+  // How long a room must stay `off` after a sensor outage/restart before the lights are
+  // switched off. Gives a returning sensor time to report real motion first.
+  occupancySettleMins?: number;
 }
 
 type LightingTrigger =
   | { type: 'occupancy'; to: 'occupied' | 'unoccupied' }
+  | { type: 'occupancy_invalid' }
+  | { type: 'occupancy_restored' }
+  | { type: 'occupancy_settle_start' }
+  | { type: 'occupancy_settle_fired' }
   | { type: 'button'; gesture: 'single_press' | 'hold' }
   | { type: 'house_mode'; to: string }
   | { type: 'timer' }
@@ -37,14 +44,40 @@ interface LightingContext {
   isCurrentlyOff: boolean;
   scenes: SceneSet;
   recentAutoOffMs: number;
+  occupancySensorState: string | null;
 }
 
 const MIN_TIMER_DELAY_MS =      1_000; // 1 second
 const MAX_TIMER_DELAY_MS = 3_600_000; // 1 hour
 
+const clampTimerMs = (mins: number) =>
+  Math.min(Math.max(mins * 60 * 1000, MIN_TIMER_DELAY_MS), MAX_TIMER_DELAY_MS);
+
+const planSettleStart = (location: string, delayMs: number) =>
+  [{ type: 'timer.start' as const, timerKey: `${location}:lighting_occupancy_settle`, delayMs }];
+
+const planSettleCancel = (location: string) =>
+  [{ type: 'timer.cancel' as const, timerKey: `${location}:lighting_occupancy_settle` }];
+
 // HA active_scene sensor stores scene name without 'scene.' prefix.
 const toSceneKey = (entityId: string) =>
   entityId.startsWith('scene.') ? entityId.slice(6) : entityId;
+
+const isValidOccupancyState = (s: unknown): s is 'on' | 'off' => s === 'on' || s === 'off';
+
+// Only a change between two valid states is a real occupancy transition. An HA restart or
+// Z2M outage walks the sensor through null/unavailable/unknown; treating any of those as
+// "unoccupied" switched every light off. A first valid `off` after an outage is not trusted
+// immediately; it starts a settle timer and is re-checked when that fires.
+function classifyOccupancyChange(oldState: unknown, newState: unknown): LightingTrigger {
+  if (!isValidOccupancyState(newState)) return { type: 'occupancy_invalid' };
+  if (!isValidOccupancyState(oldState)) {
+    // Sensor is back after an outage: `on` only cancels a pending settle; `off` starts one,
+    // because the room may have emptied during the outage and no on->off will ever fire.
+    return newState === 'on' ? { type: 'occupancy_restored' } : { type: 'occupancy_settle_start' };
+  }
+  return { type: 'occupancy', to: newState === 'on' ? 'occupied' : 'unoccupied' };
+}
 
 function selectAutoScene(scenes: SceneSet, isDay: boolean): string {
   if (isDay && scenes.daylight) return scenes.daylight;
@@ -84,8 +117,9 @@ function planRecentAutoOffCancel(location: string) {
 }
 
 export function makeLightingAutomation(config: LightingRoomConfig) {
-  const { location, disableInSleepMode = true, recentAutoOffMins = 5 } = config;
-  const recentAutoOffMs = Math.min(Math.max(recentAutoOffMins * 60 * 1000, MIN_TIMER_DELAY_MS), MAX_TIMER_DELAY_MS);
+  const { location, disableInSleepMode = true, recentAutoOffMins = 5, occupancySettleMins = 5 } = config;
+  const recentAutoOffMs = clampTimerMs(recentAutoOffMins);
+  const occupancySettleMs = clampTimerMs(occupancySettleMins);
 
   const buttonEntity = new RegExp(`sensor\\.${location}_button_.*_action`);
 
@@ -100,6 +134,7 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
       { type: 'button', entity: buttonEntity, gesture: 'hold' },
       { type: 'state_changed', entity: 'sensor.house_active_mode' },
       { type: 'timer_expired', timerKey: `${location}:lighting_recent_auto_off` },
+      { type: 'timer_expired', timerKey: `${location}:lighting_occupancy_settle` },
       { type: 'on_start' },
     ],
 
@@ -109,10 +144,12 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
       if (event.type === 'button') {
         trigger = { type: 'button', gesture: event.gesture === 'hold' ? 'hold' : 'single_press' };
       } else if (event.type === 'timer_expired') {
-        trigger = { type: 'timer' };
+        trigger = event.timerKey === `${location}:lighting_occupancy_settle`
+          ? { type: 'occupancy_settle_fired' }
+          : { type: 'timer' };
       } else if (event.type === 'state_changed') {
         if (event.entity_id === `binary_sensor.${location}_occupied`) {
-          trigger = { type: 'occupancy', to: event.new_state.state === 'on' ? 'occupied' : 'unoccupied' };
+          trigger = classifyOccupancyChange(event.old_state?.state, event.new_state?.state);
         } else if (event.entity_id === 'sensor.house_active_mode') {
           trigger = { type: 'house_mode', to: event.new_state.state };
         } else {
@@ -154,6 +191,7 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
       const houseModifier = state('input_select.house_active_mode_modifier')?.state ?? 'none';
       const presenceOverride = state(`input_boolean.${location}_automation_presence_override` as keyof HAEntities)?.state === 'on';
       const guestModeActive = houseModifier === 'guest' && presenceOverride;
+      const occupancySensorState = state(`binary_sensor.${location}_occupied` as keyof HAEntities)?.state ?? null;
       const occupied = state(`binary_sensor.${location}_occupied` as keyof HAEntities)?.state === 'on';
       const activeScene = state(`sensor.${location}_active_scene` as keyof HAEntities)?.state ?? null;
       const recentAutoOff = state(`binary_sensor.${location}_lighting_recent_auto_off` as keyof HAEntities)?.state === 'on';
@@ -166,120 +204,167 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
       return {
         location, trigger, automationEnabled, lux, luxThreshold, occupied, activeScene,
         houseMode, blockedBySleep, recentAutoOff, externalSuppressActive, isDay,
-        guestModeActive, isCurrentlyOff, scenes, recentAutoOffMs,
+        guestModeActive, isCurrentlyOff, scenes, recentAutoOffMs, occupancySensorState,
       };
     },
 
     reduce: (ctx) => {
-      const {
-        location, trigger, automationEnabled, lux, luxThreshold, occupied, activeScene,
-        blockedBySleep, recentAutoOff, externalSuppressActive, isDay, guestModeActive,
-        isCurrentlyOff, scenes, recentAutoOffMs,
-      } = ctx;
-
-      // Rule 0: timer expired — clear the recent_auto_off flag
-      if (trigger.type === 'timer') {
-        return {
-          decision: 'clear_recent_auto_off',
-          reason: 'recent_auto_off_expired',
-          actions: planRecentAutoOffOff(location),
-        };
+      const result = reduceRules(ctx, occupancySettleMs);
+      // A real occupancy change supersedes any pending post-outage settle check.
+      if (ctx.trigger.type === 'occupancy') {
+        return { ...result, actions: [...result.actions, ...planSettleCancel(ctx.location)] };
       }
-
-      // Rule 1: automation disabled
-      if (!automationEnabled) {
-        return {
-          decision: 'no_action',
-          reason: 'automation_disabled',
-          actions: planRecentAutoOffCancel(location),
-        };
-      }
-
-      // Rule 2: house entering sleep mode
-      if (trigger.type === 'house_mode' && trigger.to === 'sleep') {
-        if (guestModeActive) {
-          return { decision: 'no_action', reason: 'guest_room_sleep_bypass', actions: [] };
-        }
-        return {
-          decision: 'turn_off',
-          reason: 'house_sleep_mode',
-          actions: [...planScene(scenes.off), ...planRecentAutoOffCancel(location)],
-        };
-      }
-
-      // Rule 3: sleep mode blocks occupancy-triggered on
-      if (blockedBySleep && occupied) {
-        return { decision: 'no_action', reason: 'sleep_mode', actions: [] };
-      }
-
-      // Rule 4: external suppress blocks motion-triggered on
-      if (externalSuppressActive && trigger.type === 'occupancy' && trigger.to === 'occupied') {
-        return { decision: 'no_action', reason: 'external_suppress_active', actions: [] };
-      }
-
-      // Rule 5: occupancy cleared
-      if (trigger.type === 'occupancy' && trigger.to === 'unoccupied') {
-        return {
-          decision: 'turn_off',
-          reason: 'occupancy_off',
-          actions: [...planScene(scenes.off), ...planRecentAutoOffOn(location, recentAutoOffMs)],
-        };
-      }
-
-      // Rule 6: button press
-      if (trigger.type === 'button') {
-        if (trigger.gesture === 'hold') {
-          return {
-            decision: 'turn_off',
-            reason: 'button_off',
-            actions: [...planScene(scenes.off), ...planRecentAutoOffOn(location, recentAutoOffMs)],
-          };
-        }
-        return {
-          decision: 'activate_scene',
-          reason: 'button_cycle',
-          actions: [...planScene(nextCycleScene(scenes, activeScene)), ...planRecentAutoOffCancel(location)],
-        };
-      }
-
-      // Rule 7: occupancy set
-      if (trigger.type === 'occupancy' && trigger.to === 'occupied') {
-        if (!isCurrentlyOff) {
-          return {
-            decision: 'no_action',
-            reason: 'already_on',
-            actions: planRecentAutoOffCancel(location),
-          };
-        }
-        const autoScene = selectAutoScene(scenes, isDay);
-        if (recentAutoOff) {
-          return {
-            decision: 'activate_scene',
-            reason: 'recent_auto_off',
-            actions: [...planScene(autoScene), ...planRecentAutoOffCancel(location)],
-          };
-        }
-        if (lux !== null && lux > luxThreshold) {
-          return {
-            decision: 'no_action',
-            reason: 'lux_high',
-            actions: planRecentAutoOffCancel(location),
-          };
-        }
-        return {
-          decision: 'activate_scene',
-          reason: 'lux_low',
-          actions: [...planScene(autoScene), ...planRecentAutoOffCancel(location)],
-        };
-      }
-
-      // Rule 8: on_start — no scene resync (would clobber manual overrides); this tick's
-      // only job is exercising the validation above (scene labels, lux threshold) at boot.
-      if (trigger.type === 'system') {
-        return { decision: 'no_action', reason: 'startup_check_ok', actions: [] };
-      }
-
-      return { decision: 'no_action', reason: 'no_matching_rule', actions: [] };
+      return result;
     },
   });
+}
+
+function reduceRules(ctx: LightingContext, occupancySettleMs: number) {
+  const {
+    location, trigger, automationEnabled, lux, luxThreshold, occupied, activeScene,
+    blockedBySleep, recentAutoOff, externalSuppressActive, isDay, guestModeActive,
+    isCurrentlyOff, scenes, recentAutoOffMs, occupancySensorState,
+  } = ctx;
+
+  // Rule 0: timer expired — clear the recent_auto_off flag
+  if (trigger.type === 'timer') {
+    return {
+      decision: 'clear_recent_auto_off',
+      reason: 'recent_auto_off_expired',
+      actions: planRecentAutoOffOff(location),
+    };
+  }
+
+  // Rule 0b: occupancy sensor outage/restart noise — never act, never touch recent_auto_off
+  if (trigger.type === 'occupancy_invalid') {
+    return { decision: 'no_action', reason: 'occupancy_sensor_not_valid', actions: [] };
+  }
+
+  // Rule 0c: sensor back as `on` after an outage — only cancel the settle check
+  if (trigger.type === 'occupancy_restored') {
+    return { decision: 'no_action', reason: 'occupancy_sensor_restored_on', actions: planSettleCancel(location) };
+  }
+
+  // Rule 1: automation disabled
+  if (!automationEnabled) {
+    return {
+      decision: 'no_action',
+      reason: 'automation_disabled',
+      actions: planRecentAutoOffCancel(location),
+    };
+  }
+
+  // Rule 1b: first valid `off` after an outage — defer the decision
+  if (trigger.type === 'occupancy_settle_start') {
+    return {
+      decision: 'no_action',
+      reason: 'occupancy_settle_pending',
+      actions: planSettleStart(location, occupancySettleMs),
+    };
+  }
+
+  // Rule 1c: settle timer fired — re-read the sensor; never re-arm, so a sensor that stays
+  // invalid is left alone until its next valid transition.
+  if (trigger.type === 'occupancy_settle_fired') {
+    if (!isValidOccupancyState(occupancySensorState)) {
+      return { decision: 'no_action', reason: 'occupancy_settle_sensor_not_valid', actions: [] };
+    }
+    if (occupancySensorState === 'on') {
+      return { decision: 'no_action', reason: 'occupancy_settle_sensor_on', actions: [] };
+    }
+    if (isCurrentlyOff) {
+      return { decision: 'no_action', reason: 'occupancy_settle_already_off', actions: [] };
+    }
+    return {
+      decision: 'turn_off',
+      reason: 'occupancy_settle_off',
+      actions: [...planScene(scenes.off), ...planRecentAutoOffOn(location, recentAutoOffMs)],
+    };
+  }
+
+  // Rule 2: house entering sleep mode
+  if (trigger.type === 'house_mode' && trigger.to === 'sleep') {
+    if (guestModeActive) {
+      return { decision: 'no_action', reason: 'guest_room_sleep_bypass', actions: [] };
+    }
+    return {
+      decision: 'turn_off',
+      reason: 'house_sleep_mode',
+      actions: [...planScene(scenes.off), ...planRecentAutoOffCancel(location)],
+    };
+  }
+
+  // Rule 3: sleep mode blocks occupancy-triggered on
+  if (blockedBySleep && occupied) {
+    return { decision: 'no_action', reason: 'sleep_mode', actions: [] };
+  }
+
+  // Rule 4: external suppress blocks motion-triggered on
+  if (externalSuppressActive && trigger.type === 'occupancy' && trigger.to === 'occupied') {
+    return { decision: 'no_action', reason: 'external_suppress_active', actions: [] };
+  }
+
+  // Rule 5: occupancy cleared
+  if (trigger.type === 'occupancy' && trigger.to === 'unoccupied') {
+    return {
+      decision: 'turn_off',
+      reason: 'occupancy_off',
+      actions: [...planScene(scenes.off), ...planRecentAutoOffOn(location, recentAutoOffMs)],
+    };
+  }
+
+  // Rule 6: button press
+  if (trigger.type === 'button') {
+    if (trigger.gesture === 'hold') {
+      return {
+        decision: 'turn_off',
+        reason: 'button_off',
+        actions: [...planScene(scenes.off), ...planRecentAutoOffOn(location, recentAutoOffMs)],
+      };
+    }
+    return {
+      decision: 'activate_scene',
+      reason: 'button_cycle',
+      actions: [...planScene(nextCycleScene(scenes, activeScene)), ...planRecentAutoOffCancel(location)],
+    };
+  }
+
+  // Rule 7: occupancy set
+  if (trigger.type === 'occupancy' && trigger.to === 'occupied') {
+    if (!isCurrentlyOff) {
+      return {
+        decision: 'no_action',
+        reason: 'already_on',
+        actions: planRecentAutoOffCancel(location),
+      };
+    }
+    const autoScene = selectAutoScene(scenes, isDay);
+    if (recentAutoOff) {
+      return {
+        decision: 'activate_scene',
+        reason: 'recent_auto_off',
+        actions: [...planScene(autoScene), ...planRecentAutoOffCancel(location)],
+      };
+    }
+    if (lux !== null && lux > luxThreshold) {
+      return {
+        decision: 'no_action',
+        reason: 'lux_high',
+        actions: planRecentAutoOffCancel(location),
+      };
+    }
+    return {
+      decision: 'activate_scene',
+      reason: 'lux_low',
+      actions: [...planScene(autoScene), ...planRecentAutoOffCancel(location)],
+    };
+  }
+
+  // Rule 8: on_start — no scene resync (would clobber manual overrides); this tick's
+  // only job is exercising the validation above (scene labels, lux threshold) at boot.
+  if (trigger.type === 'system') {
+    return { decision: 'no_action', reason: 'startup_check_ok', actions: [] };
+  }
+
+  return { decision: 'no_action', reason: 'no_matching_rule', actions: [] };
 }
