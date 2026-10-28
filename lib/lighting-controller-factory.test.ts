@@ -176,6 +176,9 @@ describe('makeLightingAutomation', () => {
   });
 
   describe('occupancy sensor outage / HA restart', () => {
+    const SETTLE_KEY = `${LOCATION}:lighting_occupancy_settle`;
+    const LIT = { ...baseState, [`sensor.${LOCATION}_active_scene`]: { state: `${LOCATION}_low` } };
+    const withSensor = (st: string, base: typeof baseState = LIT) => ({ ...base, [`binary_sensor.${LOCATION}_occupied`]: { state: st } });
     const transition = (from: string | null, to: string) => ({
       type: 'state_changed' as const,
       entity_id: `binary_sensor.${LOCATION}_occupied`,
@@ -183,33 +186,96 @@ describe('makeLightingAutomation', () => {
       new_state: { entity_id: `binary_sensor.${LOCATION}_occupied`, state: to, attributes: {}, last_changed: '', last_updated: '' },
       correlation_id: 'test-cid',
     });
+    const settleEvent = () => ({ type: 'timer_expired' as const, timerKey: SETTLE_KEY, correlation_id: 'test-cid' });
+    const run = (event: any, state: any) => testAutomation(automation, { event, state, ha: makeHa() });
+    const types = (r: any) => r.actions.map((a: any) => a.type);
+    const hasOffScene = (r: any) => r.actions.some((a: any) => a.type === 'ha.call_service' && JSON.stringify(a).includes(`${LOCATION}_off`));
+    const publishesAutoOff = (r: any) => r.actions.some((a: any) => a.type === 'mqtt.publish');
 
     it.each([
       ['off', 'unavailable'],
       ['on', 'unavailable'],
       [null, 'unavailable'],
       ['unavailable', 'unknown'],
-      ['unknown', 'off'],
-      ['unavailable', 'on'],
-      ['unknown', 'on'],
-    ] as const)('takes no action on %s -> %s', (from, to) => {
-      const result = testAutomation(automation, {
-        event: transition(from, to) as any,
-        state: { ...baseState, [`sensor.${LOCATION}_active_scene`]: { state: `${LOCATION}_low` } },
-        ha: makeHa(),
-      });
+      ['on', 'unknown'],
+    ] as const)('new state invalid (%s -> %s): no scene, no publish, no timer', (from, to) => {
+      const result = run(transition(from, to), withSensor(to));
       expect(result).toMatchObject({ decision: 'no_action', reason: 'occupancy_sensor_not_valid' });
       expect(result.actions).toEqual([]);
     });
 
-    it('still turns the room off on a genuine on -> off', () => {
-      const result = testAutomation(automation, {
-        event: occupancyEvent('off'),
-        state: { ...baseState, [`sensor.${LOCATION}_active_scene`]: { state: `${LOCATION}_low` } },
-        ha: makeHa(),
-      });
+    it.each(['unavailable', 'unknown'] as const)('%s -> off starts a settle timer without touching lights', (from) => {
+      const result = run(transition(from, 'off'), withSensor('off'));
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'occupancy_settle_pending' });
+      expect(result.actions).toEqual([{ type: 'timer.start', timerKey: SETTLE_KEY, delayMs: 300_000 }]);
+    });
+
+    it('null -> off (fresh process) also starts a settle timer', () => {
+      const result = run(transition(null, 'off'), withSensor('off'));
+      expect(result).toMatchObject({ reason: 'occupancy_settle_pending' });
+    });
+
+    it('does not start a settle timer when automation is disabled', () => {
+      const result = run(transition('unknown', 'off'), { ...withSensor('off'), [`input_boolean.${LOCATION}_automation_lights_enabled`]: { state: 'off' } });
+      expect(result.reason).toBe('automation_disabled');
+      expect(types(result)).not.toContain('timer.start');
+    });
+
+    it('sensor returning on after an outage cancels the settle timer and leaves lights alone', () => {
+      const result = run(transition('unknown', 'on'), withSensor('on'));
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'occupancy_sensor_restored_on' });
+      expect(result.actions).toEqual([{ type: 'timer.cancel', timerKey: SETTLE_KEY }]);
+    });
+
+    it('restart, room emptied: lights are turned off when the settle timer fires', () => {
+      const steps = [transition(null, 'unavailable'), transition('unavailable', 'unknown'), transition('unknown', 'off')];
+      const results = steps.map((e) => run(e, withSensor(e.new_state.state)));
+      expect(results.map((r) => r.reason)).toEqual(['occupancy_sensor_not_valid', 'occupancy_sensor_not_valid', 'occupancy_settle_pending']);
+      results.forEach((r) => expect(hasOffScene(r)).toBe(false));
+      const fired = run(settleEvent(), withSensor('off'));
+      expect(fired).toMatchObject({ decision: 'turn_off', reason: 'occupancy_settle_off' });
+      expect(hasOffScene(fired)).toBe(true);
+      expect(fired.actions).toContainEqual({ type: 'timer.start', timerKey: `${LOCATION}:lighting_recent_auto_off`, delayMs: 300_000 });
+      expect(publishesAutoOff(fired)).toBe(true);
+    });
+
+    it('restart, room still occupied: off -> on within the delay cancels the timer and leaves lights untouched', () => {
+      const pending = run(transition('unknown', 'off'), withSensor('off'));
+      expect(pending.reason).toBe('occupancy_settle_pending');
+      const back = run(transition('off', 'on'), withSensor('on'));
+      expect(types(back)).toContain('timer.cancel');
+      expect(back.actions).toContainEqual({ type: 'timer.cancel', timerKey: SETTLE_KEY });
+      expect(hasOffScene(back)).toBe(false);
+      // Even if the cancel were lost, firing with sensor on does nothing.
+      const fired = run(settleEvent(), withSensor('on'));
+      expect(fired).toMatchObject({ decision: 'no_action', reason: 'occupancy_settle_sensor_on' });
+      expect(fired.actions).toEqual([]);
+    });
+
+    it.each(['unavailable', 'unknown'])('settle timer firing with sensor %s does nothing and does not re-arm', (st) => {
+      const fired = run(settleEvent(), withSensor(st));
+      expect(fired).toMatchObject({ decision: 'no_action', reason: 'occupancy_settle_sensor_not_valid' });
+      expect(fired.actions).toEqual([]);
+    });
+
+    it('settle timer firing with lights already off does nothing', () => {
+      const fired = run(settleEvent(), withSensor('off', baseState));
+      expect(fired).toMatchObject({ decision: 'no_action', reason: 'occupancy_settle_already_off' });
+      expect(fired.actions).toEqual([]);
+    });
+
+    it('genuine on -> off still turns the room off and also cancels a pending settle timer', () => {
+      const result = run(occupancyEvent('off'), LIT);
       expect(result).toMatchObject({ decision: 'turn_off', reason: 'occupancy_off' });
-      expect(result.actions.some((a: any) => a.type === 'timer.start')).toBe(true);
+      expect(hasOffScene(result)).toBe(true);
+      expect(result.actions).toContainEqual({ type: 'timer.start', timerKey: `${LOCATION}:lighting_recent_auto_off`, delayMs: 300_000 });
+      expect(result.actions).toContainEqual({ type: 'timer.cancel', timerKey: SETTLE_KEY });
+    });
+
+    it('custom occupancySettleMins is used and clamped', () => {
+      const custom = makeLightingAutomation({ location: LOCATION, occupancySettleMins: 1000 });
+      const r = testAutomation(custom, { event: transition('unknown', 'off') as any, state: withSensor('off'), ha: makeHa() });
+      expect(r.actions).toEqual([{ type: 'timer.start', timerKey: SETTLE_KEY, delayMs: 3_600_000 }]);
     });
   });
 
