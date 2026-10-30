@@ -3,7 +3,7 @@ import { testAutomation } from '@ajclarkson/homerun/testing';
 import type { HAContext } from '@ajclarkson/homerun';
 import automation, {
   TIMERS, DRIFT_COLOURS, DRIFT_PERIOD_MS, DRIFT_TRANSITION_S, LIGHTNING_MIN_GAP_MS, LIGHTNING_MAX_GAP_MS,
-  FLICKER_MS, FLICKER_TO_FLASH_MS, FLASH_MS,
+  FLICKER_MS, FLICKER_TO_FLASH_MS, FLASH_MS, ECHO_AFTER_MS,
 } from './halloween.js';
 
 const BIRCH = 'light.front_garden_light_birch';
@@ -181,36 +181,74 @@ describe('Halloween animation', () => {
       expect([FLICKER_MS, FLICKER_TO_FLASH_MS, FLASH_MS]).toEqual([100, 350, 120]);
     });
 
-    it('snaps straight back to the current drift colour and queues the next strike 3–8 minutes out', () => {
-      clockAt('19:00', 'green');
-      const result = run(timer(TIMERS.restore), halloweenOn);
-      expect(result).toMatchObject({ decision: 'lightning_restore', reason: 'next_strike_scheduled' });
-      expect(result.actions).toEqual([lightCall(BIRCH, GREEN.rgb, GREEN.brightness, 0), timerStart(TIMERS.strike, midGap)]);
+    describe('each bolt is a pair of strikes', () => {
+      it('snaps back after the first strike and queues its echo to start 5s after the first began', () => {
+        clockAt('19:00', 'green');
+        const result = run(timer(TIMERS.restore), halloweenOn);
+        expect(result).toMatchObject({ decision: 'lightning_restore', reason: 'echo_scheduled' });
+        expect(result.actions).toEqual([
+          lightCall(BIRCH, GREEN.rgb, GREEN.brightness, 0),
+          timerStart(TIMERS.echo, ECHO_AFTER_MS - FLICKER_TO_FLASH_MS - FLASH_MS),
+        ]);
+        expect(ECHO_AFTER_MS).toBe(5_000);
+      });
+
+      it('runs the echo with the same flicker-then-flash rhythm on its own steps', () => {
+        clockAt('19:00', 'purple');
+        expect(run(timer(TIMERS.echo), halloweenOn)).toMatchObject({ decision: 'lightning_flicker', reason: 'lightning_echo' });
+        expect(run(timer(TIMERS.echo), halloweenOn).actions).toEqual([
+          lightCall(BIRCH, [200, 215, 255], 110, 0),
+          timerStart(TIMERS.echoFlickerEnd, FLICKER_MS),
+        ]);
+        expect(run(timer(TIMERS.echoFlickerEnd), halloweenOn).actions).toEqual([
+          lightCall(BIRCH, PURPLE.rgb, PURPLE.brightness, 0),
+          timerStart(TIMERS.echoFlash, FLICKER_TO_FLASH_MS - FLICKER_MS),
+        ]);
+        expect(run(timer(TIMERS.echoFlash), halloweenOn).actions).toEqual([
+          lightCall(BIRCH, [200, 215, 255], 255, 0),
+          timerStart(TIMERS.echoRestore, FLASH_MS),
+        ]);
+      });
+
+      it('after the echo, snaps back and queues the next bolt 5–10 minutes out', () => {
+        clockAt('19:00', 'green');
+        const result = run(timer(TIMERS.echoRestore), halloweenOn);
+        expect(result).toMatchObject({ decision: 'lightning_restore', reason: 'next_bolt_scheduled' });
+        expect(result.actions).toEqual([lightCall(BIRCH, GREEN.rgb, GREEN.brightness, 0), timerStart(TIMERS.strike, midGap)]);
+      });
+
+      it.each([
+        [0, LIGHTNING_MIN_GAP_MS],
+        [0.999999, LIGHTNING_MAX_GAP_MS - 1],
+      ])('keeps the gap between bolts within 5–10 minutes (random %s)', (random, expected) => {
+        vi.spyOn(Math, 'random').mockReturnValue(random);
+        const result = run(timer(TIMERS.echoRestore), halloweenOn);
+        expect(result.actions).toContainEqual(timerStart(TIMERS.strike, expected));
+        expect(expected).toBeGreaterThanOrEqual(5 * 60_000);
+        expect(expected).toBeLessThan(10 * 60_000);
+      });
     });
 
-    it.each([
-      [0, LIGHTNING_MIN_GAP_MS],
-      [0.999999, LIGHTNING_MAX_GAP_MS - 1],
-    ])('keeps the gap between strikes within 3–8 minutes (random %s)', (random, expected) => {
-      vi.spyOn(Math, 'random').mockReturnValue(random);
-      const result = run(timer(TIMERS.restore), halloweenOn);
-      expect(result.actions).toContainEqual(timerStart(TIMERS.strike, expected));
-      expect(expected).toBeGreaterThanOrEqual(3 * 60_000);
-      expect(expected).toBeLessThan(8 * 60_000);
-    });
+    describe('at the 20:30 cutoff', () => {
+      it('starts no new bolt', () => {
+        clockAt('20:30');
+        const result = run(timer(TIMERS.strike), halloweenOn);
+        expect(result).toMatchObject({ decision: 'no_action', reason: 'past_lightning_cutoff' });
+        expect(result.actions).toEqual([]);
+      });
 
-    it('stops striking at 20:30', () => {
-      clockAt('20:30');
-      const result = run(timer(TIMERS.strike), halloweenOn);
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'past_lightning_cutoff' });
-      expect(result.actions).toEqual([]);
-    });
+      it('still lets a bolt that began just before 20:30 finish with its echo', () => {
+        clockAt('20:30');
+        expect(run(timer(TIMERS.restore), halloweenOn).actions).toContainEqual(expect.objectContaining({ timerKey: TIMERS.echo }));
+        expect(run(timer(TIMERS.echo), halloweenOn)).toMatchObject({ decision: 'lightning_flicker', reason: 'lightning_echo' });
+      });
 
-    it('still finishes a strike that began just before 20:30, without queuing another', () => {
-      clockAt('20:30');
-      const result = run(timer(TIMERS.restore), halloweenOn);
-      expect(result).toMatchObject({ decision: 'lightning_restore', reason: 'past_lightning_cutoff' });
-      expect(result.actions).toHaveLength(1);
+      it('queues nothing after that final echo', () => {
+        clockAt('20:30');
+        const result = run(timer(TIMERS.echoRestore), halloweenOn);
+        expect(result).toMatchObject({ decision: 'lightning_restore', reason: 'past_lightning_cutoff' });
+        expect(result.actions).toHaveLength(1);
+      });
     });
 
     it('never flashes the maple, which sits beside the street light', () => {

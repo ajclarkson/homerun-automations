@@ -4,7 +4,8 @@ import type { Action } from '@ajclarkson/homerun';
 // Halloween animation for the front garden's feature light(s) — the birch. Runs only while the
 // Halloween theme scene is active, layered on top of it:
 //   - drift: a fade between purple and sickly green, holding each colour for a while
-//   - lightning: every 3–8 minutes a short dim flicker, then a short bright flash, until 20:30
+//   - lightning: every 5–10 minutes a pair of strikes 5s apart (each a short dim flicker then a
+//     short bright flash), until 20:30
 // The accent light (maple) is left alone — its fireplace flicker is an on-bulb effect from
 // front-garden/theme-effects.ts, and a white flash next to the street light would be lost.
 
@@ -29,9 +30,12 @@ export const DRIFT_PERIOD_MS = 60_000;
 export const DRIFT_TRANSITION_S = 20;
 const DRIFT_BOUNDARY_OFFSET_MS = 500;
 
-export const LIGHTNING_MIN_GAP_MS = 3 * 60_000;
-export const LIGHTNING_MAX_GAP_MS = 8 * 60_000;
-// No new strikes from this local time; drift carries on.
+// Gap between one pair of strikes ending and the next pair starting.
+export const LIGHTNING_MIN_GAP_MS = 5 * 60_000;
+export const LIGHTNING_MAX_GAP_MS = 10 * 60_000;
+// Each bolt is two strikes, the second (echo) starting this long after the first began.
+export const ECHO_AFTER_MS = 5_000;
+// No new bolts from this local time; a bolt already started finishes, and drift carries on.
 export const LIGHTNING_CUTOFF = { hour: 20, minute: 30 };
 const STRIKE_COLOUR: [number, number, number] = [200, 215, 255];
 const FLICKER_BRIGHTNESS = 110;
@@ -48,19 +52,31 @@ export const TIMERS = {
   flickerEnd: `${LOCATION}:halloween_lightning_flicker_end`,
   flash: `${LOCATION}:halloween_lightning_flash`,
   restore: `${LOCATION}:halloween_lightning_restore`,
+  echo: `${LOCATION}:halloween_lightning_echo`,
+  echoFlickerEnd: `${LOCATION}:halloween_lightning_echo_flicker_end`,
+  echoFlash: `${LOCATION}:halloween_lightning_echo_flash`,
+  echoRestore: `${LOCATION}:halloween_lightning_echo_restore`,
 } as const;
 
-type HalloweenTrigger = 'scene_activated' | 'drift' | 'strike' | 'flicker_end' | 'flash' | 'restore' | 'system';
-const TIMER_TRIGGERS: Record<string, HalloweenTrigger> = {
-  [TIMERS.drift]: 'drift',
-  [TIMERS.strike]: 'strike',
-  [TIMERS.flickerEnd]: 'flicker_end',
-  [TIMERS.flash]: 'flash',
-  [TIMERS.restore]: 'restore',
+type StrikePhase = 'strike' | 'flicker_end' | 'flash' | 'restore';
+type HalloweenTrigger = 'scene_activated' | 'drift' | StrikePhase | 'system';
+type StrikeNo = 1 | 2;
+
+// Timer keys for each phase of the first strike and its echo.
+const STRIKE_TIMERS: Record<StrikeNo, Record<StrikePhase, string>> = {
+  1: { strike: TIMERS.strike, flicker_end: TIMERS.flickerEnd, flash: TIMERS.flash, restore: TIMERS.restore },
+  2: { strike: TIMERS.echo, flicker_end: TIMERS.echoFlickerEnd, flash: TIMERS.echoFlash, restore: TIMERS.echoRestore },
+};
+const TIMER_TRIGGERS: Record<string, { trigger: HalloweenTrigger; strikeNo: StrikeNo | null }> = {
+  [TIMERS.drift]: { trigger: 'drift', strikeNo: null },
+  ...Object.fromEntries(([1, 2] as const).flatMap(strikeNo =>
+    (Object.entries(STRIKE_TIMERS[strikeNo]) as [StrikePhase, string][]).map(([trigger, key]) => [key, { trigger, strikeNo }]))),
 };
 
 interface HalloweenContext {
   trigger: HalloweenTrigger;
+  /** Which strike of the bolt a lightning step belongs to: 1 = first, 2 = echo. */
+  strikeNo: StrikeNo | null;
   automationEnabled: boolean;
   /** False when a scene's state changed because HA reloaded scenes, not because it was activated. */
   realActivation: boolean;
@@ -90,6 +106,7 @@ export default defineAutomation<HalloweenContext>({
     const inArea = (label: string) => ha.entitiesByLabel(label).filter(e => areaEntities.includes(e));
 
     let trigger: HalloweenTrigger;
+    let strikeNo: StrikeNo | null = null;
     let scene: string | null;
     let realActivation = true;
     if (event.type === 'state_changed') {
@@ -97,7 +114,9 @@ export default defineAutomation<HalloweenContext>({
       scene = event.entity_id;
       realActivation = isActivationTimestamp(event.new_state.state);
     } else {
-      trigger = event.type === 'timer_expired' ? TIMER_TRIGGERS[event.timerKey] ?? 'system' : 'system';
+      const timer = event.type === 'timer_expired' ? TIMER_TRIGGERS[event.timerKey] : undefined;
+      trigger = timer?.trigger ?? 'system';
+      strikeNo = timer?.strikeNo ?? null;
       const active = state(`sensor.${LOCATION}_active_scene` as keyof HAEntities)?.state;
       scene = active ? `scene.${active}` : null;
     }
@@ -109,6 +128,7 @@ export default defineAutomation<HalloweenContext>({
 
     return {
       trigger,
+      strikeNo,
       automationEnabled: state(`input_boolean.${LOCATION}_automation_lights_enabled` as keyof HAEntities)?.state === 'on',
       realActivation,
       halloweenActive: halloweenScene !== null && scene === halloweenScene,
@@ -122,7 +142,9 @@ export default defineAutomation<HalloweenContext>({
   },
 
   reduce: (ctx) => {
-    const { trigger, automationEnabled, realActivation, halloweenActive, featureLights, driftColour, msToNextDrift, lightningOpen, nextStrikeMs } = ctx;
+    const { trigger, strikeNo, automationEnabled, realActivation, halloweenActive, featureLights, driftColour, msToNextDrift, lightningOpen, nextStrikeMs } = ctx;
+    const phaseTimers = STRIKE_TIMERS[strikeNo ?? 1];
+    const reason = strikeNo === 2 ? 'lightning_echo' : 'lightning_strike';
     const isTimer = trigger !== 'scene_activated' && trigger !== 'system';
     const cancelAll: Action[] = Object.values(TIMERS).map(timerKey => ({ type: 'timer.cancel' as const, timerKey }));
     const setAll = (rgb_color: [number, number, number], brightness: number, transition: number): Action[] =>
@@ -175,47 +197,55 @@ export default defineAutomation<HalloweenContext>({
         };
 
       case 'strike':
-        if (!lightningOpen) {
+        // Only a new bolt respects the cutoff; an echo always follows its first strike.
+        if (strikeNo === 1 && !lightningOpen) {
           return { decision: 'no_action', reason: 'past_lightning_cutoff', actions: [] };
         }
         return {
           decision: 'lightning_flicker',
-          reason: 'lightning_strike',
+          reason,
           actions: [
             ...setAll(STRIKE_COLOUR, FLICKER_BRIGHTNESS, 0),
-            { type: 'timer.start', timerKey: TIMERS.flickerEnd, delayMs: FLICKER_MS },
+            { type: 'timer.start', timerKey: phaseTimers.flicker_end, delayMs: FLICKER_MS },
           ],
         };
 
       case 'flicker_end':
         return {
           decision: 'lightning_flicker_end',
-          reason: 'lightning_strike',
+          reason,
           actions: [
             ...setAll(driftColour.rgb, driftColour.brightness, 0),
-            { type: 'timer.start', timerKey: TIMERS.flash, delayMs: FLICKER_TO_FLASH_MS - FLICKER_MS },
+            { type: 'timer.start', timerKey: phaseTimers.flash, delayMs: FLICKER_TO_FLASH_MS - FLICKER_MS },
           ],
         };
 
       case 'flash':
         return {
           decision: 'lightning_flash',
-          reason: 'lightning_strike',
+          reason,
           actions: [
             ...setAll(STRIKE_COLOUR, FLASH_BRIGHTNESS, 0),
-            { type: 'timer.start', timerKey: TIMERS.restore, delayMs: FLASH_MS },
+            { type: 'timer.start', timerKey: phaseTimers.restore, delayMs: FLASH_MS },
           ],
         };
 
-      case 'restore':
+      case 'restore': {
+        const restore = setAll(driftColour.rgb, driftColour.brightness, 0);
+        if (strikeNo === 1) {
+          // Echo starts ECHO_AFTER_MS after the first strike began.
+          return {
+            decision: 'lightning_restore',
+            reason: 'echo_scheduled',
+            actions: [...restore, { type: 'timer.start', timerKey: TIMERS.echo, delayMs: ECHO_AFTER_MS - FLICKER_TO_FLASH_MS - FLASH_MS }],
+          };
+        }
         return {
           decision: 'lightning_restore',
-          reason: lightningOpen ? 'next_strike_scheduled' : 'past_lightning_cutoff',
-          actions: [
-            ...setAll(driftColour.rgb, driftColour.brightness, 0),
-            ...(lightningOpen ? [scheduleNextStrike] : []),
-          ],
+          reason: lightningOpen ? 'next_bolt_scheduled' : 'past_lightning_cutoff',
+          actions: [...restore, ...(lightningOpen ? [scheduleNextStrike] : [])],
         };
+      }
     }
   },
 });
