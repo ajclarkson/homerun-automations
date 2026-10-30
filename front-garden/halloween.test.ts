@@ -3,7 +3,7 @@ import { testAutomation } from '@ajclarkson/homerun/testing';
 import type { HAContext } from '@ajclarkson/homerun';
 import automation, {
   TIMERS, DRIFT_COLOURS, DRIFT_PERIOD_MS, DRIFT_TRANSITION_S, LIGHTNING_MIN_GAP_MS, LIGHTNING_MAX_GAP_MS,
-  FLICKER_TO_FLASH_MS, FLASH_TO_RESTORE_MS,
+  FLICKER_MS, FLICKER_TO_FLASH_MS, FLASH_MS,
 } from './halloween.js';
 
 const BIRCH = 'light.front_garden_light_birch';
@@ -151,27 +151,41 @@ describe('Halloween animation', () => {
   });
 
   describe('lightning', () => {
-    it('opens with a dim flicker, then a brighter flash moments later', () => {
+    it('opens with a short dim flicker that drops back to the drift colour', () => {
+      clockAt('19:00', 'purple');
       const flicker = run(timer(TIMERS.strike), halloweenOn);
       expect(flicker).toMatchObject({ decision: 'lightning_flicker' });
       expect(flicker.actions).toEqual([
         lightCall(BIRCH, [200, 215, 255], 110, 0),
-        timerStart(TIMERS.flash, FLICKER_TO_FLASH_MS),
+        timerStart(TIMERS.flickerEnd, FLICKER_MS),
       ]);
 
+      const flickerEnd = run(timer(TIMERS.flickerEnd), halloweenOn);
+      expect(flickerEnd).toMatchObject({ decision: 'lightning_flicker_end' });
+      expect(flickerEnd.actions).toEqual([
+        lightCall(BIRCH, PURPLE.rgb, PURPLE.brightness, 0),
+        timerStart(TIMERS.flash, FLICKER_TO_FLASH_MS - FLICKER_MS),
+      ]);
+    });
+
+    it('follows with a short full-brightness flash, a beat after the flicker began', () => {
       const flash = run(timer(TIMERS.flash), halloweenOn);
       expect(flash).toMatchObject({ decision: 'lightning_flash' });
       expect(flash.actions).toEqual([
         lightCall(BIRCH, [200, 215, 255], 255, 0),
-        timerStart(TIMERS.restore, FLASH_TO_RESTORE_MS),
+        timerStart(TIMERS.restore, FLASH_MS),
       ]);
     });
 
-    it('fades back to the current drift colour and queues the next strike 3–8 minutes out', () => {
+    it('keeps the tuned rhythm: ~100ms flicker, flash ~350ms after it began, ~120ms flash', () => {
+      expect([FLICKER_MS, FLICKER_TO_FLASH_MS, FLASH_MS]).toEqual([100, 350, 120]);
+    });
+
+    it('snaps straight back to the current drift colour and queues the next strike 3–8 minutes out', () => {
       clockAt('19:00', 'green');
       const result = run(timer(TIMERS.restore), halloweenOn);
       expect(result).toMatchObject({ decision: 'lightning_restore', reason: 'next_strike_scheduled' });
-      expect(result.actions).toEqual([lightCall(BIRCH, GREEN.rgb, GREEN.brightness, 1.5), timerStart(TIMERS.strike, midGap)]);
+      expect(result.actions).toEqual([lightCall(BIRCH, GREEN.rgb, GREEN.brightness, 0), timerStart(TIMERS.strike, midGap)]);
     });
 
     it.each([
@@ -200,7 +214,7 @@ describe('Halloween animation', () => {
     });
 
     it('never flashes the maple, which sits beside the street light', () => {
-      for (const key of [TIMERS.strike, TIMERS.flash, TIMERS.restore, TIMERS.drift]) {
+      for (const key of Object.values(TIMERS)) {
         expect(targets(run(timer(key), halloweenOn).actions)).not.toContain(MAPLE);
       }
     });
@@ -216,7 +230,7 @@ describe('Halloween animation', () => {
       expect(result.actions).toEqual(cancelAll);
     });
 
-    it.each([TIMERS.drift, TIMERS.strike, TIMERS.flash, TIMERS.restore])(
+    it.each(Object.values(TIMERS))(
       'a %s step arriving after the garden has turned off never relights it',
       (key) => {
         const result = run(timer(key), active(OFF));

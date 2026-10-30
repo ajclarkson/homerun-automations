@@ -4,7 +4,7 @@ import type { Action } from '@ajclarkson/homerun';
 // Halloween animation for the front garden's feature light(s) — the birch. Runs only while the
 // Halloween theme scene is active, layered on top of it:
 //   - drift: a fade between purple and sickly green, holding each colour for a while
-//   - lightning: every 3–8 minutes a dim flicker then a brighter flash, until 20:30
+//   - lightning: every 3–8 minutes a short dim flicker, then a short bright flash, until 20:30
 // The accent light (maple) is left alone — its fireplace flicker is an on-bulb effect from
 // front-garden/theme-effects.ts, and a white flash next to the street light would be lost.
 
@@ -36,21 +36,25 @@ export const LIGHTNING_CUTOFF = { hour: 20, minute: 30 };
 const STRIKE_COLOUR: [number, number, number] = [200, 215, 255];
 const FLICKER_BRIGHTNESS = 110;
 const FLASH_BRIGHTNESS = 255;
-export const FLICKER_TO_FLASH_MS = 180;
-export const FLASH_TO_RESTORE_MS = 300;
-const RESTORE_TRANSITION_S = 1.5;
+// Tuned by eye on the birch: two short, separate flashes rather than one sustained glow, snapping
+// straight back to the drift colour. Timings are from the start of the flicker.
+export const FLICKER_MS = 100;
+export const FLICKER_TO_FLASH_MS = 350;
+export const FLASH_MS = 120;
 
 export const TIMERS = {
   drift: `${LOCATION}:halloween_drift`,
   strike: `${LOCATION}:halloween_lightning`,
+  flickerEnd: `${LOCATION}:halloween_lightning_flicker_end`,
   flash: `${LOCATION}:halloween_lightning_flash`,
   restore: `${LOCATION}:halloween_lightning_restore`,
 } as const;
 
-type HalloweenTrigger = 'scene_activated' | 'drift' | 'strike' | 'flash' | 'restore' | 'system';
+type HalloweenTrigger = 'scene_activated' | 'drift' | 'strike' | 'flicker_end' | 'flash' | 'restore' | 'system';
 const TIMER_TRIGGERS: Record<string, HalloweenTrigger> = {
   [TIMERS.drift]: 'drift',
   [TIMERS.strike]: 'strike',
+  [TIMERS.flickerEnd]: 'flicker_end',
   [TIMERS.flash]: 'flash',
   [TIMERS.restore]: 'restore',
 };
@@ -179,7 +183,17 @@ export default defineAutomation<HalloweenContext>({
           reason: 'lightning_strike',
           actions: [
             ...setAll(STRIKE_COLOUR, FLICKER_BRIGHTNESS, 0),
-            { type: 'timer.start', timerKey: TIMERS.flash, delayMs: FLICKER_TO_FLASH_MS },
+            { type: 'timer.start', timerKey: TIMERS.flickerEnd, delayMs: FLICKER_MS },
+          ],
+        };
+
+      case 'flicker_end':
+        return {
+          decision: 'lightning_flicker_end',
+          reason: 'lightning_strike',
+          actions: [
+            ...setAll(driftColour.rgb, driftColour.brightness, 0),
+            { type: 'timer.start', timerKey: TIMERS.flash, delayMs: FLICKER_TO_FLASH_MS - FLICKER_MS },
           ],
         };
 
@@ -189,7 +203,7 @@ export default defineAutomation<HalloweenContext>({
           reason: 'lightning_strike',
           actions: [
             ...setAll(STRIKE_COLOUR, FLASH_BRIGHTNESS, 0),
-            { type: 'timer.start', timerKey: TIMERS.restore, delayMs: FLASH_TO_RESTORE_MS },
+            { type: 'timer.start', timerKey: TIMERS.restore, delayMs: FLASH_MS },
           ],
         };
 
@@ -198,7 +212,7 @@ export default defineAutomation<HalloweenContext>({
           decision: 'lightning_restore',
           reason: lightningOpen ? 'next_strike_scheduled' : 'past_lightning_cutoff',
           actions: [
-            ...setAll(driftColour.rgb, driftColour.brightness, RESTORE_TRANSITION_S),
+            ...setAll(driftColour.rgb, driftColour.brightness, 0),
             ...(lightningOpen ? [scheduleNextStrike] : []),
           ],
         };
