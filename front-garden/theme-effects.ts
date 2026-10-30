@@ -5,5 +5,6 @@ export default makeThemeEffectsAutomation({
   location: 'front_garden',
   themes: {
     halloween: { accent: 'fireplace' },
+    bonfire: { feature: 'fireplace', accent: 'fireplace' },
   },
 });
