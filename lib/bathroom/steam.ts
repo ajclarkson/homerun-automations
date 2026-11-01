@@ -1,5 +1,8 @@
 import type { HAState } from '@ajclarkson/homerun';
 
+// Lives under lib/ because homerun loads every other .ts file as an automation (it needs a
+// default export); lib/ and types/ are excluded from that scan.
+
 // Shared by shower.ts and fan.ts so both read the same entities with the same
 // validation, and the hard caps live in one place.
 

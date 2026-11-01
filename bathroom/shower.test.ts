@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
 import shower from './shower.js';
-import { HUMIDITY_SERIES } from './fixtures/humidity-series.js';
-import { HELPERS, replay, windowAt, percentileExclusive, type ReplayResult } from './shower-replay.js';
+import { HUMIDITY_SERIES } from '../lib/bathroom/humidity-series.js';
+import { HELPERS, replay, windowAt, percentileExclusive, type ReplayResult } from '../lib/bathroom/shower-replay.js';
 
 const H = 'sensor.bathroom_sensor_climate_humidity';
 const MAX = 'sensor.bathroom_humidity_max_10m';

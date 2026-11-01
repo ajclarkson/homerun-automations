@@ -5,7 +5,7 @@ import {
   MIN_FAN_MIN_RUN_MIN, MAX_FAN_MIN_RUN_MIN, MIN_FAN_MAX_RUN_MIN, MAX_FAN_MAX_RUN_MIN,
   MIN_FAN_MARGIN, MAX_FAN_MARGIN,
   clamp, readFinite, readShower, minutesToMs,
-} from './bathroom-steam.js';
+} from '../lib/bathroom/steam.js';
 
 const FAN = 'switch.bathroom_fan_extractor';
 const ENABLED = 'input_boolean.bathroom_automation_fan_enabled';

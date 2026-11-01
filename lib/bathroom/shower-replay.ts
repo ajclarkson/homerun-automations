@@ -1,6 +1,6 @@
 import { testAutomation } from '@ajclarkson/homerun/testing';
 import type { Action } from '@ajclarkson/homerun';
-import shower from './shower.js';
+import shower from '../../bathroom/shower.js';
 
 // Test harness: replays recorded humidity through the shower automation with
 // homeassistant's statistics windowing and homerun's timers simulated.
