@@ -2,37 +2,39 @@ import { defineAutomation, abort, type Action, type HAState } from '@ajclarkson/
 import {
   HUMIDITY_ENTITY, SHOWER_ENTITY, SHOWER_TOPIC,
   SHOWER_MAX_ON_TIMER, SHOWER_END_CONFIRM_TIMER, MAX_SHOWER_ON_MS,
-  MIN_RISE, MAX_RISE, MIN_END_DROP, MAX_END_DROP,
+  MIN_RISE, MAX_RISE, MIN_ABOVE_BASELINE, MAX_ABOVE_BASELINE,
+  SATURATED_LEVEL, MIN_SATURATED_STEP, MAX_STEP_GAP_MINS, MIN_END_DROP, MAX_END_DROP,
   MIN_END_CONFIRM_MIN, MAX_END_CONFIRM_MIN,
   clamp, readFinite, readShower, minutesToMs,
 } from './bathroom-steam.js';
 
-const CHANGE_ENTITY = 'sensor.bathroom_humidity_change_5m';
+const BASELINE_ENTITY = 'sensor.bathroom_humidity_baseline';
+const ABOVE_HELPER = 'input_number.bathroom_automation_shower_above_baseline';
 const MAX_ENTITY = 'sensor.bathroom_humidity_max_10m';
 const RISE_HELPER = 'input_number.bathroom_automation_shower_rise';
 const DROP_HELPER = 'input_number.bathroom_automation_shower_end_drop';
 const CONFIRM_HELPER = 'input_number.bathroom_automation_shower_end_confirm';
 
-type ShowerTrigger = 'humidity' | 'statistic' | 'max_on_expired' | 'end_confirm_expired' | 'start_up';
+type ShowerTrigger = 'humidity' | 'max_on_expired' | 'end_confirm_expired' | 'start_up';
 
 interface ShowerContext {
   trigger: ShowerTrigger;
   showerOn: boolean;
   humidity: number;
-  change5m: number;
   max10m: number;
+  baseline: number;
+  /** New minus old report; null off a humidity event, where no step exists. */
+  step: number | null;
+  gapMins: number | null;
+  requiredStep: number;
+  aboveBaseline: number;
+  aboveBaselineOk: boolean;
   rise: number;
+  aboveBaselineMin: number;
   drop: number;
   endConfirmMs: number;
   risingFast: boolean;
   fallenFromPeak: boolean;
-  /**
-   * Checked when end_confirm expires. The original drop line cannot be re-checked
-   * then: the sensor reports on change, so after a quiet 5 min the 10-min max
-   * has usually shrunk to the latest sample. Silence plus no new rise is the
-   * evidence the steam has stopped; a real resumption is a rise and cancels the timer.
-   */
-  notClimbing: boolean;
   /** Fell below the peak on this very report, as opposed to having already been below it. */
   freshlyFallen: boolean;
   /** The previous report was already past the drop line, so a rise now is a resumed shower. */
@@ -43,17 +45,15 @@ interface ShowerEvent {
   type: string;
   timerKey?: string;
   entity_id?: string;
-  old_state?: { state: string };
+  old_state?: { state: string; last_changed?: string };
+  new_state?: { state: string; last_changed?: string };
 }
 
 function triggerOf(event: ShowerEvent): ShowerTrigger {
   if (event.type === 'timer_expired') {
     return event.timerKey === SHOWER_MAX_ON_TIMER ? 'max_on_expired' : 'end_confirm_expired';
   }
-  if (event.type === 'state_changed') {
-    return event.entity_id === HUMIDITY_ENTITY ? 'humidity' : 'statistic';
-  }
-  return 'start_up';
+  return event.type === 'state_changed' ? 'humidity' : 'start_up';
 }
 
 /** Humidity is a percentage; anything outside 0-100 is a faulty sensor, not a steamy room. */
@@ -61,19 +61,43 @@ function validPercent(value: number | null): value is number {
   return value !== null && value >= 0 && value <= 100;
 }
 
+interface Step { old: number; step: number; gapMins: number }
+
+/** The step between this report and the previous one, with the time between them. */
+function readStep(event: ShowerEvent): Step | { abortReason: string } {
+  const old = Number(event.old_state?.state);
+  const now = Number(event.new_state?.state);
+  if (event.old_state?.state === undefined || !validPercent(Number.isFinite(old) ? old : null)) {
+    return { abortReason: `humidity_previous_unavailable:${event.old_state?.state ?? 'missing'}` };
+  }
+  if (!validPercent(Number.isFinite(now) ? now : null)) return { abortReason: `humidity_unavailable:${HUMIDITY_ENTITY}` };
+  const oldAt = Date.parse(event.old_state.last_changed ?? '');
+  const newAt = Date.parse(event.new_state?.last_changed ?? '');
+  if (!Number.isFinite(oldAt) || !Number.isFinite(newAt)) return { abortReason: 'humidity_timestamp_invalid' };
+  return { old, step: now - old, gapMins: Math.max((newAt - oldAt) / 60_000, 0) };
+}
+
+/** Near saturation a real shower adds only a few points, so the bar drops and baseline no longer matters. */
+function judgeRise(s: Step, rise: number, aboveBaseline: number, aboveBaselineMin: number) {
+  const saturated = s.old >= SATURATED_LEVEL;
+  const requiredStep = saturated ? Math.max(MIN_SATURATED_STEP, rise - 2) : rise;
+  const aboveBaselineOk = saturated || aboveBaseline >= aboveBaselineMin;
+  const risingFast = s.step >= requiredStep && s.gapMins <= MAX_STEP_GAP_MINS && aboveBaselineOk;
+  return { requiredStep, aboveBaselineOk, risingFast };
+}
+
 function buildContext(state: HAState, event: ShowerEvent) {
   const humidity = readFinite(state, HUMIDITY_ENTITY);
   if (!validPercent(humidity)) return abort(`humidity_unavailable:${HUMIDITY_ENTITY}`);
   const max10m = readFinite(state, MAX_ENTITY);
   if (!validPercent(max10m)) return abort(`humidity_unavailable:${MAX_ENTITY}`);
-
-  // HA reports a single-sample window as change 0, so `unknown` or `unavailable`
-  // means the statistic is broken, never "no change".
-  const change5m = readFinite(state, CHANGE_ENTITY);
-  if (change5m === null || Math.abs(change5m) > 100) return abort(`humidity_unavailable:${CHANGE_ENTITY}`);
+  const baseline = readFinite(state, BASELINE_ENTITY);
+  if (!validPercent(baseline)) return abort(`humidity_unavailable:${BASELINE_ENTITY}`);
 
   const riseRaw = readFinite(state, RISE_HELPER);
   if (riseRaw === null) return abort(`helper_unavailable:${RISE_HELPER}`);
+  const aboveRaw = readFinite(state, ABOVE_HELPER);
+  if (aboveRaw === null) return abort(`helper_unavailable:${ABOVE_HELPER}`);
   const dropRaw = readFinite(state, DROP_HELPER);
   if (dropRaw === null) return abort(`helper_unavailable:${DROP_HELPER}`);
   const confirmRaw = readFinite(state, CONFIRM_HELPER);
@@ -83,25 +107,31 @@ function buildContext(state: HAState, event: ShowerEvent) {
   if (shower.kind === 'unavailable') return abort(`shower_state_unavailable:${shower.raw}`);
 
   const rise = clamp(riseRaw, MIN_RISE, MAX_RISE);
+  const aboveBaselineMin = clamp(aboveRaw, MIN_ABOVE_BASELINE, MAX_ABOVE_BASELINE);
   const drop = clamp(dropRaw, MIN_END_DROP, MAX_END_DROP);
   const endConfirmMs = minutesToMs(clamp(confirmRaw, MIN_END_CONFIRM_MIN, MAX_END_CONFIRM_MIN));
-
   const trigger = triggerOf(event);
-  const previous = trigger === 'humidity' ? Number(event.old_state?.state) : NaN;
+  const aboveBaseline = humidity - baseline;
   const fallenFromPeak = humidity <= max10m - drop;
-  // Statistic events carry no previous humidity; a rise that begins while the room is
-  // still below the line is by definition a rise out of a dip.
-  const wasFallen = trigger === 'humidity' ? Number.isFinite(previous) && previous <= max10m - drop : fallenFromPeak;
+
+  // Rises exist only on humidity reports; timers and start-up carry no step.
+  let step: number | null = null;
+  let gapMins: number | null = null;
+  let wasFallen = fallenFromPeak;
+  let judged = { requiredStep: rise, aboveBaselineOk: false, risingFast: false };
+  if (trigger === 'humidity') {
+    const read = readStep(event);
+    if ('abortReason' in read) return abort(read.abortReason);
+    ({ step, gapMins } = read);
+    judged = judgeRise(read, rise, aboveBaseline, aboveBaselineMin);
+    wasFallen = read.old <= max10m - drop;
+  }
 
   return {
     trigger, showerOn: shower.kind === 'on',
-    humidity, change5m, max10m, rise, drop, endConfirmMs,
-    // The statistics sensors update after the humidity event that feeds them, so on
-    // a humidity event change_5m is still the previous report's. Rises are judged
-    // only on the statistic events that follow; the humidity event handles falls.
-    risingFast: trigger !== 'humidity' && change5m >= rise,
+    humidity, max10m, baseline, step, gapMins, rise, aboveBaselineMin, aboveBaseline, drop, endConfirmMs,
+    ...judged,
     fallenFromPeak,
-    notClimbing: change5m < rise,
     // Only a humidity report can newly cross the line (a falling max only moves
     // it further away), so the end-confirm timer starts there and nowhere else.
     freshlyFallen: trigger === 'humidity' && fallenFromPeak && !wasFallen,
@@ -140,9 +170,9 @@ function reduceShowerOff(ctx: ShowerContext) {
 function reduceShowerOn(ctx: ShowerContext) {
   if (ctx.trigger === 'max_on_expired') return endShower('shower_max_duration');
   if (ctx.trigger === 'end_confirm_expired') {
-    return ctx.notClimbing
-      ? endShower('shower_ended')
-      : { decision: 'no_action', reason: 'shower_running', actions: [] };
+    // No re-check of the drop line: after a quiet 5 min the sensor's 10-min max has shrunk to
+    // the latest sample. A genuine resumption is a rise, which cancels this timer.
+    return endShower('shower_ended');
   }
   if (ctx.risingFast) {
     return {
@@ -177,8 +207,6 @@ export default defineAutomation<ShowerContext>({
 
   triggers: [
     { type: 'state_changed', entity: HUMIDITY_ENTITY as keyof HAEntities },
-    { type: 'state_changed', entity: CHANGE_ENTITY as keyof HAEntities },
-    { type: 'state_changed', entity: MAX_ENTITY as keyof HAEntities },
     { type: 'timer_expired', timerKey: SHOWER_MAX_ON_TIMER },
     { type: 'timer_expired', timerKey: SHOWER_END_CONFIRM_TIMER },
     { type: 'on_start' },

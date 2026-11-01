@@ -394,13 +394,13 @@ declare global {
     'binary_sensor.bathroom_trv_heat_required': { state: 'on' | 'off' | 'unavailable' | 'unknown' };
     'binary_sensor.bathroom_trv_preheat_status': { state: 'on' | 'off' | 'unavailable' | 'unknown' };
     'input_number.bathroom_automation_shower_rise': { state: string };
+    'input_number.bathroom_automation_shower_above_baseline': { state: string };
     'input_number.bathroom_automation_shower_end_drop': { state: string };
     'input_number.bathroom_automation_shower_end_confirm': { state: string };
     'input_number.bathroom_automation_fan_humidity_margin': { state: string };
     'input_number.bathroom_automation_fan_min_run': { state: string };
     'input_number.bathroom_automation_fan_max_run': { state: string };
     'input_boolean.bathroom_automation_fan_enabled': { state: 'on' | 'off' | 'unavailable' | 'unknown' };
-    'sensor.bathroom_humidity_change_5m': { state: string };
     'sensor.bathroom_humidity_max_10m': { state: string };
     'sensor.bathroom_humidity_baseline': { state: string };
     'sensor.bathroom_shower_decision': { state: string };

@@ -17,10 +17,24 @@ const MS_PER_MIN = 60_000;
 // Hard caps, the specification of what the automation considers valid. The HA
 // helpers are tunable, but never outside these.
 export const MAX_SHOWER_ON_MS = 45 * MS_PER_MIN;
-// Quiet drift peaks at 1.3 points / 5 min and every recorded shower rises at
-// least 4.3, so below 2 would false-start and above 6 would miss second showers.
-export const MIN_RISE = 2;
-export const MAX_RISE = 6;
+// The step rule (see shower.ts) needs at least 3 points between two reports or
+// ordinary drift (steps up to 3.4 recorded) would start showers; above 8 the
+// smaller real first steps (6.2) would be missed.
+export const MIN_RISE = 3;
+export const MAX_RISE = 8;
+// Height above the 3 h baseline required for a step to count. Below 4 the sink
+// (about 6 above baseline) is borderline noise; above 15 a shower in a damp room is missed.
+export const MIN_ABOVE_BASELINE = 4;
+export const MAX_ABOVE_BASELINE = 15;
+// At or above this level the room is nearly saturated (the sensor tops out near 95),
+// so a real shower can only add a few points and sits far above baseline anyway.
+export const SATURATED_LEVEL = 85;
+// The smallest step accepted when saturated.
+export const MIN_SATURATED_STEP = 2;
+// A step only means "rising fast" if the two reports are close in time. The sensor reports
+// on change, so a long gap hides how slowly the rise happened (recorded: 17, 19 and 28 min gaps
+// that would otherwise look like showers).
+export const MAX_STEP_GAP_MINS = 10;
 // Below 1 point is sensor noise; above 10 the end would be missed entirely.
 export const MIN_END_DROP = 1;
 export const MAX_END_DROP = 10;
