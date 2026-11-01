@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
 import type { HAContext } from '@ajclarkson/homerun';
 import { makePorchLightAutomation, MIN_HOLD_S, MAX_HOLD_S, SCENE_SETTLE_MS } from './porch-light-factory.js';
@@ -72,6 +72,8 @@ const warmCall = expect.objectContaining({
 });
 const restoreCall = expect.objectContaining({ domain: 'scene', service: 'turn_on', target: { entity_id: RESTORE }, data: { transition: 5 } });
 const cancel = (timerKey: string) => ({ type: 'timer.cancel', timerKey });
+
+afterEach(() => vi.useRealTimers());
 
 describe('Porch light on motion', () => {
   describe('someone arrives in the dark', () => {
@@ -219,6 +221,39 @@ describe('Porch light on motion', () => {
     it('ignores a scene reload, which re-reports old activation times', () => {
       const result = run(sceneChange(NORMAL, '2026-10-31T21:00:00+00:00', 'unavailable'));
       expect(result).toMatchObject({ decision: 'no_action', reason: 'scene_reloaded_not_activated', actions: [] });
+    });
+  });
+
+  describe('someone returns while the porch is fading back', () => {
+    const NOW = Date.parse('2026-11-01T21:00:00+00:00');
+    const activatedAgo = (ms: number) => ({ [RESTORE]: { state: new Date(NOW - ms).toISOString() } });
+    const at = () => vi.useFakeTimers({ now: NOW });
+
+    it('warms again from the existing snapshot instead of snapshotting the half-faded look', () => {
+      at();
+      const result = run(motion('on'), activatedAgo(2000));
+      expect(result).toMatchObject({ decision: 'warm', reason: 'motion_during_fade_back' });
+      expect(result.actions).toEqual([warmCall, cancel(HOLD_TIMER)]);
+    });
+
+    it('does so even at the start of the fade, when the porch still reads warm', () => {
+      at();
+      const result = run(motion('on'), { ...activatedAgo(300), [PORCH]: warmLook });
+      expect(result).toMatchObject({ reason: 'motion_during_fade_back' });
+    });
+
+    it('snapshots afresh once the fade and its margin are over', () => {
+      at();
+      const result = run(motion('on'), activatedAgo(6001));
+      expect(result).toMatchObject({ decision: 'warm', reason: 'motion_detected' });
+      expect(result.actions[0]).toEqual(snapshotCall);
+    });
+
+    it('treats an unparseable or future activation time as not fading', () => {
+      at();
+      expect(run(motion('on'), { [RESTORE]: { state: 'unknown' } })).toMatchObject({ reason: 'motion_detected' });
+      expect(run(motion('on'), { [RESTORE]: { state: 'garbage' } })).toMatchObject({ reason: 'motion_detected' });
+      expect(run(motion('on'), activatedAgo(-60_000))).toMatchObject({ reason: 'motion_detected' });
     });
   });
 

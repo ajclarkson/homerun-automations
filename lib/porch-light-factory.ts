@@ -17,6 +17,8 @@ export const SCENE_SETTLE_MS = 1500;
 // The bulb reports kelvin via mireds and brightness in 0-255, so a commanded look reads back slightly off.
 const KELVIN_TOLERANCE = 100;
 const BRIGHTNESS_TOLERANCE = 3;
+// Slack after the fade-down for the bulb to land and HA to report it.
+const FADE_MARGIN_MS = 1000;
 
 export interface PorchLightConfig {
   location: string;
@@ -49,6 +51,8 @@ interface PorchLightContext {
   /** False when a scene's state changed because HA reloaded scenes, not because it was activated. */
   realSceneActivation: boolean;
   snapshotExists: boolean;
+  /** The snapshot was activated moments ago and the porch is still fading back to it. */
+  restoreFading: boolean;
   holdMs: number;
 }
 
@@ -126,6 +130,15 @@ export function makePorchLightAutomation(config: PorchLightConfig) {
     return !optedOutThemes.some(theme => ha.entitiesByLabel(`scene_theme_${theme}`).some(e => e === activeScene && inArea.includes(e)));
   }
 
+  // A scene's state is the ISO time of its last activation; scene.create leaves it unknown until then.
+  // Unparseable or future times are not a fade, so the normal path (fresh snapshot) runs.
+  function isFading(snapshotState: string | undefined, nowMs: number): boolean {
+    const activatedMs = Date.parse(snapshotState ?? '');
+    if (!Number.isFinite(activatedMs)) return false;
+    const elapsedMs = nowMs - activatedMs;
+    return elapsedMs >= 0 && elapsedMs < fadeDownS * 1000 + FADE_MARGIN_MS;
+  }
+
   function porchIsWarm(porchState: Reading): boolean {
     return porchState.state === 'on'
       && Math.abs(readNumber(porchState, 'brightness') - brightness) <= BRIGHTNESS_TOLERANCE
@@ -178,13 +191,14 @@ export function makePorchLightAutomation(config: PorchLightConfig) {
         gardenOff: activeScene !== null && offScenes.includes(activeScene),
         realSceneActivation: sceneEvent === null || isSceneActivation(sceneEvent.old_state?.state, sceneEvent.new_state.state),
         snapshotExists: snapshotState !== undefined && snapshotState !== 'unavailable',
+        restoreFading: isFading(snapshotState, Date.now()),
         holdMs: clamp(holdSeconds, MIN_HOLD_S, MAX_HOLD_S) * 1000,
       };
     },
 
     reduce: (ctx) => {
       const { trigger, porch, automationEnabled, dark, motionOn, porchWarm, themeAllowsMotion, gardenOff,
-        realSceneActivation, snapshotExists, holdMs } = ctx;
+        realSceneActivation, snapshotExists, restoreFading, holdMs } = ctx;
       const clearTimers = [cancel(holdKey), cancel(settleKey)];
       const motionWarm = (reason: string, decision: string) => ({
         decision, reason, actions: [snapshot(porch), warmUp(porch), cancel(holdKey)],
@@ -227,6 +241,10 @@ export function makePorchLightAutomation(config: PorchLightConfig) {
       if (!motionOn) return { decision: 'no_action', reason: 'motion_cleared_before_settle', actions: [] };
       if (!dark) return { decision: 'no_action', reason: 'daylight', actions: [] };
       if (!themeAllowsMotion) return { decision: 'no_action', reason: 'theme_opted_out', actions: [] };
+      // Mid fade-back the porch reads as neither warm nor resting; snapshotting it would trap that look.
+      if (restoreFading && snapshotExists && trigger === 'motion_on') {
+        return { decision: 'warm', reason: 'motion_during_fade_back', actions: [warmUp(porch), cancel(holdKey)] };
+      }
       if (porchWarm) return { decision: 'no_action', reason: 'already_warm', actions: [cancel(holdKey)] };
       return trigger === 'scene_settled'
         ? motionWarm('scene_changed_during_hold', 'rewarm')
