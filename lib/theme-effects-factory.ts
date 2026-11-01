@@ -1,5 +1,6 @@
 import { defineAutomation, HomeAssistant } from '@ajclarkson/homerun';
 import type { Action } from '@ajclarkson/homerun';
+import { isSceneActivation } from './scene-activation.js';
 
 // Lights take part in themes by role, assigned with HA labels and filtered to the location's area.
 export type LightRole = 'feature' | 'accent';
@@ -42,9 +43,6 @@ interface ThemeEffectsContext {
   stopLights: string[];
 }
 
-// HA scene state is the ISO timestamp of its last activation; scene reloads pass through unknown/unavailable.
-const isActivationTimestamp = (state: string | undefined) => !!state && !Number.isNaN(Date.parse(state));
-
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 export function makeThemeEffectsAutomation(config: ThemeEffectsConfig) {
@@ -75,7 +73,7 @@ export function makeThemeEffectsAutomation(config: ThemeEffectsConfig) {
       if (event.type === 'state_changed') {
         trigger = 'scene_activated';
         scene = event.entity_id;
-        realActivation = isActivationTimestamp(event.new_state.state);
+        realActivation = isSceneActivation(event.old_state?.state, event.new_state.state);
       } else {
         trigger = event.type === 'timer_expired' ? 'scene_settled' : 'system';
         const active = state(`sensor.${location}_active_scene` as keyof HAEntities)?.state;

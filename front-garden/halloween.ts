@@ -1,5 +1,6 @@
 import { defineAutomation, HomeAssistant } from '@ajclarkson/homerun';
 import type { Action } from '@ajclarkson/homerun';
+import { isSceneActivation } from '../lib/scene-activation.js';
 
 // Halloween animation for the front garden's feature light(s) — the birch. Runs only while the
 // Halloween theme scene is active, layered on top of it:
@@ -88,8 +89,6 @@ interface HalloweenContext {
   nextStrikeMs: number;
 }
 
-const isActivationTimestamp = (state: string | undefined) => !!state && !Number.isNaN(Date.parse(state));
-
 export default defineAutomation<HalloweenContext>({
   id: `${LOCATION}:halloween`,
   location: LOCATION,
@@ -112,7 +111,7 @@ export default defineAutomation<HalloweenContext>({
     if (event.type === 'state_changed') {
       trigger = 'scene_activated';
       scene = event.entity_id;
-      realActivation = isActivationTimestamp(event.new_state.state);
+      realActivation = isSceneActivation(event.old_state?.state, event.new_state.state);
     } else {
       const timer = event.type === 'timer_expired' ? TIMER_TRIGGERS[event.timerKey] : undefined;
       trigger = timer?.trigger ?? 'system';

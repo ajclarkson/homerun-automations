@@ -34,11 +34,11 @@ const disabled = { 'input_boolean.front_garden_automation_lights_enabled': { sta
 const active = (scene: string) => ({ 'sensor.front_garden_active_scene': { state: scene.replace('scene.', '') } });
 const halloweenOn = active(HALLOWEEN);
 
-function sceneActivated(scene: string, newState = '2026-10-31T17:00:00.000+00:00') {
+function sceneActivated(scene: string, newState = '2026-10-31T17:00:00.000+00:00', oldState = '2026-10-30T17:00:00.000+00:00') {
   return {
     type: 'state_changed' as const,
     entity_id: scene,
-    old_state: { entity_id: scene, state: '2026-10-30T17:00:00.000+00:00', attributes: {}, last_changed: '', last_updated: '' },
+    old_state: { entity_id: scene, state: oldState, attributes: {}, last_changed: '', last_updated: '' },
     new_state: { entity_id: scene, state: newState, attributes: {}, last_changed: '', last_updated: '' },
     correlation_id: 'test-cid',
   };
@@ -291,6 +291,17 @@ describe('Halloween animation', () => {
   });
 
   describe('robustness', () => {
+    it('ignores a scenes reload restoring the theme scene\'s old activation time (e.g. a scenes.yaml deploy)', () => {
+      const result = run(sceneActivated(HALLOWEEN, '2026-10-16T17:44:56.718279+00:00', 'unavailable'), halloweenOn);
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'scene_reloaded_not_activated' });
+      expect(result.actions).toEqual([]);
+    });
+
+    it("still reacts to a scene's first ever activation", () => {
+      const result = run(sceneActivated(HALLOWEEN, '2026-10-31T17:00:00.000+00:00', 'unknown'), halloweenOn);
+      expect(result.decision).not.toBe('no_action');
+    });
+
     it.each(['unavailable', 'unknown'])('ignores scenes passing through %s while HA reloads them', (s) => {
       const result = run(sceneActivated(HALLOWEEN, s), halloweenOn);
       expect(result).toMatchObject({ decision: 'no_action', reason: 'scene_reloaded_not_activated' });

@@ -48,11 +48,11 @@ const enabled = { [`input_boolean.${LOCATION}_automation_lights_enabled`]: { sta
 const disabled = { [`input_boolean.${LOCATION}_automation_lights_enabled`]: { state: 'off' } };
 const activeScene = (scene: string) => ({ [`sensor.${LOCATION}_active_scene`]: { state: scene.replace('scene.', '') } });
 
-function sceneActivated(scene: string, newState = '2026-10-31T18:00:00.000+00:00') {
+function sceneActivated(scene: string, newState = '2026-10-31T18:00:00.000+00:00', oldState = '2026-10-30T17:00:00.000+00:00') {
   return {
     type: 'state_changed' as const,
     entity_id: scene,
-    old_state: { entity_id: scene, state: '2026-10-30T18:00:00.000+00:00', attributes: {}, last_changed: '', last_updated: '' },
+    old_state: { entity_id: scene, state: oldState, attributes: {}, last_changed: '', last_updated: '' },
     new_state: { entity_id: scene, state: newState, attributes: {}, last_changed: '', last_updated: '' },
     correlation_id: 'test-cid',
   };
@@ -147,6 +147,17 @@ describe('theme effects', () => {
   });
 
   describe('when HA reloads its scenes', () => {
+    it('ignores a scenes reload restoring the theme scene\'s old activation time (e.g. a scenes.yaml deploy)', () => {
+      const result = run(sceneActivated(SPOOKY_SCENE, '2026-10-16T17:44:56.718279+00:00', 'unavailable'));
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'scene_reloaded_not_activated' });
+      expect(result.actions).toEqual([]);
+    });
+
+    it("still reacts to a scene's first ever activation", () => {
+      const result = run(sceneActivated(SPOOKY_SCENE, '2026-10-31T17:00:00.000+00:00', 'unknown'));
+      expect(result.decision).not.toBe('no_action');
+    });
+
     it.each(['unavailable', 'unknown'])('ignores the scene passing through %s, which is not an activation', (s) => {
       const result = run(sceneActivated(NORMAL_SCENE, s));
       expect(result).toMatchObject({ decision: 'no_action', reason: 'scene_reloaded_not_activated' });
