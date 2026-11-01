@@ -1,16 +1,13 @@
 import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
 import type { Action, HAContext, TriggerEvent } from '@ajclarkson/homerun';
 import { isSceneActivation } from './scene-activation.js';
+import { MIN_KELVIN, MAX_KELVIN, MIN_BRIGHTNESS, MAX_BRIGHTNESS, readLook, parseLook, serializeLook, lookAction, setLook, type Look } from './porch-look.js';
 
 export const PORCH_LABEL = 'outdoor_light_porch';
 
 // Bounds are the specification: whatever the config or the helper says, nothing outside them is emitted.
 export const MIN_HOLD_S = 15;
 export const MAX_HOLD_S = 600;
-export const MIN_KELVIN = 2000; // the bulb's supported range
-export const MAX_KELVIN = 9009;
-export const MIN_BRIGHTNESS = 1;
-export const MAX_BRIGHTNESS = 255;
 export const MAX_FADE_S = 30;
 // Same settle the theme effects use: a scene's own commands are still landing right after it activates.
 export const SCENE_SETTLE_MS = 1500;
@@ -18,18 +15,13 @@ export const SCENE_SETTLE_MS = 1500;
 const KELVIN_TOLERANCE = 100;
 const BRIGHTNESS_TOLERANCE = 3;
 // Slack after the fade-down for the bulb to land and HA to report it.
-const FADE_MARGIN_MS = 1000;
+export const FADE_MARGIN_MS = 1000;
 
 export interface PorchLightConfig {
   location: string;
   warm: { colorTempKelvin: number; brightness: number };
   fadeUpS: number;
   fadeDownS: number;
-  /**
-   * Runtime scene id (without the `scene.` domain) that holds the porch's look while it is warm. It must not
-   * start with `<location>_`: the theme effects and active-scene sensor listen to `scene.<location>_*`.
-   */
-  restoreSceneId: string;
   /** Theme name -> false to ignore motion while that theme's scene is active. Omitted themes react. */
   motionThemes?: Record<string, boolean>;
 }
@@ -50,8 +42,16 @@ interface PorchLightContext {
   gardenOff: boolean;
   /** False when a scene's state changed because HA reloaded scenes, not because it was activated. */
   realSceneActivation: boolean;
-  snapshotExists: boolean;
-  /** The snapshot was activated moments ago and the porch is still fading back to it. */
+  /** The saved look is a complete, valid look. */
+  restoreLookValid: boolean;
+  /** Why the porch's current look can't be saved, or null when it can. */
+  lookProblem: string | null;
+  /** The porch's current look, ready to save. Null when lookProblem is set. */
+  currentLook: Look | null;
+  /** The saved look, null when restoreLookValid is false. */
+  savedLook: Look | null;
+  nowMs: number;
+  /** The porch was sent back to its saved look moments ago and is still fading there. */
   restoreFading: boolean;
   holdMs: number;
 }
@@ -69,10 +69,6 @@ function requireFinite(value: number, name: string): number {
 }
 
 function validatedConfig(config: PorchLightConfig) {
-  const { location, restoreSceneId } = config;
-  if (restoreSceneId.startsWith(`${location}_`)) {
-    throw new Error(`porch restoreSceneId '${restoreSceneId}' must not start with '${location}_'`);
-  }
   return {
     kelvin: clamp(requireFinite(config.warm.colorTempKelvin, 'warm.colorTempKelvin'), MIN_KELVIN, MAX_KELVIN),
     brightness: clamp(Math.round(requireFinite(config.warm.brightness, 'warm.brightness')), MIN_BRIGHTNESS, MAX_BRIGHTNESS),
@@ -95,22 +91,24 @@ function readNumber(entity: Reading | undefined, key: string): number {
 }
 
 export function makePorchLightAutomation(config: PorchLightConfig) {
-  const { location, restoreSceneId, fadeUpS, fadeDownS, kelvin, brightness } = { ...config, ...validatedConfig(config) };
+  const { location, fadeUpS, fadeDownS, kelvin, brightness } = { ...config, ...validatedConfig(config) };
   const motionSensor = `binary_sensor.${location}_sensor_motion_occupancy`;
   const holdKey = `${location}:porch_motion_hold`;
   const settleKey = `${location}:porch_scene_settle`;
-  const restoreScene = `scene.${restoreSceneId}`;
+  const lookHelper = `input_text.${location}_automation_porch_restore`;
   const optedOutThemes = Object.entries(config.motionThemes ?? {}).filter(([, reacts]) => !reacts).map(([theme]) => theme);
   const sceneRegex = new RegExp(`^scene\\.${escapeRegExp(location)}_`);
 
   const cancel = (timerKey: string): Action => ({ type: 'timer.cancel', timerKey });
-  const snapshot = (porch: string): Action => ({
-    type: 'ha.call_service', domain: 'scene', service: 'create',
-    data: { scene_id: restoreSceneId, snapshot_entities: [porch] },
-  });
   const warmUp = (porch: string): Action =>
     HomeAssistant.light.turn_on({ entity_id: porch }, { color_temp_kelvin: kelvin, brightness, transition: fadeUpS });
-  const restore: Action = HomeAssistant.scene.turn_on({ entity_id: restoreScene }, { transition: fadeDownS });
+  // Fade the porch back and mark the fade in the helper, so motion during it can't save a half-faded look.
+  const fadeBack = (porch: string, look: Look, nowMs: number): Action[] => [
+    setLook(lookHelper, serializeLook(look, nowMs + fadeDownS * 1000 + FADE_MARGIN_MS)),
+    lookAction(porch, look, fadeDownS),
+  ];
+  const saveAndWarm = (porch: string, look: Look): Action[] =>
+    [setLook(lookHelper, serializeLook(look)), warmUp(porch), cancel(holdKey)];
 
   function triggerOf(event: TriggerEvent): PorchTrigger | ReturnType<typeof abort> {
     if (event.type === 'on_start') return 'startup';
@@ -128,15 +126,6 @@ export function makePorchLightAutomation(config: PorchLightConfig) {
     if (activeScene === null) return true;
     const inArea = ha.entitiesByArea(location);
     return !optedOutThemes.some(theme => ha.entitiesByLabel(`scene_theme_${theme}`).some(e => e === activeScene && inArea.includes(e)));
-  }
-
-  // A scene's state is the ISO time of its last activation; scene.create leaves it unknown until then.
-  // Unparseable or future times are not a fade, so the normal path (fresh snapshot) runs.
-  function isFading(snapshotState: string | undefined, nowMs: number): boolean {
-    const activatedMs = Date.parse(snapshotState ?? '');
-    if (!Number.isFinite(activatedMs)) return false;
-    const elapsedMs = nowMs - activatedMs;
-    return elapsedMs >= 0 && elapsedMs < fadeDownS * 1000 + FADE_MARGIN_MS;
   }
 
   function porchIsWarm(porchState: Reading): boolean {
@@ -177,7 +166,11 @@ export function makePorchLightAutomation(config: PorchLightConfig) {
       const active = read(`sensor.${location}_active_scene`)?.state;
       const activeScene = usable(active) ? `scene.${active}` : null;
       const offScenes = ha.entitiesByLabel('scene_control_off').filter(e => ha.entitiesByArea(location).includes(e));
-      const snapshotState = read(restoreScene)?.state;
+      const helperState = read(lookHelper)?.state;
+      if (helperState === undefined || helperState === 'unavailable') return abort(`porch_restore_helper_unavailable:${lookHelper}`);
+      const saved = parseLook(helperState);
+      const current = readLook(porchState.state, porchState.attributes);
+      const nowMs = Date.now();
       const sceneEvent = event.type === 'state_changed' && event.entity_id !== motionSensor ? event : null;
 
       return {
@@ -190,35 +183,45 @@ export function makePorchLightAutomation(config: PorchLightConfig) {
         themeAllowsMotion: themeAllowsMotion(ha, activeScene),
         gardenOff: activeScene !== null && offScenes.includes(activeScene),
         realSceneActivation: sceneEvent === null || isSceneActivation(sceneEvent.old_state?.state, sceneEvent.new_state.state),
-        snapshotExists: snapshotState !== undefined && snapshotState !== 'unavailable',
-        restoreFading: isFading(snapshotState, Date.now()),
+        restoreLookValid: saved !== null,
+        lookProblem: typeof current === 'string' ? current : null,
+        currentLook: typeof current === 'string' ? null : current,
+        savedLook: saved?.look ?? null,
+        restoreFading: saved?.fadeEndsMs != null && nowMs >= saved.fadeEndsMs - fadeDownS * 1000 - FADE_MARGIN_MS && nowMs < saved.fadeEndsMs,
+        nowMs,
         holdMs: clamp(holdSeconds, MIN_HOLD_S, MAX_HOLD_S) * 1000,
       };
     },
 
     reduce: (ctx) => {
       const { trigger, porch, automationEnabled, dark, motionOn, porchWarm, themeAllowsMotion, gardenOff,
-        realSceneActivation, snapshotExists, restoreFading, holdMs } = ctx;
+        realSceneActivation, restoreLookValid, lookProblem, currentLook, savedLook, restoreFading, nowMs, holdMs } = ctx;
       const clearTimers = [cancel(holdKey), cancel(settleKey)];
-      const motionWarm = (reason: string, decision: string) => ({
-        decision, reason, actions: [snapshot(porch), warmUp(porch), cancel(holdKey)],
-      });
+      const motionWarm = (reason: string, decision: string) => {
+        // Nothing is warmed if the current look can't be saved: an unrestorable warm porch is worse than a dark one.
+        if (lookProblem !== null || currentLook === null) {
+          return { decision: 'no_action', reason: `look_unreadable:${lookProblem ?? 'uninitialised'}`, actions: [] };
+        }
+        return { decision, reason, actions: saveAndWarm(porch, currentLook) };
+      };
 
       // Rule 1: a switched-off automation must not leave the porch warm.
       if (!automationEnabled) {
-        if (porchWarm && snapshotExists) return { decision: 'restore', reason: 'automation_disabled', actions: [...clearTimers, restore] };
+        if (porchWarm && savedLook !== null) return { decision: 'restore', reason: 'automation_disabled', actions: [...clearTimers, ...fadeBack(porch, savedLook, nowMs)] };
         return { decision: 'no_action', reason: 'automation_disabled', actions: clearTimers };
       }
       if (trigger === 'startup') return { decision: 'no_action', reason: 'startup', actions: [] };
 
       if (trigger === 'scene_activated') {
         if (!realSceneActivation) return { decision: 'no_action', reason: 'scene_reloaded_not_activated', actions: [] };
-        // The scene has just replaced the warm look, so the pending fade-back would undo it: drop it.
+        // The scene has just replaced the warm look, so the pending fade-back would undo it: drop it. A fade
+        // marker in the helper is dropped too, so motion right after the scene saves the scene's look.
+        const dropMarker = restoreFading && savedLook !== null ? [setLook(lookHelper, serializeLook(savedLook))] : [];
         if (motionOn) {
           return { decision: 'schedule_rewarm', reason: 'scene_changed_during_motion',
-            actions: [cancel(holdKey), { type: 'timer.start', timerKey: settleKey, delayMs: SCENE_SETTLE_MS }] };
+            actions: [...dropMarker, cancel(holdKey), { type: 'timer.start', timerKey: settleKey, delayMs: SCENE_SETTLE_MS }] };
         }
-        return { decision: 'no_action', reason: 'scene_changed_hold_dropped', actions: clearTimers };
+        return { decision: 'no_action', reason: 'scene_changed_hold_dropped', actions: [...dropMarker, ...clearTimers] };
       }
 
       if (trigger === 'motion_off') {
@@ -228,22 +231,22 @@ export function makePorchLightAutomation(config: PorchLightConfig) {
 
       if (trigger === 'hold_expired') {
         if (motionOn) return { decision: 'no_action', reason: 'motion_still_on', actions: [] };
-        if (snapshotExists) return { decision: 'restore', reason: 'hold_expired', actions: [restore] };
-        // HA restarted during the hold and lost the runtime scene; the next garden scene sets the porch.
+        if (savedLook !== null) return { decision: 'restore', reason: 'hold_expired', actions: fadeBack(porch, savedLook, nowMs) };
+        // No usable saved look (helper cleared or garbled); the next garden scene sets the porch.
         if (gardenOff) {
-          return { decision: 'restore', reason: 'hold_expired_snapshot_missing_garden_off',
+          return { decision: 'restore', reason: 'hold_expired_look_missing_garden_off',
             actions: [HomeAssistant.light.turn_off({ entity_id: porch }, { transition: fadeDownS })] };
         }
-        return { decision: 'no_action', reason: 'restore_snapshot_missing', actions: [] };
+        return { decision: 'no_action', reason: 'restore_look_missing', actions: [] };
       }
 
       // motion_on, or scene_settled (re-run of the motion-on rules against the porch the scene just set).
       if (!motionOn) return { decision: 'no_action', reason: 'motion_cleared_before_settle', actions: [] };
       if (!dark) return { decision: 'no_action', reason: 'daylight', actions: [] };
       if (!themeAllowsMotion) return { decision: 'no_action', reason: 'theme_opted_out', actions: [] };
-      // Mid fade-back the porch reads as neither warm nor resting; snapshotting it would trap that look.
-      if (restoreFading && snapshotExists && trigger === 'motion_on') {
-        return { decision: 'warm', reason: 'motion_during_fade_back', actions: [warmUp(porch), cancel(holdKey)] };
+      // Mid fade-back the porch reads as neither warm nor resting; saving it would trap that look.
+      if (restoreFading && savedLook !== null && trigger === 'motion_on') {
+        return { decision: 'warm', reason: 'motion_during_fade_back', actions: [setLook(lookHelper, serializeLook(savedLook)), warmUp(porch), cancel(holdKey)] };
       }
       if (porchWarm) return { decision: 'no_action', reason: 'already_warm', actions: [cancel(holdKey)] };
       return trigger === 'scene_settled'

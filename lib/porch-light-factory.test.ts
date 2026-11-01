@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
 import type { HAContext } from '@ajclarkson/homerun';
 import { makePorchLightAutomation, MIN_HOLD_S, MAX_HOLD_S, SCENE_SETTLE_MS } from './porch-light-factory.js';
+import { serializeLook, MAX_LOOK_CHARS } from './porch-look.js';
 
 const LOCATION = 'test_garden';
 const PORCH = `light.${LOCATION}_light_porch`;
@@ -12,10 +13,12 @@ const SETTLE_TIMER = `${LOCATION}:porch_scene_settle`;
 const NORMAL = `scene.${LOCATION}_all`;
 const SPOOKY = `scene.${LOCATION}_spooky`;
 const OFF = `scene.${LOCATION}_off`;
-const RESTORE = 'scene.porch_motion_restore';
+const HELPER = `input_text.${LOCATION}_automation_porch_restore`;
+const NOW = Date.parse('2026-11-01T21:00:00+00:00');
+const FADE_END = NOW + 5000 + 1000;
 
 const WARM = { colorTempKelvin: 2700, brightness: 180 };
-const config = { location: LOCATION, warm: WARM, fadeUpS: 2, fadeDownS: 5, restoreSceneId: 'porch_motion_restore' };
+const config = { location: LOCATION, warm: WARM, fadeUpS: 2, fadeDownS: 5 };
 const automation = makePorchLightAutomation(config);
 const optOut = makePorchLightAutomation({ ...config, motionThemes: { spooky: false } });
 
@@ -30,8 +33,9 @@ function makeHa(opts: { porches?: string[]; porchOutsideArea?: boolean } = {}): 
   return { entitiesByArea: (a) => (a === LOCATION ? area : []), entitiesByLabel: (l) => labels[l] ?? [] };
 }
 
-const warmLook = { state: 'on', attributes: { brightness: 180, color_temp_kelvin: 2703 } };
-const restingLook = { state: 'on', attributes: { brightness: 90, color_temp_kelvin: 2703 } };
+const warmLook = { state: 'on', attributes: { brightness: 180, color_mode: 'color_temp', color_temp_kelvin: 2703 } };
+const restingLook = { state: 'on', attributes: { brightness: 90, color_mode: 'color_temp', color_temp_kelvin: 2703 } };
+const KELVIN_LOOK = '{"state":"on","brightness":90,"kelvin":2700}';
 const base = {
   [PORCH]: restingLook,
   [MOTION]: { state: 'on' },
@@ -39,7 +43,7 @@ const base = {
   [`input_boolean.${LOCATION}_automation_lights_enabled`]: { state: 'on' },
   [`input_number.${LOCATION}_automation_porch_hold`]: { state: '30' },
   [`sensor.${LOCATION}_active_scene`]: { state: `${LOCATION}_all` },
-  [RESTORE]: { state: '2026-11-01T20:00:00+00:00' },
+  [HELPER]: { state: KELVIN_LOOK },
 };
 
 const motion = (to: 'on' | 'off' | 'unavailable') => ({
@@ -63,24 +67,33 @@ const opts = (event: Ev, state: Overrides, ha: Partial<HAContext>) =>
 const run = (event: Ev, state: Overrides = {}, ha = makeHa(), a = automation) => testAutomation(a, opts(event, state, ha));
 const abortOf = (event: Ev, state: Overrides = {}, ha = makeHa()) => testAbort(automation, opts(event, state, ha));
 
-const snapshotCall = {
-  type: 'ha.call_service', domain: 'scene', service: 'create',
-  data: { scene_id: 'porch_motion_restore', snapshot_entities: [PORCH] },
-};
+const setHelper = (value: string) => ({
+  type: 'ha.call_service', domain: 'input_text', service: 'set_value', target: { entity_id: HELPER }, data: { value },
+});
+// The porch's resting look as the factory reads it from the porch's attributes (2703 K as reported).
+const saveCall = setHelper('{"state":"on","brightness":90,"kelvin":2703}');
+const lightCall = (service: string, data: Record<string, unknown>) =>
+  ({ type: 'ha.call_service', domain: 'light', service, target: { entity_id: PORCH }, data });
 const warmCall = expect.objectContaining({
   service: 'turn_on', target: { entity_id: PORCH }, data: { color_temp_kelvin: 2700, brightness: 180, transition: 2 },
 });
-const restoreCall = expect.objectContaining({ domain: 'scene', service: 'turn_on', target: { entity_id: RESTORE }, data: { transition: 5 } });
+const markFading = (look: string) => setHelper(look.replace(/}$/, `,"fadeEndsMs":${FADE_END}}`));
+const restoreActions = [
+  markFading(KELVIN_LOOK),
+  lightCall('turn_on', { brightness: 90, color_temp_kelvin: 2700, transition: 5 }),
+];
 const cancel = (timerKey: string) => ({ type: 'timer.cancel', timerKey });
 
 afterEach(() => vi.useRealTimers());
 
+beforeEach(() => vi.useFakeTimers({ now: NOW }));
+
 describe('Porch light on motion', () => {
   describe('someone arrives in the dark', () => {
-    it('takes a snapshot of the porch, then fades to the warm look, in that order', () => {
+    it('saves the porch look in the helper, then fades to the warm look, in that order', () => {
       const result = run(motion('on'), { [MOTION]: { state: 'on' } });
       expect(result).toMatchObject({ decision: 'warm', reason: 'motion_detected' });
-      expect(result.actions).toEqual([snapshotCall, warmCall, cancel(HOLD_TIMER)]);
+      expect(result.actions).toEqual([saveCall, warmCall, cancel(HOLD_TIMER)]);
     });
 
     it('warms in every theme when no theme opts out', () => {
@@ -127,19 +140,19 @@ describe('Porch light on motion', () => {
     it('puts the porch back if the automation is switched off while it is warm', () => {
       const result = run(motion('off'), { [PORCH]: warmLook, [`input_boolean.${LOCATION}_automation_lights_enabled`]: { state: 'off' } });
       expect(result).toMatchObject({ decision: 'restore', reason: 'automation_disabled' });
-      expect(result.actions).toEqual([cancel(HOLD_TIMER), cancel(SETTLE_TIMER), restoreCall]);
+      expect(result.actions).toEqual([cancel(HOLD_TIMER), cancel(SETTLE_TIMER), ...restoreActions]);
     });
   });
 
   describe('someone keeps moving about', () => {
-    it('stays warm without taking a second snapshot, and cancels the fade-back', () => {
+    it('stays warm without saving the look a second time, and cancels the fade-back', () => {
       const result = run(motion('on'), { [PORCH]: warmLook });
       expect(result).toMatchObject({ decision: 'no_action', reason: 'already_warm' });
       expect(result.actions).toEqual([cancel(HOLD_TIMER)]);
     });
 
     it('does not mistake the resting look for the warm look', () => {
-      expect(run(motion('on'), { [PORCH]: { state: 'on', attributes: { brightness: 180, color_temp_kelvin: 4000 } } })).toMatchObject({ decision: 'warm' });
+      expect(run(motion('on'), { [PORCH]: { state: 'on', attributes: { brightness: 180, color_mode: 'color_temp', color_temp_kelvin: 4000 } } })).toMatchObject({ decision: 'warm' });
     });
   });
 
@@ -164,10 +177,10 @@ describe('Porch light on motion', () => {
       expect(result.actions).toEqual([{ type: 'timer.start', timerKey: HOLD_TIMER, delayMs: MAX_HOLD_S * 1000 }]);
     });
 
-    it('fades back to the snapshot when the hold expires', () => {
+    it('fades back to the saved look when the hold expires', () => {
       const result = run(timer(HOLD_TIMER), { [MOTION]: { state: 'off' }, [PORCH]: warmLook });
       expect(result).toMatchObject({ decision: 'restore', reason: 'hold_expired' });
-      expect(result.actions).toEqual([restoreCall]);
+      expect(result.actions).toEqual(restoreActions);
     });
 
     it('holds on if the sensor is somehow still on when the hold expires', () => {
@@ -175,23 +188,26 @@ describe('Porch light on motion', () => {
     });
   });
 
-  describe('HA restarted during the hold and lost the snapshot', () => {
-    const lost = { [MOTION]: { state: 'off' }, [PORCH]: warmLook, [RESTORE]: { state: 'unavailable' } };
+  describe('the saved look is missing or garbled at hold expiry', () => {
+    const lost = { [MOTION]: { state: 'off' }, [PORCH]: warmLook, [HELPER]: { state: '' } };
 
     it('turns the porch off with the fade-down when the garden is off', () => {
       const result = run(timer(HOLD_TIMER), { ...lost, [`sensor.${LOCATION}_active_scene`]: { state: `${LOCATION}_off` } });
-      expect(result).toMatchObject({ decision: 'restore', reason: 'hold_expired_snapshot_missing_garden_off' });
+      expect(result).toMatchObject({ decision: 'restore', reason: 'hold_expired_look_missing_garden_off' });
       expect(result.actions).toEqual([expect.objectContaining({ service: 'turn_off', target: { entity_id: PORCH }, data: { transition: 5 } })]);
     });
 
+    it.each(['not json', '{"state":"on"}', '{"state":"on","brightness":90}', '{"state":"on","brightness":null,"kelvin":2700}', '[1]', 'null'])(
+      'treats %s as no saved look', (junk) => {
+        expect(run(timer(HOLD_TIMER), { ...lost, [HELPER]: { state: junk } })).toMatchObject({ reason: 'restore_look_missing' });
+      });
+
     it('leaves the porch for the next garden scene when the garden is on', () => {
-      expect(run(timer(HOLD_TIMER), lost)).toMatchObject({ decision: 'no_action', reason: 'restore_snapshot_missing', actions: [] });
+      expect(run(timer(HOLD_TIMER), lost)).toMatchObject({ decision: 'no_action', reason: 'restore_look_missing', actions: [] });
     });
 
-    it('treats a snapshot that never existed the same way', () => {
-      const { [RESTORE]: _gone, ...noSnapshot } = base;
-      const result = testAutomation(automation, { event: timer(HOLD_TIMER), state: { ...noSnapshot, [MOTION]: { state: 'off' } } as never, ha: makeHa() });
-      expect(result).toMatchObject({ reason: 'restore_snapshot_missing' });
+    it('treats a helper holding nothing the same way', () => {
+      expect(run(timer(HOLD_TIMER), { [MOTION]: { state: 'off' }, [HELPER]: { state: 'unknown' } })).toMatchObject({ reason: 'restore_look_missing' });
     });
   });
 
@@ -208,10 +224,10 @@ describe('Porch light on motion', () => {
       expect(result.actions).toEqual([cancel(HOLD_TIMER), { type: 'timer.start', timerKey: SETTLE_TIMER, delayMs: SCENE_SETTLE_MS }]);
     });
 
-    it('re-snapshots the new look and warms again once settled, so the fade-back lands on the new theme', () => {
+    it('saves the new look and warms again once settled, so the fade-back lands on the new theme', () => {
       const result = run(timer(SETTLE_TIMER), { [`sensor.${LOCATION}_active_scene`]: { state: `${LOCATION}_spooky` } });
       expect(result).toMatchObject({ decision: 'rewarm', reason: 'scene_changed_during_hold' });
-      expect(result.actions).toEqual([snapshotCall, warmCall, cancel(HOLD_TIMER)]);
+      expect(result.actions).toEqual([saveCall, warmCall, cancel(HOLD_TIMER)]);
     });
 
     it('does not rewarm if motion cleared during the settle', () => {
@@ -224,36 +240,93 @@ describe('Porch light on motion', () => {
     });
   });
 
-  describe('someone returns while the porch is fading back', () => {
-    const NOW = Date.parse('2026-11-01T21:00:00+00:00');
-    const activatedAgo = (ms: number) => ({ [RESTORE]: { state: new Date(NOW - ms).toISOString() } });
-    const at = () => vi.useFakeTimers({ now: NOW });
+  describe('looks are saved and restored faithfully', () => {
+    const expiredWith = (look: string, ha = makeHa()) => run(timer(HOLD_TIMER), { [MOTION]: { state: 'off' }, [PORCH]: warmLook, [HELPER]: { state: look } }, ha);
 
-    it('warms again from the existing snapshot instead of snapshotting the half-faded look', () => {
-      at();
-      const result = run(motion('on'), activatedAgo(2000));
+    it('restores a colour-temperature look with kelvin', () => {
+      expect(expiredWith('{"state":"on","brightness":120,"kelvin":3000}').actions[1])
+        .toEqual(lightCall('turn_on', { brightness: 120, color_temp_kelvin: 3000, transition: 5 }));
+    });
+
+    it('restores a coloured look with xy and never an effect', () => {
+      const action = expiredWith('{"state":"on","brightness":90,"xy":[0.208,0.079]}').actions[1];
+      expect(action).toEqual(lightCall('turn_on', { brightness: 90, xy_color: [0.208, 0.079], transition: 5 }));
+      expect(JSON.stringify(action)).not.toContain('effect');
+    });
+
+    it('restores an off look by fading the porch out', () => {
+      expect(expiredWith('{"state":"off"}').actions[1]).toEqual(lightCall('turn_off', { transition: 5 }));
+    });
+
+    it('clamps out-of-range saved values before emitting them', () => {
+      expect(expiredWith('{"state":"on","brightness":900,"xy":[2,-1]}').actions[1])
+        .toEqual(lightCall('turn_on', { brightness: 255, xy_color: [1, 0], transition: 5 }));
+    });
+
+    it('saves a coloured porch as xy when motion arrives', () => {
+      const coloured = { state: 'on', attributes: { brightness: 90, color_mode: 'xy', xy_color: [0.208, 0.079], color_temp_kelvin: 2000, effect: 'candlelight' } };
+      const result = run(motion('on'), { [PORCH]: coloured });
+      expect(result.actions[0]).toEqual(setHelper('{"state":"on","brightness":90,"xy":[0.208,0.079]}'));
+    });
+
+    it('saves an off porch as off', () => {
+      expect(run(motion('on'), { [PORCH]: { state: 'off', attributes: {} } }).actions[0]).toEqual(setHelper('{"state":"off"}'));
+    });
+
+    it.each([
+      ['no brightness', { color_mode: 'color_temp', color_temp_kelvin: 2700 }, 'porch_brightness_missing'],
+      ['a non-finite brightness', { brightness: NaN, color_mode: 'color_temp', color_temp_kelvin: 2700 }, 'porch_brightness_missing'],
+      ['no kelvin', { brightness: 90, color_mode: 'color_temp' }, 'porch_kelvin_missing'],
+      ['no xy', { brightness: 90, color_mode: 'xy' }, 'porch_xy_missing'],
+    ])('warms nothing and says why when the porch is on with %s', (_name, attributes, problem) => {
+      const result = run(motion('on'), { [PORCH]: { state: 'on', attributes } });
+      expect(result).toMatchObject({ decision: 'no_action', reason: `look_unreadable:${problem}`, actions: [] });
+    });
+
+    it('keeps every saved look, with its fade marker, within the helper limit', () => {
+      const long = serializeLook({ state: 'on', brightness: 255, xy: [0.123456789012345, 0.987654321098765] }, 1_999_999_999_999);
+      expect(long.length).toBeLessThanOrEqual(MAX_LOOK_CHARS);
+    });
+
+    it('refuses to write a look longer than the helper holds', () => {
+      expect(() => serializeLook({ state: 'on', brightness: 90, kelvin: 2700, pad: 'x'.repeat(300) } as never)).toThrow(/over 255/);
+    });
+  });
+
+  describe('someone returns while the porch is fading back', () => {
+    const fading = { [HELPER]: { state: `{"state":"on","brightness":90,"kelvin":2700,"fadeEndsMs":${FADE_END}}` } };
+    const at = (msAfterRestore: number) => vi.setSystemTime(NOW + msAfterRestore);
+
+    it('warms again keeping the saved look, instead of saving the half-faded look', () => {
+      at(2000);
+      const result = run(motion('on'), fading);
       expect(result).toMatchObject({ decision: 'warm', reason: 'motion_during_fade_back' });
-      expect(result.actions).toEqual([warmCall, cancel(HOLD_TIMER)]);
+      expect(result.actions).toEqual([setHelper(KELVIN_LOOK), warmCall, cancel(HOLD_TIMER)]);
     });
 
     it('does so even at the start of the fade, when the porch still reads warm', () => {
-      at();
-      const result = run(motion('on'), { ...activatedAgo(300), [PORCH]: warmLook });
-      expect(result).toMatchObject({ reason: 'motion_during_fade_back' });
+      at(300);
+      expect(run(motion('on'), { ...fading, [PORCH]: warmLook })).toMatchObject({ reason: 'motion_during_fade_back' });
     });
 
-    it('snapshots afresh once the fade and its margin are over', () => {
-      at();
-      const result = run(motion('on'), activatedAgo(6001));
+    it('saves the current look afresh once the fade and its margin are over', () => {
+      at(6001);
+      const result = run(motion('on'), fading);
       expect(result).toMatchObject({ decision: 'warm', reason: 'motion_detected' });
-      expect(result.actions[0]).toEqual(snapshotCall);
+      expect(result.actions[0]).toEqual(saveCall);
     });
 
-    it('treats an unparseable or future activation time as not fading', () => {
-      at();
-      expect(run(motion('on'), { [RESTORE]: { state: 'unknown' } })).toMatchObject({ reason: 'motion_detected' });
-      expect(run(motion('on'), { [RESTORE]: { state: 'garbage' } })).toMatchObject({ reason: 'motion_detected' });
-      expect(run(motion('on'), activatedAgo(-60_000))).toMatchObject({ reason: 'motion_detected' });
+    it('treats a marker that is absent, garbage or implausibly far ahead as not fading', () => {
+      at(2000);
+      expect(run(motion('on'))).toMatchObject({ reason: 'motion_detected' });
+      expect(run(motion('on'), { [HELPER]: { state: 'garbage' } })).toMatchObject({ reason: 'motion_detected' });
+      expect(run(motion('on'), { [HELPER]: { state: `{"state":"on","brightness":90,"kelvin":2700,"fadeEndsMs":${NOW + 3_600_000}}` } })).toMatchObject({ reason: 'motion_detected' });
+    });
+
+    it('forgets the fade marker when a garden scene takes over mid-fade, so the next motion saves the scene look', () => {
+      at(2000);
+      const result = run(sceneChange(SPOOKY), { ...fading, [MOTION]: { state: 'off' } });
+      expect(result.actions).toEqual([setHelper(KELVIN_LOOK), cancel(HOLD_TIMER), cancel(SETTLE_TIMER)]);
     });
   });
 
@@ -264,6 +337,12 @@ describe('Porch light on motion', () => {
   });
 
   describe('unexpected or missing inputs', () => {
+    it('aborts when the restore helper does not exist', () => {
+      const { [HELPER]: _gone, ...rest } = base;
+      const r = testAbort(automation, { event: motion('on'), state: rest as never, ha: makeHa() });
+      expect(r.reason).toBe(`porch_restore_helper_unavailable:${HELPER}`);
+    });
+
     it('aborts when no light in the area carries the porch label', () => {
       expect(abortOf(motion('on'), {}, makeHa({ porches: [] })).reason).toBe(`porch_light_not_found:${LOCATION}`);
     });
@@ -298,10 +377,6 @@ describe('Porch light on motion', () => {
   });
 
   describe('configuration', () => {
-    it('rejects a restore scene that the garden scene listeners would see', () => {
-      expect(() => makePorchLightAutomation({ ...config, restoreSceneId: `${LOCATION}_restore` })).toThrow(/must not start with/);
-    });
-
     it('rejects a non-finite fade', () => {
       expect(() => makePorchLightAutomation({ ...config, fadeUpS: NaN })).toThrow(/finite/);
     });
