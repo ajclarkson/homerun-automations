@@ -8,7 +8,7 @@ This repo contains only automation definitions — no framework code. Homerun ha
 
 ```
 back-garden/    outdoor lighting
-front-garden/   outdoor lighting, theme effects, Halloween animation
+front-garden/   outdoor lighting, theme effects, theme calendar, Halloween animation
 bathroom/       lighting, occupancy, heating
 bedroom/        lighting, occupancy, heating, sleep mode bypass
 foreign-office/ lighting, occupancy, heating, door ventilation, overtemp safety
