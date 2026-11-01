@@ -32,14 +32,19 @@ function settledOn(scene: string) {
 
 const effect = (entity_id: string, name: string) =>
   expect.objectContaining({ target: { entity_id }, data: expect.objectContaining({ effect: name }) });
+const fullBrightness = (entity_id: string) =>
+  expect.objectContaining({ target: { entity_id }, data: { brightness: 255 } });
 
 describe('front garden theme effects', () => {
-  it('gives only the maple a fireplace flicker for Halloween — the birch has its own animation', () => {
-    expect(settledOn('front_garden_halloween').actions).toEqual([effect(MAPLE, 'fireplace')]);
+  it('gives only the maple a full-brightness fireplace flicker for Halloween — the birch has its own animation', () => {
+    expect(settledOn('front_garden_halloween').actions).toEqual([effect(MAPLE, 'fireplace'), fullBrightness(MAPLE)]);
   });
 
-  it('sets both trees flickering like a bonfire on Bonfire Night', () => {
-    expect(settledOn('front_garden_bonfire').actions).toEqual([effect(BIRCH, 'fireplace'), effect(MAPLE, 'fireplace')]);
+  it('sets both trees flickering like a bonfire at full brightness on Bonfire Night', () => {
+    expect(settledOn('front_garden_bonfire').actions).toEqual([
+      effect(BIRCH, 'fireplace'), fullBrightness(BIRCH),
+      effect(MAPLE, 'fireplace'), fullBrightness(MAPLE),
+    ]);
   });
 
   it('runs no effects for Autumn', () => {

@@ -93,6 +93,25 @@ describe('theme effects', () => {
       expect(result.actions).toEqual([effectCall(FEATURE, 'sparkle'), effectCall(FEATURE_2, 'sparkle'), effectCall(ACCENT, 'candle')]);
     });
 
+    it('runs an effect at a configured brightness, sending the level after the effect so it keeps running', () => {
+      const bright = makeThemeEffectsAutomation({
+        location: LOCATION,
+        themes: { spooky: { accent: { effect: 'fireplace', brightness: 255 }, feature: 'candle' } },
+      });
+      const result = testAutomation(bright, { event: settled, state: { ...enabled, ...activeScene(SPOOKY_SCENE) }, ha: makeHa() });
+      expect(result.actions).toEqual([
+        effectCall(FEATURE, 'candle'),
+        effectCall(ACCENT, 'fireplace'),
+        expect.objectContaining({ service: 'turn_on', target: { entity_id: ACCENT }, data: { brightness: 255 } }),
+      ]);
+    });
+
+    it('accepts the object form without a brightness, leaving the scene level alone', () => {
+      const plain = makeThemeEffectsAutomation({ location: LOCATION, themes: { spooky: { accent: { effect: 'fireplace' } } } });
+      const result = testAutomation(plain, { event: settled, state: { ...enabled, ...activeScene(SPOOKY_SCENE) }, ha: makeHa() });
+      expect(result.actions).toEqual([effectCall(ACCENT, 'fireplace')]);
+    });
+
     it('does nothing if the scene has changed again by the time it settles', () => {
       const result = run(settled, activeScene(NORMAL_SCENE));
       expect(result).toMatchObject({ decision: 'no_action', reason: 'no_effects_theme_active' });

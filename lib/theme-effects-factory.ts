@@ -12,7 +12,7 @@ const ROLE_LABELS: Record<LightRole, string> = {
 export interface ThemeEffectsConfig {
   location: string;
   /** On-bulb Hue effect per role, keyed by theme name (the theme's scene carries scene_theme_<theme>). */
-  themes: Record<string, Partial<Record<LightRole, string>>>;
+  themes: Record<string, Partial<Record<LightRole, EffectSpec>>>;
 }
 
 // Scenes can't reliably carry effects, and an effect sent while the scene's own colour commands are
@@ -22,9 +22,16 @@ const STOP_EFFECT = 'stop_hue_effect';
 
 type ThemeEffectsTrigger = 'scene_activated' | 'scene_settled' | 'system';
 
+/**
+ * An effect name, or an effect with a brightness (0–255) to run it at. Brightness is sent after the
+ * effect — Hue bulbs keep the effect running and change its level. Without one, the scene's level holds.
+ */
+export type EffectSpec = string | { effect: string; brightness?: number };
+
 interface EffectCommand {
   entity_id: string;
   effect: string;
+  brightness?: number;
 }
 
 interface ThemeEffectsContext {
@@ -86,8 +93,10 @@ export function makeThemeEffectsAutomation(config: ThemeEffectsConfig) {
         : null;
       const start = effectsTheme
         ? usedRoles.flatMap(role => {
-            const effect = themes[effectsTheme][role];
-            return effect ? lightsFor(role).map(entity_id => ({ entity_id, effect })) : [];
+            const spec = themes[effectsTheme][role];
+            if (!spec) return [];
+            const { effect, brightness } = typeof spec === 'string' ? { effect: spec, brightness: undefined } : spec;
+            return lightsFor(role).map(entity_id => ({ entity_id, effect, ...(brightness !== undefined ? { brightness } : {}) }));
           })
         : [];
 
@@ -149,7 +158,12 @@ export function makeThemeEffectsAutomation(config: ThemeEffectsConfig) {
       return {
         decision: 'start_effects',
         reason: trigger === 'system' ? 'startup_with_theme_active' : 'theme_scene_settled',
-        actions: start.map(effectOn),
+        actions: start.flatMap(command => [
+          effectOn(command),
+          ...(command.brightness !== undefined
+            ? [HomeAssistant.light.turn_on({ entity_id: command.entity_id }, { brightness: command.brightness })]
+            : []),
+        ]),
       };
     },
   });
