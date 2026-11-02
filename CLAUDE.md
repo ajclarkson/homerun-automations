@@ -21,10 +21,10 @@ For controllers that are identical across rooms (lighting, occupancy, heating), 
 
 - `lib/lighting-controller-factory.ts` — `makeLightingAutomation(config)`
 - `lib/occupancy-controller-factory.ts` — `makeOccupancyAutomation(config)`
-- `lib/outdoor-lighting-factory.ts` — `makeOutdoorLightingAutomation(config)` (gardens: on at sunset in the selected theme's scene, off at `offTime` (default 22:00) / sunrise / sleep)
+- `lib/outdoor-lighting-factory.ts` — `makeOutdoorLightingAutomation(config)` (gardens: on at sunset in the selected theme's scene, off at `offTime` (default 22:00) / sunrise / sleep; optional `previewMinutes` turns a scene switched on outside the evening window off again after that long; startup publishes the retained `{location}/lighting/window`; a theme with no scene gives reason `theme_scene_missing`)
 - `lib/theme-effects-factory.ts` — `makeThemeEffectsAutomation(config)` (on-bulb Hue effects per theme, by `outdoor_light_feature` / `outdoor_light_accent` role labels, while the theme's scene is active)
 - `lib/porch-light-factory.ts` — `makePorchLightAutomation(config)` (porch light labelled `outdoor_light_porch`: saves its look in `input_text.<location>_automation_porch_restore`, fades to a warm look on motion after dark, fades back to that look (plain light.turn_on, since scene.turn_on snaps on this bulb) after the `input_number.<location>_automation_porch_hold` quiet time)
-- `lib/theme-calendar.ts` — `makeThemeCalendarAutomation(config)` (sets `input_select.<location>_light_theme` from a yearly calendar on the days its answer changes; manual picks stick until then)
+- `lib/theme-calendar.ts` — `makeThemeCalendarAutomation(config)` (sets `input_select.<location>_light_theme` from a yearly calendar on the days its answer changes; manual picks stick until then; every run publishes the retained `{location}/lighting/theme_calendar` with today's theme, the next change and unknown themes, deciding `publish_calendar` when it does not switch)
 
 Room files that use a factory are typically 3-5 lines. All logic lives in the factory; the room file only passes config.
 

@@ -102,8 +102,13 @@ const disabled = { [`input_boolean.${LOCATION}_automation_lights_enabled`]: { st
 const theme = (t: string) => ({ [THEME]: { state: t } });
 const asleep = { 'sensor.house_active_mode': { state: 'sleep' } };
 
+// The scene call is always first; startup also appends the retained window publish.
 const expectScene = (actions: unknown[], entity_id: string) =>
-  expect(actions).toEqual([expect.objectContaining({ service: 'turn_on', target: { entity_id } })]);
+  expect(actions[0]).toEqual(expect.objectContaining({ service: 'turn_on', target: { entity_id } }));
+const expectOnlyScene = (actions: unknown[], entity_id: string) => {
+  expectScene(actions, entity_id);
+  expect(actions).toHaveLength(1);
+};
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -229,11 +234,16 @@ describe('outdoor lighting', () => {
       expectScene(result.actions, OFF_SCENE);
     });
 
-    it('falls back to the normal look, flagging the gap, when the theme has no scene in this garden yet', () => {
+    it('falls back to the normal look, loudly, when the theme has no scene in this garden yet', () => {
       const result = run(sunsetEvent, { ...dark, ...theme('halloween') });
-      expect(result).toMatchObject({ decision: 'turn_on', reason: 'sunset' });
+      expect(result).toMatchObject({ decision: 'turn_on', reason: 'theme_scene_missing' });
       expectScene(result.actions, ON_SCENE);
-      expect(result.conditions).toMatchObject({ theme: 'halloween', themeSceneMissing: true });
+      expect(result.conditions).toMatchObject({ trigger: 'sunset', theme: 'halloween', themeSceneMissing: true });
+    });
+
+    it('says the scene is missing on a theme change and at startup too', () => {
+      expect(run(themeEvent('halloween'), { ...dark, ...theme('halloween') })).toMatchObject({ decision: 'turn_on', reason: 'theme_scene_missing' });
+      expect(run(onStartEvent, { ...dark, ...theme('halloween') })).toMatchObject({ decision: 'turn_on', reason: 'theme_scene_missing' });
     });
 
     it.each([
@@ -363,6 +373,139 @@ describe('outdoor lighting', () => {
     it('aborts when the garden has no off scene configured', () => {
       const result = testAbort(automation, { event: scheduleOffEvent, state: { ...baseState, ...dark }, ha: makeHa({ omit: 'off' }) });
       expect(result.reason).toEqual(expect.stringContaining('no_off_scene_configured'));
+    });
+  });
+});
+
+// ── Window publish and preview ─────────────────────────────────────────────────
+
+const previewAutomation = makeOutdoorLightingAutomation({ location: LOCATION, offTime: '00:00', previewMinutes: 10 });
+const TIMER_KEY = `${LOCATION}:lighting:preview_off`;
+const TS_A = '2026-01-07T10:00:00+00:00';
+const TS_B = '2026-01-07T11:00:00+00:00';
+
+function sceneEvent(entity_id: string, old: string, next: string) {
+  const mk = (state: string) => ({ entity_id, state, attributes: {}, last_changed: '', last_updated: '' });
+  return { type: 'state_changed' as const, entity_id, old_state: mk(old), new_state: mk(next), correlation_id: 'test-cid' };
+}
+const activated = (scene: string) => sceneEvent(scene, TS_A, TS_B);
+const reloaded = (scene: string) => sceneEvent(scene, 'unavailable', TS_B);
+const timerEvent = { type: 'timer_expired' as const, timerKey: TIMER_KEY, correlation_id: 'test-cid' };
+
+function runPreview(event: unknown, overrideState: Record<string, { state: string }> = {}) {
+  return testAutomation(previewAutomation, { event: event as never, state: { ...baseState, ...overrideState }, ha: makeHa() });
+}
+
+describe('publishing the window', () => {
+  const windowCall = (payload: unknown) =>
+    expect.objectContaining({ type: 'mqtt.publish', topic: `${LOCATION}/lighting/window`, retain: true, payload: JSON.stringify(payload) });
+
+  it('publishes the off time and no preview limit on startup, retained', () => {
+    const result = runMidnight(onStartEvent, dark);
+    expect(result.actions).toContainEqual(windowCall({ off: '00:00', preview_min: null }));
+  });
+
+  it('publishes the preview limit when the garden has one', () => {
+    const result = runPreview(onStartEvent, light);
+    expect(result.actions).toContainEqual(windowCall({ off: '00:00', preview_min: 10 }));
+  });
+
+  it('publishes whether the lights are due or not', () => {
+    expect(run(onStartEvent, dark).actions).toContainEqual(windowCall({ off: '22:00', preview_min: null }));
+    expect(run(onStartEvent, light).actions).toContainEqual(windowCall({ off: '22:00', preview_min: null }));
+  });
+
+  it('publishes only on startup', () => {
+    expect(run(sunsetEvent, dark).actions.some(a => (a as { type: string }).type === 'mqtt.publish')).toBe(false);
+  });
+});
+
+describe('previewing a scene outside the evening window', () => {
+  beforeEach(() => at('14:00'));
+
+  it('starts a timer for the configured minutes when a theme scene is switched on by day', () => {
+    const result = runPreview(activated(AUTUMN_SCENE), light);
+    expect(result).toMatchObject({ decision: 'start_preview', reason: 'on_outside_evening_window' });
+    expect(result.actions).toEqual([{ type: 'timer.start', timerKey: TIMER_KEY, delayMs: 10 * 60_000 }]);
+  });
+
+  it('also previews after the off time', () => {
+    at('00:30');
+    const result = runPreview(activated(ON_SCENE), dark);
+    expect(result).toMatchObject({ decision: 'start_preview' });
+  });
+
+  it('previews while the house sleeps in the evening, since the lights are not due', () => {
+    at('20:00');
+    expect(runPreview(activated(AUTUMN_SCENE), { ...dark, ...asleep })).toMatchObject({ decision: 'start_preview' });
+  });
+
+  it('leaves the lights alone in the evening window', () => {
+    at('20:00');
+    const result = runPreview(activated(AUTUMN_SCENE), dark);
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'scene_activated_in_window' });
+    expect(result.actions).toEqual([]);
+  });
+
+  it('ignores a scenes reload, which only restores old timestamps', () => {
+    const result = runPreview(reloaded(AUTUMN_SCENE), light);
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'scene_reloaded_not_activated' });
+    expect(result.actions).toEqual([]);
+  });
+
+  it('does not start a preview for the off scene', () => {
+    const result = runPreview(activated(OFF_SCENE), light);
+    expect(result.decision).toBe('no_action');
+    expect(result.actions).toEqual([]);
+  });
+
+  it('does nothing when the automation is disabled', () => {
+    const result = runPreview(activated(AUTUMN_SCENE), { ...light, ...disabled });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled' });
+    expect(result.actions).toEqual([]);
+  });
+
+  describe('when the preview timer expires', () => {
+    it('turns the garden off outside the window', () => {
+      const result = runPreview(timerEvent, light);
+      expect(result).toMatchObject({ decision: 'turn_off', reason: 'preview_ended' });
+      expectOnlyScene(result.actions, OFF_SCENE);
+    });
+
+    it('does nothing once sunset has passed, because the normal evening has taken over', () => {
+      at('20:00');
+      const result = runPreview(timerEvent, dark);
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'preview_ended_in_window' });
+      expect(result.actions).toEqual([]);
+    });
+
+    it('turns off when the preview ran into sleep mode', () => {
+      at('20:00');
+      expect(runPreview(timerEvent, { ...dark, ...asleep })).toMatchObject({ decision: 'turn_off', reason: 'preview_ended' });
+    });
+
+    it('does nothing when the automation is disabled', () => {
+      expect(runPreview(timerEvent, { ...light, ...disabled })).toMatchObject({ decision: 'no_action', reason: 'automation_disabled' });
+    });
+  });
+
+  describe('configuration', () => {
+    it('watches this garden\'s scenes and the preview timer', () => {
+      const scenes = previewAutomation.triggers.find(t => t.type === 'state_changed' && t.entity instanceof RegExp);
+      expect(scenes).toBeDefined();
+      const pattern = (scenes as { entity: RegExp }).entity;
+      expect(pattern.test(AUTUMN_SCENE)).toBe(true);
+      expect(pattern.test('scene.other_garden_autumn')).toBe(false);
+      expect(previewAutomation.triggers).toContainEqual({ type: 'timer_expired', timerKey: TIMER_KEY });
+    });
+
+    it('adds no triggers to a garden without a preview limit', () => {
+      expect(automation.triggers.some(t => t.type === 'timer_expired')).toBe(false);
+      expect(automation.triggers.some(t => t.type === 'state_changed' && t.entity instanceof RegExp)).toBe(false);
+    });
+
+    it.each([0, -5, 1.5, Number.NaN])('refuses previewMinutes %s at load', (previewMinutes) => {
+      expect(() => makeOutdoorLightingAutomation({ location: LOCATION, previewMinutes })).toThrow(/invalid outdoor lighting previewMinutes/);
     });
   });
 });
