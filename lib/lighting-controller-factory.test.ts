@@ -496,6 +496,15 @@ describe('makeLightingAutomation', () => {
       expect(r.facts).toEqual({ lux: 11, lux_threshold: 15 });
     });
 
+    it.each([
+      ['above the range', '900', 500],
+      ['below the range', '-20', 0],
+      ['inside the range', '120', 120],
+    ])('clamps the dark threshold to 0 to 500 (%s)', (_label, raw, expected) => {
+      const r = run(occupancyEvent('on'), withLux('10', { [`input_number.${LOCATION}_automation_lux_threshold_dark`]: { state: raw } }));
+      expect(r.facts).toEqual({ lux: 10, lux_threshold: expected });
+    });
+
     it('acts with a null lux when there is no reading, because the lights still come on', () => {
       const r = run(occupancyEvent('on'), withLux(null));
       expect(r).toMatchObject({ reason: 'lux_low', outcome: 'acted' });
