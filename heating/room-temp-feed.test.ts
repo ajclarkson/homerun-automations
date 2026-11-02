@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automations from './room-temp-feed.js';
 
 const stateChangeTrigger = (entity: string, state: string) => ({
@@ -77,6 +78,7 @@ describe('room-temp-feed', () => {
         state: { 'sensor.parlour_sensor_climate_temperature': { state: '20.0' } },
       });
       expect(result.reason).toBe('temp_changed');
+      expect(result.outcome).toBe('ignored');
     });
 
     it('uses reason heartbeat on schedule trigger', () => {
@@ -86,6 +88,7 @@ describe('room-temp-feed', () => {
       });
       expect(result.decision).toBe('update_external_temp');
       expect(result.reason).toBe('heartbeat');
+      expect(result.outcome).toBe('ignored');
       expect(result.actions[0]).toMatchObject({ data: { value: 2000 } });
     });
   });

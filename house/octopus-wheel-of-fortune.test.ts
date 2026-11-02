@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './octopus-wheel-of-fortune.js';
 
 const ELEC = 'sensor.octopus_energy_a_644e00d3_wheel_of_fortune_spins_electricity';
@@ -23,6 +24,8 @@ describe('wheel of fortune — spinning available spins', () => {
   it('spins the electricity wheel when it has spins and gas has none', () => {
     const result = testAutomation(automation, { event: onStart, state: { [ELEC]: { state: '2' }, [GAS]: { state: '0' } } });
     expect(spinTargets(result.actions)).toEqual([ELEC]);
+    expect(result).toMatchObject({ reason: 'wheels_spun', outcome: 'acted' });
+    expect(result.facts).toEqual({ count: 1 });
   });
 
   it('spins the gas wheel when it has spins and electricity has none', () => {
@@ -33,6 +36,8 @@ describe('wheel of fortune — spinning available spins', () => {
   it('spins both wheels when both have spins', () => {
     const result = testAutomation(automation, { event: onStart, state: { [ELEC]: { state: '2' }, [GAS]: { state: '2' } } });
     expect(spinTargets(result.actions)).toEqual([ELEC, GAS]);
+    expect(result).toMatchObject({ reason: 'wheels_spun', outcome: 'acted' });
+    expect(result.facts).toEqual({ count: 2 });
   });
 
   it('requests one spin per wheel per run, relying on the sensor change to trigger the next', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './heating-actuation.js';
 
 const activeHeatingTrigger = (mode: string) => ({
@@ -56,7 +56,7 @@ describe('foreign_office:heating_actuation', () => {
       state: { ...baseState, 'sensor.foreign_office_active_heating': { state: 'unavailable' } },
     });
     expect(result.decision).toBe('no_action');
-    expect(result.reason).toBe('mode_unavailable:unavailable');
+    expect(result).toMatchObject({ reason: 'mode_unavailable', outcome: 'ignored', facts: { mode: 'unavailable' } });
     expect(result.actions).toHaveLength(0);
   });
 
@@ -67,7 +67,7 @@ describe('foreign_office:heating_actuation', () => {
       state: stateWithoutMode,
     });
     expect(result.decision).toBe('no_action');
-    expect(result.reason).toBe('mode_unavailable:null');
+    expect(result).toMatchObject({ reason: 'mode_unavailable', outcome: 'ignored', facts: { mode: null } });
   });
 
   it('records a named reason for an unrecognised mode rather than falling back to a default', () => {
@@ -76,7 +76,7 @@ describe('foreign_office:heating_actuation', () => {
       state: { ...baseState, 'sensor.foreign_office_active_heating': { state: 'eco' } },
     });
     expect(result.decision).toBe('no_action');
-    expect(result.reason).toBe('unknown_mode:eco');
+    expect(result).toMatchObject({ reason: 'unknown_mode', outcome: 'declined', facts: { mode: 'eco' } });
     expect(result.actions).toHaveLength(0);
   });
 
@@ -86,7 +86,7 @@ describe('foreign_office:heating_actuation', () => {
       state: { ...baseState, 'input_number.global_temperature_comfort': { state: 'unavailable' } },
     });
     expect(result.decision).toBe('no_action');
-    expect(result.reason).toBe('helper_unavailable:comfort');
+    expect(result).toMatchObject({ reason: 'helper_unavailable', outcome: 'declined', facts: { mode: 'comfort' } });
     expect(result.actions).toHaveLength(0);
   });
 
@@ -96,7 +96,7 @@ describe('foreign_office:heating_actuation', () => {
       state: { ...baseState, 'input_number.global_temperature_comfort': { state: '30' } },
     });
     expect(result.actions[0]).toMatchObject({ data: { temperature: 25 } });
-    expect(result.reason).toContain('clamped_from_30');
+    expect(result).toMatchObject({ reason: 'temperature_set', outcome: 'ignored', facts: { mode: 'comfort', target: 25, clamped_from: 30 } });
   });
 
   it('clamps setpoint to MIN_SETPOINT_C and records it in the reason when helper value is below the safe range', () => {
@@ -105,7 +105,7 @@ describe('foreign_office:heating_actuation', () => {
       state: { ...baseState, 'sensor.foreign_office_active_heating': { state: 'minimum' }, 'input_number.global_temperature_minimum': { state: '1' } },
     });
     expect(result.actions[0]).toMatchObject({ data: { temperature: 5 } });
-    expect(result.reason).toContain('clamped_from_1');
+    expect(result).toMatchObject({ reason: 'temperature_set', outcome: 'ignored', facts: { target: 5, clamped_from: 1 } });
   });
 
   it('actuates on startup using the already-resolved mode', () => {
@@ -133,7 +133,7 @@ describe('foreign_office:heating_actuation', () => {
       });
       expect(result.decision).toBe('set_temperature');
       expect(result.actions[0]).toMatchObject({ data: { temperature: 20 } });
-      expect(result.reason).toContain('arbitrage_negative_price');
+      expect(result).toMatchObject({ reason: 'temperature_set_arbitrage', outcome: 'acted', facts: { mode: 'comfort' } });
     });
 
     it('does not override when the room is occupied', () => {
@@ -142,7 +142,7 @@ describe('foreign_office:heating_actuation', () => {
         state: { ...arbitrageState, 'binary_sensor.foreign_office_occupied': { state: 'on' } },
       });
       expect(result.actions[0]).toMatchObject({ data: { temperature: 5 } });
-      expect(result.reason).not.toContain('arbitrage');
+      expect(result).toMatchObject({ reason: 'temperature_set', outcome: 'ignored' });
     });
 
     it('treats unavailable occupancy as occupied rather than risking an empty-room assumption', () => {
@@ -151,7 +151,7 @@ describe('foreign_office:heating_actuation', () => {
         state: { ...arbitrageState, 'binary_sensor.foreign_office_occupied': { state: 'unavailable' } },
       });
       expect(result.actions[0]).toMatchObject({ data: { temperature: 5 } });
-      expect(result.reason).not.toContain('arbitrage');
+      expect(result).toMatchObject({ reason: 'temperature_set', outcome: 'ignored' });
     });
 
     it('does not override when the price is positive', () => {
@@ -160,7 +160,7 @@ describe('foreign_office:heating_actuation', () => {
         state: { ...arbitrageState, 'sensor.octopus_energy_electricity_24e8140196_1012483035417_current_rate': { state: '12.3' } },
       });
       expect(result.actions[0]).toMatchObject({ data: { temperature: 5 } });
-      expect(result.reason).not.toContain('arbitrage');
+      expect(result).toMatchObject({ reason: 'temperature_set', outcome: 'ignored' });
     });
 
     it('does not override a manual mode selection even if the room is empty and price is negative', () => {
@@ -169,7 +169,7 @@ describe('foreign_office:heating_actuation', () => {
         state: { ...arbitrageState, 'sensor.foreign_office_heating_source': { state: 'manual' } },
       });
       expect(result.actions[0]).toMatchObject({ data: { temperature: 5 } });
-      expect(result.reason).not.toContain('arbitrage');
+      expect(result).toMatchObject({ reason: 'temperature_set', outcome: 'ignored' });
     });
 
     it('does not override a safety-forced mode even if the room is empty and price is negative', () => {
@@ -178,7 +178,7 @@ describe('foreign_office:heating_actuation', () => {
         state: { ...arbitrageState, 'sensor.foreign_office_heating_source': { state: 'safety' } },
       });
       expect(result.actions[0]).toMatchObject({ data: { temperature: 5 } });
-      expect(result.reason).not.toContain('arbitrage');
+      expect(result).toMatchObject({ reason: 'temperature_set', outcome: 'ignored' });
     });
 
     it('is a no-op when the mode is already comfort', () => {
@@ -186,7 +186,7 @@ describe('foreign_office:heating_actuation', () => {
         event: activeHeatingTrigger('comfort'),
         state: { ...arbitrageState, 'sensor.foreign_office_active_heating': { state: 'comfort' } },
       });
-      expect(result.reason).not.toContain('arbitrage');
+      expect(result).toMatchObject({ reason: 'temperature_set', outcome: 'ignored' });
     });
 
     it('falls back to the base mode temperature when the comfort helper is itself unavailable', () => {
@@ -195,7 +195,7 @@ describe('foreign_office:heating_actuation', () => {
         state: { ...arbitrageState, 'input_number.global_temperature_comfort': { state: 'unavailable' } },
       });
       expect(result.actions[0]).toMatchObject({ data: { temperature: 5 } });
-      expect(result.reason).not.toContain('arbitrage');
+      expect(result).toMatchObject({ reason: 'temperature_set', outcome: 'ignored' });
     });
 
     it('clamps the arbitrage-upgraded temperature to MAX_SETPOINT_C', () => {
@@ -204,7 +204,21 @@ describe('foreign_office:heating_actuation', () => {
         state: { ...arbitrageState, 'input_number.global_temperature_comfort': { state: '30' } },
       });
       expect(result.actions[0]).toMatchObject({ data: { temperature: 25 } });
-      expect(result.reason).toContain('arbitrage_negative_price');
+      expect(result).toMatchObject({ reason: 'temperature_set_arbitrage', outcome: 'acted', facts: { mode: 'comfort' } });
     });
+  });
+
+  it('re-applying negative-price arbitrage after a homerun restart is ignored', () => {
+    const result = testAutomation(automation, {
+      event: { type: 'on_start' as const, correlation_id: 'test' },
+      state: {
+        ...baseState,
+        'sensor.foreign_office_active_heating': { state: 'minimum' },
+        'sensor.foreign_office_heating_source': { state: 'schedule' },
+        'binary_sensor.foreign_office_occupied': { state: 'off' },
+        'sensor.octopus_energy_electricity_24e8140196_1012483035417_current_rate': { state: '-2.5' },
+      },
+    });
+    expect(result).toMatchObject({ reason: 'temperature_set_arbitrage_startup', outcome: 'ignored', facts: { mode: 'comfort' } });
   });
 });

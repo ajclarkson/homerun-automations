@@ -1,7 +1,33 @@
-import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
+import { defineAutomation, abort, HomeAssistant, type DeclaredDecision } from '@ajclarkson/homerun';
+
+// Inferring a work-from-home day is `acted`. Clearing the flag is mostly a no-change write after a
+// weekend or a day out, so the `off` reasons are `ignored`.
+export const WFH_ADAM_REASONS = {
+  always_wfh_wed_fri: { outcome: 'acted' },
+  home_at_inference_time: { outcome: 'acted' },
+  house_away: { outcome: 'ignored' },
+  not_workday: { outcome: 'ignored' },
+  not_home_at_inference_time: { outcome: 'ignored' },
+} as const;
+
+export const WFH_SARAH_REASONS = {
+  home_at_inference_time: { outcome: 'acted' },
+  house_away: { outcome: 'ignored' },
+  not_workday: { outcome: 'ignored' },
+  not_home_at_inference_time: { outcome: 'ignored' },
+} as const;
+
+export const WFH_RESET_REASONS = {
+  non_workday: { outcome: 'ignored' },
+  not_a_non_workday: { outcome: 'ignored' },
+} as const;
+
+type WfhAdamDecision = DeclaredDecision<typeof WFH_ADAM_REASONS>;
+type WfhSarahDecision = DeclaredDecision<typeof WFH_SARAH_REASONS>;
 
 // Adam: Wed–Fri always WFH; Mon–Tue inferred from presence at 08:00
 const adamWfh = defineAutomation({
+  reasons: WFH_ADAM_REASONS,
   id: 'house:wfh_adam',
   location: 'house',
   subsystem: 'wfh_inference',
@@ -28,11 +54,11 @@ const adamWfh = defineAutomation({
     };
   },
 
-  reduce: (ctx) => {
+  reduce: (ctx): WfhAdamDecision => {
     const { houseMode, workday, adamHome, alwaysOn } = ctx;
 
     let decision: 'on' | 'off' = 'off';
-    let reason = 'uninitialised';
+    let reason: keyof typeof WFH_ADAM_REASONS = 'not_home_at_inference_time';
 
     if (houseMode === 'away')    { decision = 'off'; reason = 'house_away'; }
     else if (workday !== 'on')   { decision = 'off'; reason = 'not_workday'; }
@@ -54,6 +80,7 @@ const adamWfh = defineAutomation({
 
 // Sarah: if home at 07:15 on a workday, inferred as WFH
 const sarahWfh = defineAutomation({
+  reasons: WFH_SARAH_REASONS,
   id: 'house:wfh_sarah',
   location: 'house',
   subsystem: 'wfh_inference',
@@ -76,11 +103,11 @@ const sarahWfh = defineAutomation({
     };
   },
 
-  reduce: (ctx) => {
+  reduce: (ctx): WfhSarahDecision => {
     const { houseMode, workday, sarahHome } = ctx;
 
     let decision: 'on' | 'off' = 'off';
-    let reason = 'uninitialised';
+    let reason: keyof typeof WFH_SARAH_REASONS = 'not_home_at_inference_time';
 
     if (houseMode === 'away')    { decision = 'off'; reason = 'house_away'; }
     else if (workday !== 'on')   { decision = 'off'; reason = 'not_workday'; }
@@ -101,6 +128,7 @@ const sarahWfh = defineAutomation({
 
 // Reset: when workday_sensor goes off (weekends + bank holidays), clear both flags
 const wfhReset = defineAutomation({
+  reasons: WFH_RESET_REASONS,
   id: 'house:wfh_reset',
   location: 'house',
   subsystem: 'wfh_inference',

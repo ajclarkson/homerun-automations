@@ -1,4 +1,4 @@
-import { defineAutomation, abort, type Action, type HAState } from '@ajclarkson/homerun';
+import { defineAutomation, abort, type Action, type DeclaredDecision, type HAState } from '@ajclarkson/homerun';
 import {
   SHOWER_ENTITY, HUMIDITY_ENTITY,
   FAN_MIN_RUN_TIMER, FAN_MAX_RUN_TIMER,
@@ -19,6 +19,26 @@ const MAX_RUN_HELPER = 'input_number.bathroom_automation_fan_max_run';
 // and timers die with the process, so the flag has to live in HA via MQTT.
 export const AUTO_TOPIC = 'bathroom/fan/auto';
 export const AUTO_ENTITY = 'binary_sensor.bathroom_fan_auto';
+
+// Starting or stopping the fan is `acted`. Disabled and not-auto-started are `declined` only when a
+// shower just started (the person expected the fan); on any other trigger they are `_idle` noise,
+// as are the holding states and the fan's own bookkeeping.
+export const FAN_REASONS = {
+  fan_on_shower_started: { outcome: 'acted' },
+  fan_off_max_run: { outcome: 'acted' },
+  fan_off_humidity_normal: { outcome: 'acted' },
+  automation_disabled: { outcome: 'declined' },
+  fan_not_auto_started: { outcome: 'declined' },
+  automation_disabled_idle: { outcome: 'ignored' },
+  fan_not_auto_started_idle: { outcome: 'ignored' },
+  fan_idle: { outcome: 'ignored' },
+  fan_holding_min_run: { outcome: 'ignored' },
+  fan_holding_humidity_high: { outcome: 'ignored' },
+  fan_run_extended: { outcome: 'ignored' },
+} as const;
+
+type FanDecision = DeclaredDecision<typeof FAN_REASONS>;
+type FanReason = keyof typeof FAN_REASONS;
 
 type FanTrigger = 'shower_started' | 'shower_ended' | 'min_run_expired' | 'max_run_expired' | 'other';
 
@@ -125,9 +145,9 @@ const runTimers = (ctx: FanContext): Action[] => [
   startTimer(FAN_MAX_RUN_TIMER, ctx.maxRunMs),
 ];
 
-const ignore = (reason: string, actions: Action[] = []) => ({ decision: 'no_action', reason, actions });
+const ignore = (reason: FanReason, actions: Action[] = []): FanDecision => ({ decision: 'no_action', reason, actions });
 
-function stopFan(reason: string) {
+function stopFan(reason: 'fan_off_max_run' | 'fan_off_humidity_normal'): FanDecision {
   return {
     decision: 'turn_off', reason,
     actions: [
@@ -137,7 +157,7 @@ function stopFan(reason: string) {
   };
 }
 
-function reduceFanOff(ctx: FanContext) {
+function reduceFanOff(ctx: FanContext): FanDecision {
   const startsNow = ctx.trigger === 'shower_started' || (ctx.isStartUp && ctx.showerOn);
   if (startsNow && ctx.showerOn) {
     return {
@@ -154,7 +174,7 @@ function reduceFanOff(ctx: FanContext) {
   return ignore('fan_idle');
 }
 
-function reduceFanOnShowerEnded(ctx: FanContext) {
+function reduceFanOnShowerEnded(ctx: FanContext): FanDecision {
   if (ctx.trigger === 'shower_ended') {
     return ignore('fan_holding_min_run', runTimers(ctx));
   }
@@ -164,8 +184,8 @@ function reduceFanOnShowerEnded(ctx: FanContext) {
   return ignore('fan_holding_humidity_high');
 }
 
-function reduceFanOn(ctx: FanContext) {
-  if (!ctx.autoStarted) return ignore('fan_not_auto_started');
+function reduceFanOn(ctx: FanContext): FanDecision {
+  if (!ctx.autoStarted) return ignore(ctx.trigger === 'shower_started' ? 'fan_not_auto_started' : 'fan_not_auto_started_idle');
   if (ctx.showerOn) {
     if (ctx.trigger === 'shower_started') return ignore('fan_run_extended', holdTimers());
     return ignore('fan_holding_min_run');
@@ -175,7 +195,8 @@ function reduceFanOn(ctx: FanContext) {
   return reduceFanOnShowerEnded(ctx);
 }
 
-export default defineAutomation<FanContext>({
+export default defineAutomation<FanContext, typeof FAN_REASONS>({
+  reasons: FAN_REASONS,
   id: 'bathroom:fan',
   location: 'bathroom',
   subsystem: 'fan',
@@ -193,8 +214,8 @@ export default defineAutomation<FanContext>({
 
   context: (state, _ha, event) => buildContext(state, event as FanEvent),
 
-  reduce: (ctx) => {
-    if (!ctx.enabled) return ignore('automation_disabled');
+  reduce: (ctx): FanDecision => {
+    if (!ctx.enabled) return ignore(ctx.trigger === 'shower_started' ? 'automation_disabled' : 'automation_disabled_idle');
     return ctx.fanOn ? reduceFanOn(ctx) : reduceFanOff(ctx);
   },
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './trv-actuation.js';
 
 const activeHeatingTrigger = (room: string, mode: string) => ({
@@ -29,7 +29,8 @@ describe('house:trv_actuation', () => {
       event: activeHeatingTrigger('parlour', 'comfort'),
       state: baseState,
     });
-    expect(result.decision).toBe('set_trvs');
+    expect(result).toMatchObject({ decision: 'set_trvs', reason: 'trvs_set', outcome: 'ignored' });
+    expect(result.facts).toEqual({ rooms: 'parlour', skipped: null, clamped: null });
     expect(result.actions).toEqual([{
       type: 'ha.call_service',
       domain: 'climate',
@@ -61,34 +62,34 @@ describe('house:trv_actuation', () => {
     expect(result.actions[0]).toMatchObject({ data: { temperature: 17.5 } });
   });
 
-  it('records skipped rooms with unavailable mode in the reason', () => {
+  it('names skipped rooms with an unavailable mode in the facts, and ignores the run', () => {
     const result = testAutomation(automation, {
       event: activeHeatingTrigger('parlour', 'unavailable'),
       state: { ...baseState, 'sensor.parlour_active_heating': { state: 'unavailable' } },
     });
     expect(result.decision).toBe('no_action');
     expect(result.actions).toHaveLength(0);
-    expect(result.reason).toContain('parlour:skipped(unavailable)');
+    expect(result).toMatchObject({ reason: 'no_valid_rooms', outcome: 'ignored', facts: { skipped: 'parlour' } });
   });
 
-  it('records skipped rooms with an unrecognised mode in the reason', () => {
+  it('declines a room with an unrecognised mode and names it in the facts', () => {
     const result = testAutomation(automation, {
       event: activeHeatingTrigger('parlour', 'eco'),
       state: { ...baseState, 'sensor.parlour_active_heating': { state: 'eco' } },
     });
     expect(result.decision).toBe('no_action');
     expect(result.actions).toHaveLength(0);
-    expect(result.reason).toContain('parlour:skipped(unknown_mode:eco)');
+    expect(result).toMatchObject({ reason: 'trvs_not_set', outcome: 'declined', facts: { skipped: 'parlour' } });
   });
 
-  it('skips a room with named reason when its mode helper is unavailable rather than falling back to a default', () => {
+  it('declines a room when its mode helper is unavailable rather than falling back to a default', () => {
     const result = testAutomation(automation, {
       event: activeHeatingTrigger('parlour', 'comfort'),
       state: { ...baseState, 'input_number.global_temperature_comfort': { state: 'unavailable' } },
     });
     expect(result.decision).toBe('no_action');
     expect(result.actions).toHaveLength(0);
-    expect(result.reason).toContain('parlour:skipped(helper_unavailable:comfort)');
+    expect(result).toMatchObject({ reason: 'trvs_not_set', outcome: 'declined', facts: { skipped: 'parlour' } });
   });
 
   it('still actuates rooms on other modes when one helper is unavailable', () => {
@@ -97,27 +98,30 @@ describe('house:trv_actuation', () => {
       state: { ...baseState, 'input_number.global_temperature_comfort': { state: 'unavailable' } },
     });
     // comfort rooms (parlour, bedroom) skipped; other modes still actuated
-    expect(result.reason).toContain('parlour:skipped(helper_unavailable:comfort)');
-    expect(result.reason).toContain('bedroom:skipped(helper_unavailable:comfort)');
-    expect(result.reason).toContain('kitchen:baseline_day@18');
+    expect(result).toMatchObject({ reason: 'trvs_set', outcome: 'ignored' });
+    expect(result.facts).toEqual({
+      rooms: 'kitchen,hallway_downstairs,bathroom,home_office',
+      skipped: 'parlour,bedroom',
+      clamped: null,
+    });
   });
 
-  it('clamps setpoint to MAX_SETPOINT_C and records it in the reason when helper value is above the safe range', () => {
+  it('clamps setpoint to MAX_SETPOINT_C and names the room in the facts when helper value is above the safe range', () => {
     const result = testAutomation(automation, {
       event: activeHeatingTrigger('parlour', 'comfort'),
       state: { ...baseState, 'input_number.global_temperature_comfort': { state: '30' } },
     });
     expect(result.actions[0]).toMatchObject({ data: { temperature: 25 } });
-    expect(result.reason).toContain('clamped_from_30');
+    expect(result.facts).toEqual({ rooms: 'parlour', skipped: null, clamped: 'parlour' });
   });
 
-  it('clamps setpoint to MIN_SETPOINT_C and records it in the reason when helper value is below the safe range', () => {
+  it('clamps setpoint to MIN_SETPOINT_C and names the room in the facts when helper value is below the safe range', () => {
     const result = testAutomation(automation, {
       event: activeHeatingTrigger('parlour', 'minimum'),
       state: { ...baseState, 'sensor.parlour_active_heating': { state: 'minimum' }, 'input_number.global_temperature_minimum': { state: '1' } },
     });
     expect(result.actions[0]).toMatchObject({ data: { temperature: 5 } });
-    expect(result.reason).toContain('clamped_from_1');
+    expect(result.facts).toEqual({ rooms: 'parlour', skipped: null, clamped: 'parlour' });
   });
 
   it('uses hallway_downstairs TRV entity', () => {

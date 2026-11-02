@@ -8,7 +8,16 @@ import { defineAutomation, abort } from '@ajclarkson/homerun';
 // into the kitchen at night is kitchen motion too, and must not exit sleep
 // mode. See house/exit-sleep-button.ts for the manual path this complements
 // (which is unrestricted by time, since a button press is always deliberate).
+// Leaving sleep mode is `acted`. Kitchen motion outside the morning window is a normal night-time
+// trip, so it is `ignored` rather than something to explain.
+export const EXIT_SLEEP_KITCHEN_MOTION_REASONS = {
+  kitchen_motion_detected: { outcome: 'acted' },
+  not_in_sleep_mode: { outcome: 'ignored' },
+  outside_morning_window: { outcome: 'ignored' },
+} as const;
+
 export default defineAutomation({
+  reasons: EXIT_SLEEP_KITCHEN_MOTION_REASONS,
   id: 'house:exit_sleep_kitchen_motion',
   location: 'house',
   subsystem: 'house_mode',

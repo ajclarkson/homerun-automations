@@ -54,7 +54,17 @@ function notifyAction(service: string, title: string, message: string, image: st
   };
 }
 
+// A cat sighting that is recorded in the timeline (and notified when enabled) is `acted`. Events
+// that are not a cat, not new, or inside the cooldown are `ignored`.
+export const MO_FRIGATE_REASONS = {
+  eating: { outcome: 'acted', facts: ['room'] },
+  spotted: { outcome: 'acted', facts: ['room'] },
+  not_actionable: { outcome: 'ignored' },
+  cooldown_active: { outcome: 'ignored' },
+} as const;
+
 export default defineAutomation({
+  reasons: MO_FRIGATE_REASONS,
   id: 'house:mo_frigate',
   location: 'house',
   subsystem: 'mo',
@@ -92,7 +102,7 @@ export default defineAutomation({
     const justEnteredFeeder = afterZones.includes('feeder') && !beforeZones.includes('feeder');
     const isNewDetection    = payload.type === 'new';
 
-    const eventType = justEnteredFeeder ? 'eating'
+    const eventType: 'eating' | 'spotted' | null = justEnteredFeeder ? 'eating'
       : (isNewDetection ? 'spotted' : null);
 
     const now = Date.now();
@@ -180,6 +190,7 @@ export default defineAutomation({
     return {
       decision: 'notify',
       reason: eventType,
+      facts: { room: cam.room },
       actions,
     };
   },

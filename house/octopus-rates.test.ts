@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import { cheapRateNudge, tomorrowRatesNudge } from './octopus-rates.js';
 
 type NotifyAction = { service: string; data: { title: string; message: string; data: { url: string } } };
@@ -73,6 +74,7 @@ describe('cheap rate nudge — presence routing', () => {
     const result = runToday();
     expect(result.decision).toBe('notify');
     expect(result.reason).toBe('adam_and_sarah');
+    expect(result.outcome).toBe('acted');
     expect(result.actions).toHaveLength(2);
     const targets = result.actions.map((a) => asNotify(a).service);
     expect(targets).toContain('mobile_app_adams_iphone');
@@ -82,6 +84,7 @@ describe('cheap rate nudge — presence routing', () => {
   it('notifies only adam when sarah is away', () => {
     const result = runToday({ 'person.sarah': { state: 'not_home' } });
     expect(result.reason).toBe('adam');
+    expect(result.outcome).toBe('acted');
     expect(result.actions).toHaveLength(1);
     expect(asNotify(result.actions[0]).service).toBe('mobile_app_adams_iphone');
   });
@@ -89,6 +92,7 @@ describe('cheap rate nudge — presence routing', () => {
   it('notifies only sarah when adam is away', () => {
     const result = runToday({ 'person.adam': { state: 'not_home' } });
     expect(result.reason).toBe('sarah');
+    expect(result.outcome).toBe('acted');
     expect(result.actions).toHaveLength(1);
     expect(asNotify(result.actions[0]).service).toBe('mobile_app_sarahs_iphone');
   });
@@ -97,6 +101,7 @@ describe('cheap rate nudge — presence routing', () => {
     const result = runToday({ 'person.adam': { state: 'not_home' }, 'person.sarah': { state: 'not_home' } });
     expect(result.decision).toBe('no_action');
     expect(result.reason).toBe('nobody_home');
+    expect(result.outcome).toBe('ignored');
     expect(result.actions).toHaveLength(0);
   });
 });
@@ -146,6 +151,7 @@ function runTomorrow(override: Record<string, unknown> = {}) {
 describe('tomorrow rates nudge — message', () => {
   it('sends free electricity message for a single negative window', () => {
     const result = runTomorrow({ 'sensor.octopus_tomorrow_negative_windows': { state: '02:00–04:00' } });
+    expect(result).toMatchObject({ reason: 'negative_windows', outcome: 'acted' });
     const action = asNotify(result.actions[0]);
     expect(action.data.title).toBe('⚡ Free electricity tomorrow');
     expect(action.data.message).toBe('02:00–04:00 — tap for all windows');
@@ -180,7 +186,7 @@ describe('tomorrow rates nudge — message', () => {
 describe('tomorrow rates nudge — always notifies both people', () => {
   it('notifies both adam and sarah regardless of presence', () => {
     const result = runTomorrow();
-    expect(result.decision).toBe('notify');
+    expect(result).toMatchObject({ decision: 'notify', reason: 'cheap_windows', outcome: 'acted' });
     expect(result.actions).toHaveLength(2);
     const targets = result.actions.map((a) => asNotify(a).service);
     expect(targets).toContain('mobile_app_adams_iphone');
@@ -206,6 +212,7 @@ describe('tomorrow rates nudge — no action', () => {
     });
     expect(result.decision).toBe('no_action');
     expect(result.reason).toBe('no_notable_windows_tomorrow');
+    expect(result.outcome).toBe('ignored');
     expect(result.actions).toHaveLength(0);
   });
 });

@@ -1,6 +1,12 @@
 import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
 
+// A deliberate double press toggles the cameras' privacy: always something a person notices.
+export const MANUAL_PRIVACY_TOGGLE_REASONS = {
+  button_double_press: { outcome: 'acted' },
+} as const;
+
 export default defineAutomation({
+  reasons: MANUAL_PRIVACY_TOGGLE_REASONS,
   id: 'house:manual_privacy_toggle',
   location: 'house',
   subsystem: 'cameras',

@@ -1,5 +1,5 @@
 import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
-import type { Action, HAContext, TriggerEvent } from '@ajclarkson/homerun';
+import type { Action, DeclaredDecision, HAContext, TriggerEvent } from '@ajclarkson/homerun';
 import { isSceneActivation } from './scene-activation.js';
 import { MIN_KELVIN, MAX_KELVIN, MIN_BRIGHTNESS, MAX_BRIGHTNESS, readLook, parseLook, serializeLook, lookAction, setLook, type Look } from './porch-look.js';
 
@@ -25,6 +25,34 @@ export interface PorchLightConfig {
   /** Theme name -> false to ignore motion while that theme's scene is active. Omitted themes react. */
   motionThemes?: Record<string, boolean>;
 }
+
+// Warming and restoring the porch are `acted`. Timer bookkeeping and the many motion events that
+// correctly do nothing (daylight, already warm) are `ignored`; `declined` is for the cases a person
+// would ask about: a theme that opted out of motion, or a look that could not be saved or restored.
+export const PORCH_LIGHT_REASONS = {
+  motion_detected: { outcome: 'acted' },
+  scene_changed_during_hold: { outcome: 'acted' },
+  motion_during_fade_back: { outcome: 'acted' },
+  hold_expired: { outcome: 'acted' },
+  hold_expired_look_missing_garden_off: { outcome: 'acted' },
+  automation_disabled: { outcome: 'acted' },
+  look_unreadable: { outcome: 'declined', facts: ['problem'] },
+  restore_look_missing: { outcome: 'declined' },
+  theme_opted_out: { outcome: 'declined' },
+  automation_disabled_idle: { outcome: 'ignored' },
+  startup: { outcome: 'ignored' },
+  scene_reloaded_not_activated: { outcome: 'ignored' },
+  scene_changed_during_motion: { outcome: 'ignored' },
+  scene_changed_hold_dropped: { outcome: 'ignored' },
+  motion_cleared_not_warm: { outcome: 'ignored' },
+  motion_cleared: { outcome: 'ignored' },
+  motion_still_on: { outcome: 'ignored' },
+  motion_cleared_before_settle: { outcome: 'ignored' },
+  daylight: { outcome: 'ignored' },
+  already_warm: { outcome: 'ignored' },
+} as const;
+
+type PorchDecision = DeclaredDecision<typeof PORCH_LIGHT_REASONS>;
 
 type PorchTrigger =
   | 'motion_on' | 'motion_off' | 'hold_expired' | 'scene_activated' | 'scene_settled' | 'startup';
@@ -134,7 +162,8 @@ export function makePorchLightAutomation(config: PorchLightConfig) {
       && Math.abs(readNumber(porchState, 'color_temp_kelvin') - kelvin) <= KELVIN_TOLERANCE;
   }
 
-  return defineAutomation<PorchLightContext>({
+  return defineAutomation<PorchLightContext, typeof PORCH_LIGHT_REASONS>({
+    reasons: PORCH_LIGHT_REASONS,
     id: `${location}:porch_light`,
     location,
     subsystem: 'lighting',
@@ -193,14 +222,14 @@ export function makePorchLightAutomation(config: PorchLightConfig) {
       };
     },
 
-    reduce: (ctx) => {
+    reduce: (ctx): PorchDecision => {
       const { trigger, porch, automationEnabled, dark, motionOn, porchWarm, themeAllowsMotion, gardenOff,
         realSceneActivation, restoreLookValid, lookProblem, currentLook, savedLook, restoreFading, nowMs, holdMs } = ctx;
       const clearTimers = [cancel(holdKey), cancel(settleKey)];
-      const motionWarm = (reason: string, decision: string) => {
+      const motionWarm = (reason: 'motion_detected' | 'scene_changed_during_hold', decision: string): PorchDecision => {
         // Nothing is warmed if the current look can't be saved: an unrestorable warm porch is worse than a dark one.
         if (lookProblem !== null || currentLook === null) {
-          return { decision: 'no_action', reason: `look_unreadable:${lookProblem ?? 'uninitialised'}`, actions: [] };
+          return { decision: 'no_action', reason: 'look_unreadable', facts: { problem: lookProblem ?? 'uninitialised' }, actions: [] };
         }
         return { decision, reason, actions: saveAndWarm(porch, currentLook) };
       };
@@ -208,7 +237,7 @@ export function makePorchLightAutomation(config: PorchLightConfig) {
       // Rule 1: a switched-off automation must not leave the porch warm.
       if (!automationEnabled) {
         if (porchWarm && savedLook !== null) return { decision: 'restore', reason: 'automation_disabled', actions: [...clearTimers, ...fadeBack(porch, savedLook, nowMs)] };
-        return { decision: 'no_action', reason: 'automation_disabled', actions: clearTimers };
+        return { decision: 'no_action', reason: 'automation_disabled_idle', actions: clearTimers };
       }
       if (trigger === 'startup') return { decision: 'no_action', reason: 'startup', actions: [] };
 

@@ -1,4 +1,4 @@
-import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
+import { defineAutomation, abort, HomeAssistant, type DeclaredDecision } from '@ajclarkson/homerun';
 import { HEATING_ROOMS } from '../lib/heating-rooms.js';
 
 const MODE_HELPERS: Record<string, string> = {
@@ -11,7 +11,22 @@ const MODE_HELPERS: Record<string, string> = {
 const MIN_SETPOINT_C = 5;
 const MAX_SETPOINT_C = 25;
 
+// Setting TRV targets follows a heating mode change that the room's own heating automation already
+// reports, so it is `ignored`. A room skipped for a missing helper or an unknown mode with nothing
+// set is `declined`: that is a fault a person would want to find. Rooms are comma-joined facts,
+// null when there are none; `clamped` names the rooms whose helper value was outside the safe range.
+export const TRV_ACTUATION_REASONS = {
+  trvs_set: { outcome: 'ignored', facts: ['rooms', 'skipped', 'clamped'] },
+  trvs_not_set: { outcome: 'declined', facts: ['skipped'] },
+  no_valid_rooms: { outcome: 'ignored', facts: ['skipped'] },
+} as const;
+
+type TrvActuationDecision = DeclaredDecision<typeof TRV_ACTUATION_REASONS>;
+
+const joinedOrNull = (names: string[]) => (names.length > 0 ? names.join(',') : null);
+
 export default defineAutomation({
+  reasons: TRV_ACTUATION_REASONS,
   id: 'house:trv_actuation',
   location: 'house',
   subsystem: 'heating',
@@ -47,38 +62,42 @@ export default defineAutomation({
     return { rooms, modeToTemp };
   },
 
-  reduce: (ctx) => {
+  reduce: (ctx): TrvActuationDecision => {
     const { rooms, modeToTemp } = ctx;
     const actions = [];
-    const roomSummary: string[] = [];
+    const setRooms: string[] = [];
+    const skippedRooms: string[] = [];
+    const clampedRooms: string[] = [];
+    let fault = false;
 
     for (const { room, trvEntity, mode } of rooms) {
       if (!mode || mode === 'unknown' || mode === 'unavailable') {
-        roomSummary.push(`${room}:skipped(${mode ?? 'null'})`);
+        skippedRooms.push(room);
         continue;
       }
 
       if (mode === 'off') {
         actions.push(HomeAssistant.climate.set_hvac_mode({ entity_id: trvEntity }, { hvac_mode: 'off' }));
-        roomSummary.push(`${room}:off`);
+        setRooms.push(room);
       } else {
         const raw = modeToTemp[mode];
         if (raw === undefined) {
-          const skipReason = mode in MODE_HELPERS ? `helper_unavailable:${mode}` : `unknown_mode:${mode}`;
-          roomSummary.push(`${room}:skipped(${skipReason})`);
+          fault = true;
+          skippedRooms.push(room);
           continue;
         }
         const temperature = Math.min(Math.max(raw, MIN_SETPOINT_C), MAX_SETPOINT_C);
         actions.push(HomeAssistant.climate.set_temperature({ entity_id: trvEntity }, { hvac_mode: 'heat', temperature }));
-        const clampNote = temperature !== raw ? `(clamped_from_${raw})` : '';
-        roomSummary.push(`${room}:${mode}@${temperature}${clampNote}`);
+        setRooms.push(room);
+        if (temperature !== raw) clampedRooms.push(room);
       }
     }
 
-    return {
-      decision: actions.length > 0 ? 'set_trvs' : 'no_action',
-      reason: roomSummary.length > 0 ? roomSummary.join(';') : 'no_valid_rooms',
-      actions,
-    };
+    const skipped = joinedOrNull(skippedRooms);
+    if (actions.length > 0) {
+      return { decision: 'set_trvs', reason: 'trvs_set', facts: { rooms: joinedOrNull(setRooms), skipped, clamped: joinedOrNull(clampedRooms) }, actions };
+    }
+    if (fault) return { decision: 'no_action', reason: 'trvs_not_set', facts: { skipped }, actions };
+    return { decision: 'no_action', reason: 'no_valid_rooms', facts: { skipped }, actions };
   },
 });

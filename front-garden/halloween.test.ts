@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { testAutomation } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import type { HAContext } from '@ajclarkson/homerun';
 import automation, {
   TIMERS, DRIFT_COLOURS, DRIFT_PERIOD_MS, DRIFT_TRANSITION_S, LIGHTNING_MIN_GAP_MS, LIGHTNING_MAX_GAP_MS,
@@ -86,7 +86,7 @@ describe('Halloween animation', () => {
     it('starts the drift at the next colour change and queues the first lightning strike when the Halloween scene is applied', () => {
       clockAt('18:00', 'purple', 10_000);
       const result = run(sceneActivated(HALLOWEEN), halloweenOn);
-      expect(result).toMatchObject({ decision: 'start_animation', reason: 'halloween_scene_activated' });
+      expect(result).toMatchObject({ decision: 'start_animation', reason: 'halloween_scene_activated', outcome: 'acted' });
       expect(result.actions).toEqual([
         ...cancelAll,
         timerStart(TIMERS.drift, DRIFT_PERIOD_MS - 10_000 + 500),
@@ -101,7 +101,7 @@ describe('Halloween animation', () => {
 
     it('picks the animation back up after a restart while Halloween is showing', () => {
       const result = run(onStart, halloweenOn);
-      expect(result).toMatchObject({ decision: 'start_animation', reason: 'startup_with_halloween_active' });
+      expect(result).toMatchObject({ decision: 'start_animation', reason: 'startup_with_halloween_active', outcome: 'ignored' });
     });
 
     it('starts with drift only once lightning hours are over', () => {
@@ -112,7 +112,7 @@ describe('Halloween animation', () => {
     });
 
     it('does nothing after a restart when Halloween is not showing', () => {
-      expect(run(onStart, active(NORMAL))).toMatchObject({ decision: 'no_action', reason: 'halloween_not_active' });
+      expect(run(onStart, active(NORMAL))).toMatchObject({ decision: 'no_action', reason: 'halloween_not_active', outcome: 'ignored' });
     });
   });
 
@@ -120,7 +120,7 @@ describe('Halloween animation', () => {
     it('fades the birch to green on a green period, then holds it until the next change', () => {
       clockAt('18:30', 'green', 500);
       const result = run(timer(TIMERS.drift), halloweenOn);
-      expect(result).toMatchObject({ decision: 'drift', reason: 'drift_to_green' });
+      expect(result).toMatchObject({ decision: 'drift', reason: 'drift', outcome: 'ignored', facts: { colour: 'green' } });
       expect(result.actions).toEqual([
         lightCall(BIRCH, GREEN.rgb, GREEN.brightness, DRIFT_TRANSITION_S),
         timerStart(TIMERS.drift, DRIFT_PERIOD_MS - 500 + 500),
@@ -130,7 +130,7 @@ describe('Halloween animation', () => {
     it('fades back to purple on the following period', () => {
       clockAt('18:31', 'purple', 500);
       const result = run(timer(TIMERS.drift), halloweenOn);
-      expect(result).toMatchObject({ reason: 'drift_to_purple' });
+      expect(result).toMatchObject({ reason: 'drift', outcome: 'ignored', facts: { colour: 'purple' } });
       expect(result.actions[0]).toEqual(lightCall(BIRCH, PURPLE.rgb, PURPLE.brightness, DRIFT_TRANSITION_S));
     });
 
@@ -154,14 +154,14 @@ describe('Halloween animation', () => {
     it('opens with a short dim flicker that drops back to the drift colour', () => {
       clockAt('19:00', 'purple');
       const flicker = run(timer(TIMERS.strike), halloweenOn);
-      expect(flicker).toMatchObject({ decision: 'lightning_flicker' });
+      expect(flicker).toMatchObject({ decision: 'lightning_flicker', reason: 'lightning_strike', outcome: 'ignored' });
       expect(flicker.actions).toEqual([
         lightCall(BIRCH, [200, 215, 255], 110, 0),
         timerStart(TIMERS.flickerEnd, FLICKER_MS),
       ]);
 
       const flickerEnd = run(timer(TIMERS.flickerEnd), halloweenOn);
-      expect(flickerEnd).toMatchObject({ decision: 'lightning_flicker_end' });
+      expect(flickerEnd).toMatchObject({ decision: 'lightning_flicker_end', reason: 'lightning_strike', outcome: 'ignored' });
       expect(flickerEnd.actions).toEqual([
         lightCall(BIRCH, PURPLE.rgb, PURPLE.brightness, 0),
         timerStart(TIMERS.flash, FLICKER_TO_FLASH_MS - FLICKER_MS),
@@ -185,7 +185,7 @@ describe('Halloween animation', () => {
       it('snaps back after the first strike and queues its echo to start 5s after the first began', () => {
         clockAt('19:00', 'green');
         const result = run(timer(TIMERS.restore), halloweenOn);
-        expect(result).toMatchObject({ decision: 'lightning_restore', reason: 'echo_scheduled' });
+        expect(result).toMatchObject({ decision: 'lightning_restore', reason: 'echo_scheduled', outcome: 'ignored' });
         expect(result.actions).toEqual([
           lightCall(BIRCH, GREEN.rgb, GREEN.brightness, 0),
           timerStart(TIMERS.echo, ECHO_AFTER_MS - FLICKER_TO_FLASH_MS - FLASH_MS),
@@ -195,7 +195,7 @@ describe('Halloween animation', () => {
 
       it('runs the echo with the same flicker-then-flash rhythm on its own steps', () => {
         clockAt('19:00', 'purple');
-        expect(run(timer(TIMERS.echo), halloweenOn)).toMatchObject({ decision: 'lightning_flicker', reason: 'lightning_echo' });
+        expect(run(timer(TIMERS.echo), halloweenOn)).toMatchObject({ decision: 'lightning_flicker', reason: 'lightning_echo', outcome: 'ignored' });
         expect(run(timer(TIMERS.echo), halloweenOn).actions).toEqual([
           lightCall(BIRCH, [200, 215, 255], 110, 0),
           timerStart(TIMERS.echoFlickerEnd, FLICKER_MS),
@@ -213,7 +213,7 @@ describe('Halloween animation', () => {
       it('after the echo, snaps back and queues the next bolt 5–10 minutes out', () => {
         clockAt('19:00', 'green');
         const result = run(timer(TIMERS.echoRestore), halloweenOn);
-        expect(result).toMatchObject({ decision: 'lightning_restore', reason: 'next_bolt_scheduled' });
+        expect(result).toMatchObject({ decision: 'lightning_restore', reason: 'next_bolt_scheduled', outcome: 'ignored' });
         expect(result.actions).toEqual([lightCall(BIRCH, GREEN.rgb, GREEN.brightness, 0), timerStart(TIMERS.strike, midGap)]);
       });
 
@@ -233,20 +233,20 @@ describe('Halloween animation', () => {
       it('starts no new bolt', () => {
         clockAt('20:30');
         const result = run(timer(TIMERS.strike), halloweenOn);
-        expect(result).toMatchObject({ decision: 'no_action', reason: 'past_lightning_cutoff' });
+        expect(result).toMatchObject({ decision: 'no_action', reason: 'past_lightning_cutoff', outcome: 'ignored' });
         expect(result.actions).toEqual([]);
       });
 
       it('still lets a bolt that began just before 20:30 finish with its echo', () => {
         clockAt('20:30');
         expect(run(timer(TIMERS.restore), halloweenOn).actions).toContainEqual(expect.objectContaining({ timerKey: TIMERS.echo }));
-        expect(run(timer(TIMERS.echo), halloweenOn)).toMatchObject({ decision: 'lightning_flicker', reason: 'lightning_echo' });
+        expect(run(timer(TIMERS.echo), halloweenOn)).toMatchObject({ decision: 'lightning_flicker', reason: 'lightning_echo', outcome: 'ignored' });
       });
 
       it('queues nothing after that final echo', () => {
         clockAt('20:30');
         const result = run(timer(TIMERS.echoRestore), halloweenOn);
-        expect(result).toMatchObject({ decision: 'lightning_restore', reason: 'past_lightning_cutoff' });
+        expect(result).toMatchObject({ decision: 'lightning_restore', reason: 'past_lightning_cutoff', outcome: 'ignored' });
         expect(result.actions).toHaveLength(1);
       });
     });
@@ -264,7 +264,7 @@ describe('Halloween animation', () => {
       ['another look being chosen', NORMAL],
     ])('stops and cancels every pending step on %s', (_name, scene) => {
       const result = run(sceneActivated(scene), active(scene));
-      expect(result).toMatchObject({ decision: 'stop_animation', reason: 'other_scene_activated' });
+      expect(result).toMatchObject({ decision: 'stop_animation', reason: 'other_scene_activated', outcome: 'ignored' });
       expect(result.actions).toEqual(cancelAll);
     });
 
@@ -272,20 +272,20 @@ describe('Halloween animation', () => {
       'a %s step arriving after the garden has turned off never relights it',
       (key) => {
         const result = run(timer(key), active(OFF));
-        expect(result).toMatchObject({ decision: 'stop_animation', reason: 'halloween_no_longer_active' });
+        expect(result).toMatchObject({ decision: 'stop_animation', reason: 'halloween_no_longer_active', outcome: 'ignored' });
         expect(result.actions).toEqual(cancelAll);
       },
     );
 
     it('stops the animation if automatic lights are switched off mid-evening', () => {
       const result = run(timer(TIMERS.drift), { ...halloweenOn, ...disabled });
-      expect(result).toMatchObject({ decision: 'stop_animation', reason: 'automation_disabled' });
+      expect(result).toMatchObject({ decision: 'stop_animation', reason: 'automation_disabled', outcome: 'ignored' });
       expect(result.actions).toEqual(cancelAll);
     });
 
     it('does not start when automatic lights are switched off', () => {
       const result = run(sceneActivated(HALLOWEEN), { ...halloweenOn, ...disabled });
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled' });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled', outcome: 'ignored' });
       expect(result.actions).toEqual([]);
     });
   });
@@ -293,7 +293,7 @@ describe('Halloween animation', () => {
   describe('robustness', () => {
     it('ignores a scenes reload restoring the theme scene\'s old activation time (e.g. a scenes.yaml deploy)', () => {
       const result = run(sceneActivated(HALLOWEEN, '2026-10-16T17:44:56.718279+00:00', 'unavailable'), halloweenOn);
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'scene_reloaded_not_activated' });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'scene_reloaded_not_activated', outcome: 'ignored' });
       expect(result.actions).toEqual([]);
     });
 
@@ -304,12 +304,12 @@ describe('Halloween animation', () => {
 
     it.each(['unavailable', 'unknown'])('ignores scenes passing through %s while HA reloads them', (s) => {
       const result = run(sceneActivated(HALLOWEEN, s), halloweenOn);
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'scene_reloaded_not_activated' });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'scene_reloaded_not_activated', outcome: 'ignored' });
     });
 
     it('stays quiet and stops when no lights carry the feature role', () => {
       const result = run(sceneActivated(HALLOWEEN), halloweenOn, makeHa({ noFeature: true }));
-      expect(result).toMatchObject({ decision: 'stop_animation', reason: 'no_feature_lights' });
+      expect(result).toMatchObject({ decision: 'stop_animation', reason: 'no_feature_lights', outcome: 'declined' });
       expect(targets(result.actions)).toEqual([]);
     });
 

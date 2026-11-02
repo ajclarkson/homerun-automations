@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './outdoor-temp-history.js';
 
 const TODAY = '2026-07-21';
@@ -31,6 +32,7 @@ describe('recording', () => {
     const result = run();
     expect(result.decision).toBe('record');
     expect(result.reason).toBe('end_of_day');
+    expect(result.outcome).toBe('ignored');
     const written = getWrittenHistory(result.actions);
     expect(written.date).toBe(TODAY);
     expect(written.temps).toEqual([19, 20, 21, 22, 23, 24, 22.5]);
@@ -70,6 +72,7 @@ describe('de-duplication', () => {
     });
     expect(result.decision).toBe('no_action');
     expect(result.reason).toBe('already_recorded_today');
+    expect(result.outcome).toBe('ignored');
     expect(result.actions).toHaveLength(0);
   });
 });

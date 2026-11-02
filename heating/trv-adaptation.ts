@@ -1,6 +1,13 @@
 import { defineAutomation, abort } from '@ajclarkson/homerun';
 
+// A lost valve characteristic sends a notification; every other status is bookkeeping.
+export const TRV_ADAPTATION_REASONS = {
+  valve_characteristic_lost: { outcome: 'acted', facts: ['room'] },
+  status_not_critical: { outcome: 'ignored', facts: ['status'] },
+} as const;
+
 export default defineAutomation({
+  reasons: TRV_ADAPTATION_REASONS,
   id: 'house:trv_adaptation',
   location: 'house',
   subsystem: 'heating',
@@ -31,7 +38,8 @@ export default defineAutomation({
     if (ctx.status !== 'Valve Characteristic Lost') {
       return {
         decision: 'no_action',
-        reason: `status_not_critical:${ctx.status}`,
+        reason: 'status_not_critical',
+        facts: { status: ctx.status },
         actions: [],
       };
     }
@@ -41,7 +49,8 @@ export default defineAutomation({
 
     return {
       decision: 'notify',
-      reason: `valve_characteristic_lost:${ctx.room}`,
+      reason: 'valve_characteristic_lost',
+      facts: { room: ctx.room },
       actions: [
         { type: 'ha.call_service', domain: 'notify', service: 'mobile_app_adams_iphone', data: { title, message } },
         { type: 'ha.call_service', domain: 'notify', service: 'mobile_app_sarahs_iphone', data: { title, message } },

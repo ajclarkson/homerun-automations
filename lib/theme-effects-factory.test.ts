@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from './declared-outcome.js';
 import type { HAContext } from '@ajclarkson/homerun';
 import { makeThemeEffectsAutomation, EFFECTS_SETTLE_MS } from './theme-effects-factory.js';
 
@@ -73,13 +73,13 @@ describe('theme effects', () => {
   describe("when a theme's scene is activated", () => {
     it('waits for the scene to settle before starting effects, so its colours do not overwrite them', () => {
       const result = run(sceneActivated(SPOOKY_SCENE));
-      expect(result).toMatchObject({ decision: 'schedule_effects', reason: 'theme_scene_activated' });
+      expect(result).toMatchObject({ decision: 'schedule_effects', reason: 'theme_scene_activated', outcome: 'ignored', facts: { theme: 'spooky' } });
       expect(result.actions).toEqual([{ type: 'timer.start', timerKey: SETTLE_TIMER, delayMs: EFFECTS_SETTLE_MS }]);
     });
 
     it("then starts each role's configured effect on the lights in that role", () => {
       const result = run(settled, activeScene(SPOOKY_SCENE));
-      expect(result).toMatchObject({ decision: 'start_effects', reason: 'theme_scene_settled' });
+      expect(result).toMatchObject({ decision: 'start_effects', reason: 'theme_scene_settled', outcome: 'acted', facts: { theme: 'spooky' } });
       expect(result.actions).toEqual([effectCall(ACCENT, 'fireplace')]);
     });
 
@@ -114,20 +114,20 @@ describe('theme effects', () => {
 
     it('does nothing if the scene has changed again by the time it settles', () => {
       const result = run(settled, activeScene(NORMAL_SCENE));
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'no_effects_theme_active' });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'no_effects_theme_active', outcome: 'ignored' });
       expect(result.actions).toEqual([]);
     });
 
     it('reports a misconfiguration rather than acting when no lights carry the theme roles', () => {
       const result = run(settled, activeScene(SPOOKY_SCENE), makeHa({ withoutAccent: true }));
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'no_lights_in_theme_roles' });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'no_lights_in_theme_roles', outcome: 'declined', facts: { theme: 'spooky' } });
     });
   });
 
   describe('when the garden moves to a look without effects', () => {
     it('clears any running effect from every themed light and drops a pending start', () => {
       const result = run(sceneActivated(NORMAL_SCENE));
-      expect(result).toMatchObject({ decision: 'stop_effects', reason: 'scene_without_effects_activated' });
+      expect(result).toMatchObject({ decision: 'stop_effects', reason: 'scene_without_effects_activated', outcome: 'acted' });
       expect(result.actions).toEqual([
         { type: 'timer.cancel', timerKey: SETTLE_TIMER },
         effectCall(FEATURE, 'stop_hue_effect'),
@@ -137,14 +137,24 @@ describe('theme effects', () => {
 
     it('treats a theme scene with no effects configured the same way', () => {
       const result = run(sceneActivated(COSY_SCENE));
-      expect(result).toMatchObject({ decision: 'stop_effects' });
+      expect(result).toMatchObject({ decision: 'stop_effects', reason: 'scene_without_effects_activated', outcome: 'acted' });
+      expect(result.facts).toBeUndefined();
+    });
+  });
+
+  describe('when no light takes part in any theme', () => {
+    it('does nothing and leaves nothing to explain', () => {
+      const ha: Partial<HAContext> = { entitiesByArea: () => [NORMAL_SCENE], entitiesByLabel: () => [] };
+      const result = run(sceneActivated(NORMAL_SCENE), {}, ha);
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'no_effect_lights', outcome: 'ignored' });
+      expect(result.actions).toEqual([{ type: 'timer.cancel', timerKey: SETTLE_TIMER }]);
     });
   });
 
   describe('when the garden turns off', () => {
     it('only drops a pending start, since effects end with the lights', () => {
       const result = run(sceneActivated(OFF_SCENE));
-      expect(result).toMatchObject({ decision: 'cancel_effects', reason: 'off_scene_activated' });
+      expect(result).toMatchObject({ decision: 'cancel_effects', reason: 'off_scene_activated', outcome: 'ignored' });
       expect(result.actions).toEqual([{ type: 'timer.cancel', timerKey: SETTLE_TIMER }]);
     });
   });
@@ -152,12 +162,12 @@ describe('theme effects', () => {
   describe('after a restart', () => {
     it("re-applies the active theme's effects", () => {
       const result = run(onStart, activeScene(SPOOKY_SCENE));
-      expect(result).toMatchObject({ decision: 'start_effects', reason: 'startup_with_theme_active' });
+      expect(result).toMatchObject({ decision: 'start_effects', reason: 'startup_with_theme_active', outcome: 'ignored', facts: { theme: 'spooky' } });
       expect(result.actions).toEqual([effectCall(ACCENT, 'fireplace')]);
     });
 
     it('does nothing when the active scene has no effects', () => {
-      expect(run(onStart, activeScene(NORMAL_SCENE))).toMatchObject({ decision: 'no_action', reason: 'no_effects_theme_active' });
+      expect(run(onStart, activeScene(NORMAL_SCENE))).toMatchObject({ decision: 'no_action', reason: 'no_effects_theme_active', outcome: 'ignored' });
     });
 
     it('does nothing when the active scene is unknown', () => {
@@ -168,7 +178,7 @@ describe('theme effects', () => {
   describe('when HA reloads its scenes', () => {
     it('ignores a scenes reload restoring the theme scene\'s old activation time (e.g. a scenes.yaml deploy)', () => {
       const result = run(sceneActivated(SPOOKY_SCENE, '2026-10-16T17:44:56.718279+00:00', 'unavailable'));
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'scene_reloaded_not_activated' });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'scene_reloaded_not_activated', outcome: 'ignored' });
       expect(result.actions).toEqual([]);
     });
 
@@ -179,7 +189,7 @@ describe('theme effects', () => {
 
     it.each(['unavailable', 'unknown'])('ignores the scene passing through %s, which is not an activation', (s) => {
       const result = run(sceneActivated(NORMAL_SCENE, s));
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'scene_reloaded_not_activated' });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'scene_reloaded_not_activated', outcome: 'ignored' });
       expect(result.actions).toEqual([]);
     });
   });
@@ -191,7 +201,7 @@ describe('theme effects', () => {
       ['a restart', onStart, activeScene(SPOOKY_SCENE)],
     ] as const)('leaves the lights alone on %s', (_name, event, state) => {
       const result = run(event, { ...state, ...disabled });
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled' });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled', outcome: 'ignored' });
       expect(result.actions).toEqual([]);
     });
   });

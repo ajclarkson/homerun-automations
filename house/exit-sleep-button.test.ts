@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './exit-sleep-button.js';
 
 const buttonTrigger = (entity: string) => ({
@@ -21,7 +22,7 @@ describe('house:exit_sleep_button', () => {
       event: buttonTrigger('sensor.hallway_downstairs_button_wall_action'),
       state: baseState,
     });
-    expect(result.decision).toBe('exit_sleep');
+    expect(result).toMatchObject({ decision: 'exit_sleep', reason: 'button_pressed', outcome: 'acted' });
     expect(result.actions).toEqual([
       { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'normal', impliesEntity: 'sensor.house_active_mode' },
     ]);
@@ -32,7 +33,7 @@ describe('house:exit_sleep_button', () => {
       event: buttonTrigger('sensor.bedroom_button_adam_action'),
       state: baseState,
     });
-    expect(result.decision).toBe('exit_sleep');
+    expect(result).toMatchObject({ decision: 'exit_sleep', reason: 'button_pressed', outcome: 'acted' });
   });
 
   it('exits sleep on home office button when not in guest mode', () => {
@@ -40,7 +41,7 @@ describe('house:exit_sleep_button', () => {
       event: buttonTrigger('sensor.home_office_button_wall_action'),
       state: baseState,
     });
-    expect(result.decision).toBe('exit_sleep');
+    expect(result).toMatchObject({ decision: 'exit_sleep', reason: 'button_pressed', outcome: 'acted' });
   });
 
   it('returns no_action on bedroom button when bed is occupied', () => {
@@ -48,7 +49,7 @@ describe('house:exit_sleep_button', () => {
       event: buttonTrigger('sensor.bedroom_button_adam_action'),
       state: { ...baseState, 'binary_sensor.bedroom_sensor_bed_occupancy': { state: 'on' } },
     });
-    expect(result).toMatchObject({ decision: 'no_action', reason: 'bed_occupied' });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'bed_occupied', outcome: 'declined' });
   });
 
   it('returns no_action on home office button when guest mode is active', () => {
@@ -56,7 +57,7 @@ describe('house:exit_sleep_button', () => {
       event: buttonTrigger('sensor.home_office_button_wall_action'),
       state: { ...baseState, 'input_select.house_active_mode_modifier': { state: 'guest' } },
     });
-    expect(result).toMatchObject({ decision: 'no_action', reason: 'guest_mode_active' });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'guest_mode_active', outcome: 'declined' });
   });
 
   it('returns no_action when house is not in sleep mode', () => {
@@ -64,7 +65,7 @@ describe('house:exit_sleep_button', () => {
       event: buttonTrigger('sensor.hallway_downstairs_button_wall_action'),
       state: { ...baseState, 'sensor.house_active_mode': { state: 'normal' } },
     });
-    expect(result).toMatchObject({ decision: 'no_action', reason: 'not_in_sleep_mode' });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'not_in_sleep_mode', outcome: 'ignored' });
   });
 
   it('aborts when house mode is unavailable', () => {

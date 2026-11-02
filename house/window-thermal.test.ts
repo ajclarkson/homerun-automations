@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './window-thermal.js';
 
 const TODAY = '2026-07-21';
@@ -73,8 +74,9 @@ describe('close_both', () => {
 
   it('notifies when frames hot, outside warmer, and a window is open', () => {
     const result = run(hotOpenState);
-    expect(result.decision).toBe('notify');
+    expect(result).toMatchObject({ decision: 'notify', reason: 'close_both', outcome: 'acted' });
     expect(result.reason).toBe('close_both');
+    expect(result.outcome).toBe('acted');
     expectNotify(result.actions, 'Close bedroom and home office windows');
     expectDedupeSet(result.actions, 'input_text.window_notification_close_both');
     expectHotEvent(result.actions);
@@ -83,11 +85,12 @@ describe('close_both', () => {
   it('notifies if only bedroom is open', () => {
     const result = run({ ...hotOpenState, 'binary_sensor.home_office_external_openings': { state: 'off' } });
     expect(result.reason).toBe('close_both');
+    expect(result.outcome).toBe('acted');
   });
 
   it('suppresses if close_both already sent today', () => {
     const result = run({ ...hotOpenState, 'input_text.window_notification_close_both': { state: TODAY } });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 
   it('does not send close_both if any close notification already sent today', () => {
@@ -121,25 +124,26 @@ describe('close_bedroom', () => {
 
   it('notifies when frames hot, outside warmer than bedroom, and bedroom air is actually warm', () => {
     const result = run(hotFrameState);
-    expect(result.decision).toBe('notify');
+    expect(result).toMatchObject({ decision: 'notify', reason: 'close_bedroom', outcome: 'acted' });
     expect(result.reason).toBe('close_bedroom');
+    expect(result.outcome).toBe('acted');
     expectNotify(result.actions, 'Close the bedroom windows');
     expectDedupeSet(result.actions, 'input_text.window_notification_close_bedroom');
   });
 
   it('suppresses if already sent today', () => {
     const result = run({ ...hotFrameState, 'input_text.window_notification_close_bedroom': { state: TODAY } });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 
   it('suppresses if close_both already sent today', () => {
     const result = run({ ...hotFrameState, 'input_text.window_notification_close_both': { state: TODAY } });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 
   it('no_action when bedroom window is already closed', () => {
     const result = run({ ...hotFrameState, 'binary_sensor.bedroom_external_openings': { state: 'off' } });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 
   it('no_action when frame is hot from direct sun but outside is not actually warmer than the bedroom', () => {
@@ -149,7 +153,7 @@ describe('close_bedroom', () => {
       ...hotFrameState,
       'weather.forecast_home': { state: 'sunny', attributes: { temperature: 18 } },
     });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 
   it('no_action when outside is warmer than bedroom but the bedroom itself is not yet warm', () => {
@@ -157,7 +161,7 @@ describe('close_bedroom', () => {
       ...hotFrameState,
       'sensor.bedroom_sensor_climate_temperature': { state: '20' }, // below comfort threshold (24)
     });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 });
 
@@ -172,20 +176,21 @@ describe('close_home_office', () => {
 
   it('notifies when outside warmer than home office, home office air is actually warm, and window open', () => {
     const result = run(warmOutsideState);
-    expect(result.decision).toBe('notify');
+    expect(result).toMatchObject({ decision: 'notify', reason: 'close_home_office', outcome: 'acted' });
     expect(result.reason).toBe('close_home_office');
+    expect(result.outcome).toBe('acted');
     expectNotify(result.actions, 'Close the home office windows');
     expectDedupeSet(result.actions, 'input_text.window_notification_close_home_office');
   });
 
   it('suppresses if already sent today', () => {
     const result = run({ ...warmOutsideState, 'input_text.window_notification_close_home_office': { state: TODAY } });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 
   it('no_action when home office window is closed', () => {
     const result = run({ ...warmOutsideState, 'binary_sensor.home_office_external_openings': { state: 'off' } });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 
   it('no_action when outside is marginally warmer but the home office itself is not yet warm', () => {
@@ -196,7 +201,7 @@ describe('close_home_office', () => {
       'sensor.home_office_sensor_climate_temperature': { state: '20' }, // below comfort threshold (24)
       'weather.forecast_home': { state: 'sunny', attributes: { temperature: 21 } }, // still > hoIndoorTemp
     });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 });
 
@@ -212,25 +217,26 @@ describe('open_both', () => {
 
   it('notifies when outside is cooler, frames cool, windows closed, after openHour, hot event today', () => {
     const result = run(coolEveningState);
-    expect(result.decision).toBe('notify');
+    expect(result).toMatchObject({ decision: 'notify', reason: 'open_both', outcome: 'acted' });
     expect(result.reason).toBe('open_both');
+    expect(result.outcome).toBe('acted');
     expectNotify(result.actions, 'Open the windows');
     expectDedupeSet(result.actions, 'input_text.window_notification_open_both');
   });
 
   it('suppresses if open_both already sent today', () => {
     const result = run({ ...coolEveningState, 'input_text.window_notification_open_both': { state: TODAY } });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 
   it('no_action when no hot event today', () => {
     const result = run({ ...coolEveningState, 'input_text.window_thermal_hot_event': { state: YESTERDAY } });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 
   it('no_action when outside is not cool enough (within delta)', () => {
     const result = run({ ...coolEveningState, 'weather.forecast_home': { state: 'cloudy', attributes: { temperature: 20 } } });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 
   it('no_action when frames are still hot', () => {
@@ -238,13 +244,13 @@ describe('open_both', () => {
       ...coolEveningState,
       'sensor.bedroom_sensor_window_right_device_temperature': { state: '38' },
     });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 
   it('no_action before openHour', () => {
     vi.setSystemTime(new Date(`${TODAY}T07:00:00.000Z`));
     const result = run({ ...coolEveningState, 'input_number.bedroom_automation_window_open_hour': { state: '9' } });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 
   it('no_action when both windows already open', () => {
@@ -253,7 +259,7 @@ describe('open_both', () => {
       'binary_sensor.bedroom_external_openings': { state: 'on' },
       'binary_sensor.home_office_external_openings': { state: 'on' },
     });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 });
 
@@ -289,7 +295,7 @@ describe('presence routing', () => {
       'person.adam': { state: 'not_home' },
       'person.sarah': { state: 'not_home' },
     });
-    expect(result.decision).toBe('notify');
+    expect(result).toMatchObject({ decision: 'notify', reason: 'close_both', outcome: 'acted' });
     const notifyActions = result.actions.filter((a: unknown) =>
       (a as { domain?: string }).domain === 'notify'
     );

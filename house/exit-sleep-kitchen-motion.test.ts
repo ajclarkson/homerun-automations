@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './exit-sleep-kitchen-motion.js';
 
 const kitchenOccupiedTrigger = {
@@ -33,6 +34,7 @@ describe('house:exit_sleep_kitchen_motion', () => {
     });
     expect(result.decision).toBe('exit_sleep');
     expect(result.reason).toBe('kitchen_motion_detected');
+    expect(result.outcome).toBe('acted');
     expect(result.actions).toEqual([
       { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'normal', impliesEntity: 'sensor.house_active_mode' },
     ]);
@@ -50,25 +52,25 @@ describe('house:exit_sleep_kitchen_motion', () => {
       event: kitchenOccupiedTrigger,
       state: { ...baseState, 'sensor.house_active_mode': { state: 'normal' } },
     });
-    expect(result).toMatchObject({ decision: 'no_action', reason: 'not_in_sleep_mode' });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'not_in_sleep_mode', outcome: 'ignored' });
   });
 
   it('does not exit sleep mode for kitchen motion from a late-night arrival home', () => {
     atHour(23);
     const result = testAutomation(automation, { event: kitchenOccupiedTrigger, state: baseState });
-    expect(result).toMatchObject({ decision: 'no_action', reason: 'outside_morning_window' });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'outside_morning_window', outcome: 'ignored' });
   });
 
   it('does not exit sleep mode for kitchen motion in the middle of the night', () => {
     atHour(2);
     const result = testAutomation(automation, { event: kitchenOccupiedTrigger, state: baseState });
-    expect(result).toMatchObject({ decision: 'no_action', reason: 'outside_morning_window' });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'outside_morning_window', outcome: 'ignored' });
   });
 
   it('does not exit sleep mode right at the end of the morning window', () => {
     atHour(10);
     const result = testAutomation(automation, { event: kitchenOccupiedTrigger, state: baseState });
-    expect(result).toMatchObject({ decision: 'no_action', reason: 'outside_morning_window' });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'outside_morning_window', outcome: 'ignored' });
   });
 
   it('aborts when house mode is unavailable', () => {

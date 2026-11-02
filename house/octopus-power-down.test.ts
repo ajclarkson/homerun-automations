@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './octopus-power-down.js';
 
 const ENTITY = 'event.octopus_energy_a_644e00d3_octoplus_power_down_events';
@@ -33,7 +34,8 @@ describe('power down auto-join — joining announced sessions', () => {
 
   it('joins a newly announced session using its event code', () => {
     const result = run(one);
-    expect(result.decision).toBe('join');
+    expect(result).toMatchObject({ decision: 'join', reason: 'sessions_joined', outcome: 'acted' });
+    expect(result.facts).toEqual({ count: 1 });
     expect(joins(result.actions)).toEqual([
       expect.objectContaining({
         domain: 'octopus_energy',

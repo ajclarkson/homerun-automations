@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './window-external.js';
 
 const openingsTrigger = (room: string, open: boolean) => ({
@@ -25,7 +25,8 @@ describe('house:window_external', () => {
       event: openingsTrigger('parlour', true),
       state: { ...baseState, 'binary_sensor.parlour_external_openings': { state: 'on' } },
     });
-    expect(result.decision).toBe('sync_window_external');
+    expect(result).toMatchObject({ decision: 'sync_window_external', reason: 'window_open', outcome: 'ignored' });
+    expect(result.facts).toEqual({ room: 'parlour' });
     expect(result.actions).toEqual([{
       type: 'ha.call_service',
       domain: 'switch',
@@ -39,6 +40,8 @@ describe('house:window_external', () => {
       event: openingsTrigger('bedroom', false),
       state: baseState,
     });
+    expect(result).toMatchObject({ reason: 'window_closed', outcome: 'ignored' });
+    expect(result.facts).toEqual({ room: 'bedroom' });
     expect(result.actions).toEqual([{
       type: 'ha.call_service',
       domain: 'switch',
@@ -55,5 +58,35 @@ describe('house:window_external', () => {
     expect(result.actions[0]).toMatchObject({
       target: { entity_id: 'switch.hallway_downstairs_trv_window_open_external' },
     });
+  });
+
+  it('syncs every room on startup and names the ones that are open', () => {
+    const result = testAutomation(automation, {
+      event: { type: 'on_start' as const, correlation_id: 'test-cid' },
+      state: {
+        ...baseState,
+        'binary_sensor.kitchen_external_openings': { state: 'on' },
+        'binary_sensor.bathroom_external_openings': { state: 'on' },
+      },
+    });
+    expect(result).toMatchObject({ reason: 'windows_synced', outcome: 'ignored' });
+    expect(result.facts).toEqual({ open_rooms: 'kitchen,bathroom' });
+    expect(result.actions).toHaveLength(6);
+  });
+
+  it('reports a null open_rooms fact when startup finds every window closed', () => {
+    const result = testAutomation(automation, {
+      event: { type: 'on_start' as const, correlation_id: 'test-cid' },
+      state: baseState,
+    });
+    expect(result.facts).toEqual({ open_rooms: null });
+  });
+
+  it('reports no_rooms for an opening that is not a heating room', () => {
+    const result = testAutomation(automation, {
+      event: openingsTrigger('garage', true),
+      state: baseState,
+    });
+    expect(result).toMatchObject({ reason: 'no_rooms', outcome: 'ignored', actions: [] });
   });
 });

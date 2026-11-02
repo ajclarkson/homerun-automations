@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './overtemp-safety.js';
 
 const tempTrigger = {
@@ -29,6 +30,8 @@ describe('foreign_office:overtemp-safety', () => {
 
     expect(result.decision).toBe('turn_off_heater');
     expect(result.reason).toBe('overtemp_heater_on');
+    expect(result.outcome).toBe('acted');
+    expect(result.facts).toEqual({ temp: 26 });
     expect(result.actions).toEqual([{
       type: 'ha.call_service',
       domain: 'switch',
@@ -42,6 +45,7 @@ describe('foreign_office:overtemp-safety', () => {
 
     expect(result.decision).toBe('turn_off_heater');
     expect(result.reason).toBe('overtemp_heater_on');
+    expect(result.outcome).toBe('acted');
   });
 
   it('does nothing when heater is off and temp is high', () => {
@@ -52,6 +56,7 @@ describe('foreign_office:overtemp-safety', () => {
 
     expect(result.decision).toBe('no_action');
     expect(result.reason).toBe('overtemp_heater_already_off');
+    expect(result.outcome).toBe('ignored');
     expect(result.actions).toHaveLength(0);
   });
 
@@ -64,6 +69,7 @@ describe('foreign_office:overtemp-safety', () => {
 
       expect(result.decision).toBe('no_action');
       expect(result.reason).toBe('temp_normal');
+      expect(result.outcome).toBe('ignored');
       expect(result.actions).toHaveLength(0);
     }
   });

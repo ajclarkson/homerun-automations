@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from './declared-outcome.js';
 import type { HAContext } from '@ajclarkson/homerun';
 import { makePorchLightAutomation, MIN_HOLD_S, MAX_HOLD_S, SCENE_SETTLE_MS } from './porch-light-factory.js';
 import { serializeLook, MAX_LOOK_CHARS } from './porch-look.js';
@@ -92,18 +93,18 @@ describe('Porch light on motion', () => {
   describe('someone arrives in the dark', () => {
     it('saves the porch look in the helper, then fades to the warm look, in that order', () => {
       const result = run(motion('on'), { [MOTION]: { state: 'on' } });
-      expect(result).toMatchObject({ decision: 'warm', reason: 'motion_detected' });
+      expect(result).toMatchObject({ decision: 'warm', reason: 'motion_detected', outcome: 'acted' });
       expect(result.actions).toEqual([saveCall, warmCall, cancel(HOLD_TIMER)]);
     });
 
     it('warms in every theme when no theme opts out', () => {
       const result = run(motion('on'), { [`sensor.${LOCATION}_active_scene`]: { state: `${LOCATION}_spooky` } });
-      expect(result).toMatchObject({ decision: 'warm', reason: 'motion_detected' });
+      expect(result).toMatchObject({ decision: 'warm', reason: 'motion_detected', outcome: 'acted' });
     });
 
     it('warms after the garden has turned off for the night', () => {
       const result = run(motion('on'), { [`sensor.${LOCATION}_active_scene`]: { state: `${LOCATION}_off` }, [PORCH]: { state: 'off', attributes: {} } });
-      expect(result).toMatchObject({ decision: 'warm', reason: 'motion_detected' });
+      expect(result).toMatchObject({ decision: 'warm', reason: 'motion_detected', outcome: 'acted' });
     });
 
     it('warms when no scene has been active yet', () => {
@@ -114,12 +115,12 @@ describe('Porch light on motion', () => {
 
   describe('when it should stay quiet', () => {
     it('ignores motion in daylight', () => {
-      expect(run(motion('on'), { 'sun.sun': { state: 'above_horizon' } })).toMatchObject({ decision: 'no_action', reason: 'daylight', actions: [] });
+      expect(run(motion('on'), { 'sun.sun': { state: 'above_horizon' } })).toMatchObject({ decision: 'no_action', reason: 'daylight', outcome: 'ignored', actions: [] });
     });
 
     it('ignores motion while a theme that opted out is showing', () => {
       const result = run(motion('on'), { [`sensor.${LOCATION}_active_scene`]: { state: `${LOCATION}_spooky` } }, makeHa(), optOut);
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'theme_opted_out', actions: [] });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'theme_opted_out', outcome: 'declined', actions: [] });
     });
 
     it('still reacts under a different theme when only one theme opted out', () => {
@@ -133,13 +134,13 @@ describe('Porch light on motion', () => {
 
     it('does nothing while the garden lights automation is switched off', () => {
       const result = run(motion('on'), { [`input_boolean.${LOCATION}_automation_lights_enabled`]: { state: 'off' } });
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled' });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled_idle', outcome: 'ignored' });
       expect(result.actions).toEqual([cancel(HOLD_TIMER), cancel(SETTLE_TIMER)]);
     });
 
     it('puts the porch back if the automation is switched off while it is warm', () => {
       const result = run(motion('off'), { [PORCH]: warmLook, [`input_boolean.${LOCATION}_automation_lights_enabled`]: { state: 'off' } });
-      expect(result).toMatchObject({ decision: 'restore', reason: 'automation_disabled' });
+      expect(result).toMatchObject({ decision: 'restore', reason: 'automation_disabled', outcome: 'acted' });
       expect(result.actions).toEqual([cancel(HOLD_TIMER), cancel(SETTLE_TIMER), ...restoreActions]);
     });
   });
@@ -147,7 +148,7 @@ describe('Porch light on motion', () => {
   describe('someone keeps moving about', () => {
     it('stays warm without saving the look a second time, and cancels the fade-back', () => {
       const result = run(motion('on'), { [PORCH]: warmLook });
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'already_warm' });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'already_warm', outcome: 'ignored' });
       expect(result.actions).toEqual([cancel(HOLD_TIMER)]);
     });
 
@@ -159,12 +160,12 @@ describe('Porch light on motion', () => {
   describe('someone leaves', () => {
     it('starts the hold from the helper when motion clears while warm', () => {
       const result = run(motion('off'), { [MOTION]: { state: 'off' }, [PORCH]: warmLook });
-      expect(result).toMatchObject({ decision: 'hold', reason: 'motion_cleared' });
+      expect(result).toMatchObject({ decision: 'hold', reason: 'motion_cleared', outcome: 'ignored' });
       expect(result.actions).toEqual([{ type: 'timer.start', timerKey: HOLD_TIMER, delayMs: 30_000 }]);
     });
 
     it('does nothing when motion clears and the porch was never warmed', () => {
-      expect(run(motion('off'), { [MOTION]: { state: 'off' } })).toMatchObject({ decision: 'no_action', reason: 'motion_cleared_not_warm' });
+      expect(run(motion('off'), { [MOTION]: { state: 'off' } })).toMatchObject({ decision: 'no_action', reason: 'motion_cleared_not_warm', outcome: 'ignored' });
     });
 
     it('clamps a hold shorter than the minimum', () => {
@@ -179,12 +180,12 @@ describe('Porch light on motion', () => {
 
     it('fades back to the saved look when the hold expires', () => {
       const result = run(timer(HOLD_TIMER), { [MOTION]: { state: 'off' }, [PORCH]: warmLook });
-      expect(result).toMatchObject({ decision: 'restore', reason: 'hold_expired' });
+      expect(result).toMatchObject({ decision: 'restore', reason: 'hold_expired', outcome: 'acted' });
       expect(result.actions).toEqual(restoreActions);
     });
 
     it('holds on if the sensor is somehow still on when the hold expires', () => {
-      expect(run(timer(HOLD_TIMER), { [PORCH]: warmLook })).toMatchObject({ decision: 'no_action', reason: 'motion_still_on', actions: [] });
+      expect(run(timer(HOLD_TIMER), { [PORCH]: warmLook })).toMatchObject({ decision: 'no_action', reason: 'motion_still_on', outcome: 'ignored', actions: [] });
     });
   });
 
@@ -193,50 +194,50 @@ describe('Porch light on motion', () => {
 
     it('turns the porch off with the fade-down when the garden is off', () => {
       const result = run(timer(HOLD_TIMER), { ...lost, [`sensor.${LOCATION}_active_scene`]: { state: `${LOCATION}_off` } });
-      expect(result).toMatchObject({ decision: 'restore', reason: 'hold_expired_look_missing_garden_off' });
+      expect(result).toMatchObject({ decision: 'restore', reason: 'hold_expired_look_missing_garden_off', outcome: 'acted' });
       expect(result.actions).toEqual([expect.objectContaining({ service: 'turn_off', target: { entity_id: PORCH }, data: { transition: 5 } })]);
     });
 
     it.each(['not json', '{"state":"on"}', '{"state":"on","brightness":90}', '{"state":"on","brightness":null,"kelvin":2700}', '[1]', 'null'])(
       'treats %s as no saved look', (junk) => {
-        expect(run(timer(HOLD_TIMER), { ...lost, [HELPER]: { state: junk } })).toMatchObject({ reason: 'restore_look_missing' });
+        expect(run(timer(HOLD_TIMER), { ...lost, [HELPER]: { state: junk } })).toMatchObject({ reason: 'restore_look_missing', outcome: 'declined' });
       });
 
     it('leaves the porch for the next garden scene when the garden is on', () => {
-      expect(run(timer(HOLD_TIMER), lost)).toMatchObject({ decision: 'no_action', reason: 'restore_look_missing', actions: [] });
+      expect(run(timer(HOLD_TIMER), lost)).toMatchObject({ decision: 'no_action', reason: 'restore_look_missing', outcome: 'declined', actions: [] });
     });
 
     it('treats a helper holding nothing the same way', () => {
-      expect(run(timer(HOLD_TIMER), { [MOTION]: { state: 'off' }, [HELPER]: { state: 'unknown' } })).toMatchObject({ reason: 'restore_look_missing' });
+      expect(run(timer(HOLD_TIMER), { [MOTION]: { state: 'off' }, [HELPER]: { state: 'unknown' } })).toMatchObject({ reason: 'restore_look_missing', outcome: 'declined' });
     });
   });
 
   describe('the garden scene changes', () => {
     it('drops the pending fade-back, since the new scene already replaced the warm look', () => {
       const result = run(sceneChange(SPOOKY), { [MOTION]: { state: 'off' } });
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'scene_changed_hold_dropped' });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'scene_changed_hold_dropped', outcome: 'ignored' });
       expect(result.actions).toEqual([cancel(HOLD_TIMER), cancel(SETTLE_TIMER)]);
     });
 
     it('waits for the scene to settle before warming again if someone is still there', () => {
       const result = run(sceneChange(OFF));
-      expect(result).toMatchObject({ decision: 'schedule_rewarm', reason: 'scene_changed_during_motion' });
+      expect(result).toMatchObject({ decision: 'schedule_rewarm', reason: 'scene_changed_during_motion', outcome: 'ignored' });
       expect(result.actions).toEqual([cancel(HOLD_TIMER), { type: 'timer.start', timerKey: SETTLE_TIMER, delayMs: SCENE_SETTLE_MS }]);
     });
 
     it('saves the new look and warms again once settled, so the fade-back lands on the new theme', () => {
       const result = run(timer(SETTLE_TIMER), { [`sensor.${LOCATION}_active_scene`]: { state: `${LOCATION}_spooky` } });
-      expect(result).toMatchObject({ decision: 'rewarm', reason: 'scene_changed_during_hold' });
+      expect(result).toMatchObject({ decision: 'rewarm', reason: 'scene_changed_during_hold', outcome: 'acted' });
       expect(result.actions).toEqual([saveCall, warmCall, cancel(HOLD_TIMER)]);
     });
 
     it('does not rewarm if motion cleared during the settle', () => {
-      expect(run(timer(SETTLE_TIMER), { [MOTION]: { state: 'off' } })).toMatchObject({ decision: 'no_action', reason: 'motion_cleared_before_settle' });
+      expect(run(timer(SETTLE_TIMER), { [MOTION]: { state: 'off' } })).toMatchObject({ decision: 'no_action', reason: 'motion_cleared_before_settle', outcome: 'ignored' });
     });
 
     it('ignores a scene reload, which re-reports old activation times', () => {
       const result = run(sceneChange(NORMAL, '2026-10-31T21:00:00+00:00', 'unavailable'));
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'scene_reloaded_not_activated', actions: [] });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'scene_reloaded_not_activated', outcome: 'ignored', actions: [] });
     });
   });
 
@@ -280,7 +281,7 @@ describe('Porch light on motion', () => {
       ['no xy', { brightness: 90, color_mode: 'xy' }, 'porch_xy_missing'],
     ])('warms nothing and says why when the porch is on with %s', (_name, attributes, problem) => {
       const result = run(motion('on'), { [PORCH]: { state: 'on', attributes } });
-      expect(result).toMatchObject({ decision: 'no_action', reason: `look_unreadable:${problem}`, actions: [] });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'look_unreadable', outcome: 'declined', facts: { problem }, actions: [] });
     });
 
     it('keeps every saved look, with its fade marker, within the helper limit', () => {
@@ -300,27 +301,27 @@ describe('Porch light on motion', () => {
     it('warms again keeping the saved look, instead of saving the half-faded look', () => {
       at(2000);
       const result = run(motion('on'), fading);
-      expect(result).toMatchObject({ decision: 'warm', reason: 'motion_during_fade_back' });
+      expect(result).toMatchObject({ decision: 'warm', reason: 'motion_during_fade_back', outcome: 'acted' });
       expect(result.actions).toEqual([setHelper(KELVIN_LOOK), warmCall, cancel(HOLD_TIMER)]);
     });
 
     it('does so even at the start of the fade, when the porch still reads warm', () => {
       at(300);
-      expect(run(motion('on'), { ...fading, [PORCH]: warmLook })).toMatchObject({ reason: 'motion_during_fade_back' });
+      expect(run(motion('on'), { ...fading, [PORCH]: warmLook })).toMatchObject({ reason: 'motion_during_fade_back', outcome: 'acted' });
     });
 
     it('saves the current look afresh once the fade and its margin are over', () => {
       at(6001);
       const result = run(motion('on'), fading);
-      expect(result).toMatchObject({ decision: 'warm', reason: 'motion_detected' });
+      expect(result).toMatchObject({ decision: 'warm', reason: 'motion_detected', outcome: 'acted' });
       expect(result.actions[0]).toEqual(saveCall);
     });
 
     it('treats a marker that is absent, garbage or implausibly far ahead as not fading', () => {
       at(2000);
-      expect(run(motion('on'))).toMatchObject({ reason: 'motion_detected' });
-      expect(run(motion('on'), { [HELPER]: { state: 'garbage' } })).toMatchObject({ reason: 'motion_detected' });
-      expect(run(motion('on'), { [HELPER]: { state: `{"state":"on","brightness":90,"kelvin":2700,"fadeEndsMs":${NOW + 3_600_000}}` } })).toMatchObject({ reason: 'motion_detected' });
+      expect(run(motion('on'))).toMatchObject({ reason: 'motion_detected', outcome: 'acted' });
+      expect(run(motion('on'), { [HELPER]: { state: 'garbage' } })).toMatchObject({ reason: 'motion_detected', outcome: 'acted' });
+      expect(run(motion('on'), { [HELPER]: { state: `{"state":"on","brightness":90,"kelvin":2700,"fadeEndsMs":${NOW + 3_600_000}}` } })).toMatchObject({ reason: 'motion_detected', outcome: 'acted' });
     });
 
     it('forgets the fade marker when a garden scene takes over mid-fade, so the next motion saves the scene look', () => {
@@ -332,7 +333,7 @@ describe('Porch light on motion', () => {
 
   describe('startup', () => {
     it('leaves the porch as it is until the next garden scene or motion', () => {
-      expect(run(onStart)).toMatchObject({ decision: 'no_action', reason: 'startup', actions: [] });
+      expect(run(onStart)).toMatchObject({ decision: 'no_action', reason: 'startup', outcome: 'ignored', actions: [] });
     });
   });
 

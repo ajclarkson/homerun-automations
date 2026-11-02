@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './octopus-points.js';
 
 const POINTS = 'sensor.octopus_energy_a_644e00d3_octoplus_points';
@@ -17,7 +18,10 @@ const run = (oldState: string | undefined, newState: string) =>
 
 describe('octopoints credited — notification', () => {
   it('reports the amount credited and the new balance', () => {
-    const action = run('1000', '1250').actions[0] as unknown as { data: { message: string } };
+    const result = run('1000', '1250');
+    expect(result).toMatchObject({ decision: 'notify', reason: 'points_increased', outcome: 'acted' });
+    expect(result.facts).toEqual({ credited: 250, balance: 1250 });
+    const action = result.actions[0] as unknown as { data: { message: string } };
     expect(action.data.message).toBe('+250 octopoints (balance 1250)');
   });
 

@@ -1,9 +1,25 @@
-import { defineAutomation, type Action } from '@ajclarkson/homerun';
+import { defineAutomation, type Action, type DeclaredDecision } from '@ajclarkson/homerun';
 
 export interface SonosRoomConfig {
   location: string;
   masterPlayer?: string;
 }
+
+// Following the room's occupancy is routine grouping, so it is `ignored`; only a person flipping
+// the automation toggle is `acted`. `automation_disabled` is the toggle turning it off (the unjoin);
+// `automation_disabled_idle` is occupancy changing while it is already off.
+export const SONOS_REASONS = {
+  automation_enabled: { outcome: 'acted' },
+  automation_disabled: { outcome: 'acted' },
+  occupancy_on: { outcome: 'ignored' },
+  occupancy_off: { outcome: 'ignored' },
+  automation_disabled_idle: { outcome: 'ignored' },
+  automation_toggle_unknown_state: { outcome: 'ignored' },
+  occupancy_unknown_state: { outcome: 'ignored' },
+  unclassified_trigger: { outcome: 'ignored' },
+} as const;
+
+type SonosDecision = DeclaredDecision<typeof SONOS_REASONS>;
 
 type SonosTrigger = 'occupancy' | 'automation_toggle' | 'system';
 
@@ -23,7 +39,8 @@ export function makeSonosAutomation(config: SonosRoomConfig) {
   const automationToggle = `input_boolean.${location}_automation_sonos_enabled`;
   const mediaPlayerEntity = `media_player.${location}`;
 
-  return defineAutomation<SonosContext>({
+  return defineAutomation<SonosContext, typeof SONOS_REASONS>({
+    reasons: SONOS_REASONS,
     id: `${location}:sonos`,
     location,
     subsystem: 'sonos',
@@ -58,7 +75,7 @@ export function makeSonosAutomation(config: SonosRoomConfig) {
       };
     },
 
-    reduce: (ctx) => {
+    reduce: (ctx): SonosDecision => {
       const { trigger, triggerTo, automationEnabled, mediaPlayerEntity, masterPlayer } = ctx;
 
       const joinAction = (): Action => ({
@@ -87,7 +104,7 @@ export function makeSonosAutomation(config: SonosRoomConfig) {
       }
 
       if (!automationEnabled) {
-        return { decision: 'no_action', reason: 'automation_disabled', actions: [] };
+        return { decision: 'no_action', reason: 'automation_disabled_idle', actions: [] };
       }
 
       if (trigger === 'occupancy') {

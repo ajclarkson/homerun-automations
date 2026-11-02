@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import shower from './shower.js';
 import { HUMIDITY_SERIES } from '../lib/bathroom/humidity-series.js';
 import { HELPERS, replay, windowAt, percentileExclusive, type ReplayResult } from '../lib/bathroom/shower-replay.js';
@@ -45,7 +46,7 @@ describe('shower detection (step between reports)', () => {
 
   it('starts a shower on a step of at least the rise, shortly after the last report, well above baseline', () => {
     const r = detect('66', '73', 1);
-    expect(r).toMatchObject({ decision: 'set_on', reason: 'shower_started' });
+    expect(r).toMatchObject({ decision: 'set_on', reason: 'shower_started', outcome: 'acted' });
     expect(r.actions).toContainEqual(publish('ON'));
     expect(r.actions).toContainEqual({ type: 'timer.start', timerKey: MAX_ON, delayMs: 45 * MIN });
   });
@@ -55,7 +56,7 @@ describe('shower detection (step between reports)', () => {
   });
 
   it('ignores a step below the rise', () => {
-    expect(detect('66', '70.9', 1)).toMatchObject({ decision: 'no_action', reason: 'no_shower', actions: [] });
+    expect(detect('66', '70.9', 1)).toMatchObject({ decision: 'no_action', reason: 'no_shower', outcome: 'ignored', actions: [] });
   });
 
   it('ignores a big step after a long silence, since the sensor only reports on change', () => {
@@ -100,34 +101,34 @@ describe('shower end', () => {
 
   it('starts the end-confirm timer when humidity first falls the drop below the peak', () => {
     const r = fall();
-    expect(r).toMatchObject({ reason: 'shower_end_pending' });
+    expect(r).toMatchObject({ reason: 'shower_end_pending', outcome: 'ignored' });
     expect(r.actions).toEqual([{ type: 'timer.start', timerKey: CONFIRM, delayMs: 5 * MIN }]);
   });
 
   it('does not restart the timer on later reports while the fall continues', () => {
-    expect(fall({ [H]: '86' }, '88', '86')).toMatchObject({ reason: 'shower_end_pending', actions: [] });
+    expect(fall({ [H]: '86' }, '88', '86')).toMatchObject({ reason: 'shower_end_pending', outcome: 'ignored', actions: [] });
   });
 
   it('does not treat a fall smaller than the drop as the end', () => {
-    expect(fall({ [H]: '91' }, '93', '91')).toMatchObject({ reason: 'shower_running', actions: [] });
+    expect(fall({ [H]: '91' }, '93', '91')).toMatchObject({ reason: 'shower_running', outcome: 'ignored', actions: [] });
   });
 
   it('cancels the pending end when humidity climbs again (stepped out of the water, then back in)', () => {
     const r = fall({ [H]: '93', [MAX]: '93' }, '89', '93');
-    expect(r).toMatchObject({ reason: 'shower_resumed' });
+    expect(r).toMatchObject({ reason: 'shower_resumed', outcome: 'ignored' });
     expect(r.actions).toEqual([{ type: 'timer.cancel', timerKey: CONFIRM }]);
   });
 
   it('publishes OFF when end-confirm expires', () => {
     const r = testAutomation(shower, { event: timer(CONFIRM), state: baseState(falling) });
-    expect(r).toMatchObject({ decision: 'set_off', reason: 'shower_ended' });
+    expect(r).toMatchObject({ decision: 'set_off', reason: 'shower_ended', outcome: 'acted' });
     expect(r.actions).toContainEqual(publish('OFF'));
     expect(r.actions).toContainEqual({ type: 'timer.cancel', timerKey: MAX_ON });
   });
 
   it('forces OFF at the 45 minute cap whatever the humidity says', () => {
     const r = testAutomation(shower, { event: timer(MAX_ON), state: baseState({ [SHOWER]: 'on', [H]: '95', [MAX]: '95' }) });
-    expect(r).toMatchObject({ decision: 'set_off', reason: 'shower_max_duration' });
+    expect(r).toMatchObject({ decision: 'set_off', reason: 'shower_max_duration', outcome: 'acted' });
     expect(r.actions).toContainEqual(publish('OFF'));
   });
 
@@ -159,18 +160,22 @@ describe('threshold clamps', () => {
   it('clamps a rise of 0 up to 3 so a 2.9 point drift step cannot start a shower', () => {
     const r = testAutomation(shower, { event: report('66', '68.9'), state: baseState({ [H]: '68.9', [RISE]: '0', [ABOVE]: '4' }) });
     expect(r.reason).toBe('no_shower');
+    expect(r.outcome).toBe('ignored');
   });
 
   it('clamps a rise of 50 down to 8 so a real 8 point step is still found', () => {
     const r = testAutomation(shower, { event: report('66', '74'), state: baseState({ [H]: '74', [RISE]: '50' }) });
     expect(r.reason).toBe('shower_started');
+    expect(r.outcome).toBe('acted');
   });
 
   it('clamps the above-baseline helper to 4-15', () => {
     const lowOk = testAutomation(shower, { event: report('60', '65'), state: baseState({ [H]: '65', [ABOVE]: '0', [BASELINE]: '62' }) });
-    expect(lowOk.reason).toBe('no_shower'); // 3 above baseline < 4
+    expect(lowOk.reason).toBe('no_shower');
+    expect(lowOk.outcome).toBe('ignored'); // 3 above baseline < 4
     const highOk = testAutomation(shower, { event: report('70', '75'), state: baseState({ [H]: '75', [ABOVE]: '99', [BASELINE]: '60' }) });
-    expect(highOk.reason).toBe('shower_started'); // 15 above baseline >= 15
+    expect(highOk.reason).toBe('shower_started');
+    expect(highOk.outcome).toBe('acted'); // 15 above baseline >= 15
   });
 
   it('clamps an end drop of 0 up to 1 so sensor noise is not a fall', () => {
@@ -208,6 +213,7 @@ describe('bad inputs abort loudly', () => {
   it('treats a never-published shower sensor (unknown) as off, the normal state before the first shower', () => {
     const r = testAutomation(shower, { event: report('66', '67'), state: baseState({ [SHOWER]: 'unknown' }) });
     expect(r.reason).toBe('no_shower');
+    expect(r.outcome).toBe('ignored');
   });
 });
 

@@ -18,7 +18,13 @@ function spinAction(entity: string) {
 // don't roll over, so there's never a reason to wait. One spin is requested per wheel per run; each
 // spin changes the sensor, which re-triggers this until the count reaches zero. on_start catches
 // spins granted while offline.
+// Spinning a wheel is `acted`; the number of wheels is a fact so the reason stays static.
+export const OCTOPUS_WHEEL_REASONS = {
+  wheels_spun: { outcome: 'acted', facts: ['count'] },
+} as const;
+
 export default defineAutomation({
+  reasons: OCTOPUS_WHEEL_REASONS,
   id: 'house:octopus_wheel_of_fortune_spin',
   location: 'house',
   subsystem: 'energy',
@@ -41,7 +47,8 @@ export default defineAutomation({
 
   reduce: (ctx) => ({
     decision: 'spin',
-    reason: `${ctx.spinnable.length}_wheel${ctx.spinnable.length === 1 ? '' : 's'}`,
+    reason: 'wheels_spun',
+    facts: { count: ctx.spinnable.length },
     actions: ctx.spinnable.map(spinAction),
   }),
 });

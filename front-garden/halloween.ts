@@ -1,5 +1,5 @@
 import { defineAutomation, HomeAssistant } from '@ajclarkson/homerun';
-import type { Action } from '@ajclarkson/homerun';
+import type { Action, DeclaredDecision } from '@ajclarkson/homerun';
 import { isSceneActivation } from '../lib/scene-activation.js';
 
 // Halloween animation for the front garden's feature light(s) — the birch. Runs only while the
@@ -13,6 +13,29 @@ import { isSceneActivation } from '../lib/scene-activation.js';
 const LOCATION = 'front_garden';
 const FEATURE_LABEL = 'outdoor_light_feature';
 const HALLOWEEN_SCENE_LABEL = 'scene_theme_halloween';
+
+// Starting the animation on a scene change is `acted`; after a restart it is `ignored` (the lights
+// are already on the theme). Everything else is the animation running or stopping itself
+// (drift every minute, lightning every few), so it is `ignored`; lights missing for the theme is a
+// setup fault a person would ask about, so it is `declined`.
+export const HALLOWEEN_REASONS = {
+  halloween_scene_activated: { outcome: 'acted' },
+  no_feature_lights: { outcome: 'declined' },
+  scene_reloaded_not_activated: { outcome: 'ignored' },
+  startup_with_halloween_active: { outcome: 'ignored' },
+  automation_disabled: { outcome: 'ignored' },
+  halloween_not_active: { outcome: 'ignored' },
+  halloween_no_longer_active: { outcome: 'ignored' },
+  other_scene_activated: { outcome: 'ignored' },
+  drift: { outcome: 'ignored', facts: ['colour'] },
+  lightning_strike: { outcome: 'ignored' },
+  lightning_echo: { outcome: 'ignored' },
+  echo_scheduled: { outcome: 'ignored' },
+  next_bolt_scheduled: { outcome: 'ignored' },
+  past_lightning_cutoff: { outcome: 'ignored' },
+} as const;
+
+type HalloweenDecision = DeclaredDecision<typeof HALLOWEEN_REASONS>;
 
 interface Colour {
   name: string;
@@ -89,7 +112,8 @@ interface HalloweenContext {
   nextStrikeMs: number;
 }
 
-export default defineAutomation<HalloweenContext>({
+export default defineAutomation<HalloweenContext, typeof HALLOWEEN_REASONS>({
+  reasons: HALLOWEEN_REASONS,
   id: `${LOCATION}:halloween`,
   location: LOCATION,
   subsystem: 'lighting',
@@ -140,7 +164,7 @@ export default defineAutomation<HalloweenContext>({
     };
   },
 
-  reduce: (ctx) => {
+  reduce: (ctx): HalloweenDecision => {
     const { trigger, strikeNo, automationEnabled, realActivation, halloweenActive, featureLights, driftColour, msToNextDrift, lightningOpen, nextStrikeMs } = ctx;
     const phaseTimers = STRIKE_TIMERS[strikeNo ?? 1];
     const reason = strikeNo === 2 ? 'lightning_echo' : 'lightning_strike';
@@ -188,7 +212,8 @@ export default defineAutomation<HalloweenContext>({
       case 'drift':
         return {
           decision: 'drift',
-          reason: `drift_to_${driftColour.name}`,
+          reason: 'drift',
+          facts: { colour: driftColour.name },
           actions: [
             ...setAll(driftColour.rgb, driftColour.brightness, DRIFT_TRANSITION_S),
             { type: 'timer.start', timerKey: TIMERS.drift, delayMs: msToNextDrift },

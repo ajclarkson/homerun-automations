@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './sleep-mode-button.js';
 
 const holdTrigger = (entity: string) => ({
@@ -22,7 +23,7 @@ describe('house:sleep_mode_button', () => {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
       state: baseState,
     });
-    expect(result.decision).toBe('set_sleep');
+    expect(result).toMatchObject({ decision: 'set_sleep', reason: 'button_hold_bed_occupied', outcome: 'acted' });
     expect(result.actions).toEqual([
       { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'sleep', impliesEntity: 'sensor.house_active_mode' },
     ]);
@@ -33,7 +34,7 @@ describe('house:sleep_mode_button', () => {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
       state: { ...baseState, 'binary_sensor.parlour_media_active': { state: 'on' } },
     });
-    expect(result).toMatchObject({ decision: 'no_action', reason: 'parlour_active' });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'parlour_active', outcome: 'declined' });
   });
 
   it('allows sleep when parlour media inactive', () => {
@@ -41,7 +42,7 @@ describe('house:sleep_mode_button', () => {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
       state: { ...baseState, 'binary_sensor.parlour_media_active': { state: 'off' } },
     });
-    expect(result.decision).toBe('set_sleep');
+    expect(result).toMatchObject({ decision: 'set_sleep', reason: 'button_hold_bed_occupied', outcome: 'acted' });
   });
 
   it('returns no_action when bed is not occupied', () => {
@@ -49,7 +50,7 @@ describe('house:sleep_mode_button', () => {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
       state: { ...baseState, 'binary_sensor.bedroom_bed_occupied': { state: 'off' } },
     });
-    expect(result).toMatchObject({ decision: 'no_action', reason: 'bed_not_occupied' });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'bed_not_occupied', outcome: 'declined' });
   });
 
   it('returns no_action when already in sleep mode', () => {
@@ -57,7 +58,7 @@ describe('house:sleep_mode_button', () => {
       event: holdTrigger('sensor.bedroom_button_adam_action'),
       state: { ...baseState, 'sensor.house_active_mode': { state: 'sleep' } },
     });
-    expect(result).toMatchObject({ decision: 'no_action', reason: 'already_in_sleep_mode' });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'already_in_sleep_mode', outcome: 'ignored' });
   });
 
   it('aborts when bed sensor is unavailable', () => {

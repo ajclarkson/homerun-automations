@@ -3,7 +3,13 @@ import { defineAutomation, abort } from '@ajclarkson/homerun';
 // Temporary bypass for sleep mode when bed occupancy sensor gives a false negative.
 // Double-press Adam's bedroom button to force sleep mode without checking the bed sensor.
 // See: sleep-mode-button.ts for the primary (sensor-gated) path.
+export const SLEEP_MODE_BYPASS_REASONS = {
+  double_press_bypass: { outcome: 'acted' },
+  already_in_sleep_mode: { outcome: 'ignored' },
+} as const;
+
 export default defineAutomation({
+  reasons: SLEEP_MODE_BYPASS_REASONS,
   id: 'bedroom:sleep_mode_bypass',
   location: 'bedroom',
   subsystem: 'house_mode',

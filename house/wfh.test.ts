@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { testAutomation } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import { adamWfh, sarahWfh, wfhReset } from './wfh.js';
 
 const WED = new Date('2026-07-22T06:00:00.000Z'); // Wednesday
@@ -45,6 +45,7 @@ describe('Adam WFH — Wed–Fri always on', () => {
     const result = testAutomation(adamWfh, { event: adamScheduleEvent, state: baseState });
     expect(result.decision).toBe('on');
     expect(result.reason).toBe('always_wfh_wed_fri');
+    expect(result.outcome).toBe('acted');
     expectBooleanOn(result.actions, 'input_boolean.wfh_adam');
   });
 
@@ -55,6 +56,7 @@ describe('Adam WFH — Wed–Fri always on', () => {
     });
     expect(result.decision).toBe('off');
     expect(result.reason).toBe('house_away');
+    expect(result.outcome).toBe('ignored');
     expectBooleanOff(result.actions, 'input_boolean.wfh_adam');
   });
 
@@ -65,6 +67,7 @@ describe('Adam WFH — Wed–Fri always on', () => {
     });
     expect(result.decision).toBe('off');
     expect(result.reason).toBe('not_workday');
+    expect(result.outcome).toBe('ignored');
   });
 });
 
@@ -75,6 +78,7 @@ describe('Adam WFH — Mon–Tue presence check', () => {
     const result = testAutomation(adamWfh, { event: adamMonTueEvent, state: baseState });
     expect(result.decision).toBe('on');
     expect(result.reason).toBe('home_at_inference_time');
+    expect(result.outcome).toBe('acted');
     expectBooleanOn(result.actions, 'input_boolean.wfh_adam');
   });
 
@@ -85,6 +89,7 @@ describe('Adam WFH — Mon–Tue presence check', () => {
     });
     expect(result.decision).toBe('off');
     expect(result.reason).toBe('not_home_at_inference_time');
+    expect(result.outcome).toBe('ignored');
     expectBooleanOff(result.actions, 'input_boolean.wfh_adam');
   });
 });
@@ -98,6 +103,7 @@ describe('Sarah WFH', () => {
     const result = testAutomation(sarahWfh, { event: sarahScheduleEvent, state: baseState });
     expect(result.decision).toBe('on');
     expect(result.reason).toBe('home_at_inference_time');
+    expect(result.outcome).toBe('acted');
     expectBooleanOn(result.actions, 'input_boolean.wfh_sarah');
   });
 
@@ -108,6 +114,7 @@ describe('Sarah WFH', () => {
     });
     expect(result.decision).toBe('off');
     expect(result.reason).toBe('not_home_at_inference_time');
+    expect(result.outcome).toBe('ignored');
     expectBooleanOff(result.actions, 'input_boolean.wfh_sarah');
   });
 
@@ -118,6 +125,7 @@ describe('Sarah WFH', () => {
     });
     expect(result.decision).toBe('off');
     expect(result.reason).toBe('house_away');
+    expect(result.outcome).toBe('ignored');
   });
 
   it('sets wfh_sarah off when not a workday', () => {
@@ -127,6 +135,7 @@ describe('Sarah WFH', () => {
     });
     expect(result.decision).toBe('off');
     expect(result.reason).toBe('not_workday');
+    expect(result.outcome).toBe('ignored');
   });
 });
 
@@ -140,6 +149,7 @@ describe('WFH reset', () => {
     });
     expect(result.decision).toBe('clear');
     expect(result.reason).toBe('non_workday');
+    expect(result.outcome).toBe('ignored');
     expectBooleanOff(result.actions, 'input_boolean.wfh_adam');
     expectBooleanOff(result.actions, 'input_boolean.wfh_sarah');
   });
@@ -151,6 +161,7 @@ describe('WFH reset', () => {
     });
     expect(result.decision).toBe('no_action');
     expect(result.reason).toBe('not_a_non_workday');
+    expect(result.outcome).toBe('ignored');
     expect(result.actions).toHaveLength(0);
   });
 });

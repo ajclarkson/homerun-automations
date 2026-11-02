@@ -1,4 +1,4 @@
-import { defineAutomation, abort } from '@ajclarkson/homerun';
+import { defineAutomation, abort, type DeclaredDecision } from '@ajclarkson/homerun';
 
 function notifyAction(service: string, title: string, message: string) {
   return {
@@ -19,7 +19,20 @@ function setInputText(entity: string, value: string) {
   };
 }
 
+// A notification telling someone to open or close windows is the outcome (`acted`); the hot-event
+// bookkeeping rides along on quiet runs.
+export const WINDOW_THERMAL_REASONS = {
+  close_both: { outcome: 'acted' },
+  close_bedroom: { outcome: 'acted' },
+  close_home_office: { outcome: 'acted' },
+  open_both: { outcome: 'acted' },
+  conditions_not_met: { outcome: 'ignored' },
+} as const;
+
+type WindowThermalDecision = DeclaredDecision<typeof WINDOW_THERMAL_REASONS>;
+
 export default defineAutomation({
+  reasons: WINDOW_THERMAL_REASONS,
   id: 'house:window_thermal',
   location: 'house',
   subsystem: 'thermal',
@@ -105,7 +118,7 @@ export default defineAutomation({
     };
   },
 
-  reduce: (ctx) => {
+  reduce: (ctx): WindowThermalDecision => {
     const {
       today, maxDeviceTemp, outdoorTemp, avgIndoorTemp,
       bedroomOpen, hoOpen,
@@ -121,7 +134,7 @@ export default defineAutomation({
       : [];
 
     let decision = 'no_action';
-    let reason = 'conditions_not_met';
+    let reason: keyof typeof WINDOW_THERMAL_REASONS = 'conditions_not_met';
     let title = 'uninitialised';
     let message = 'uninitialised';
     let dedupeEntity = 'uninitialised';
