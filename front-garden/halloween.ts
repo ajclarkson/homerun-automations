@@ -23,7 +23,7 @@ export const HALLOWEEN_REASONS = {
   no_feature_lights: { outcome: 'declined' },
   scene_reloaded_not_activated: { outcome: 'ignored' },
   startup_with_halloween_active: { outcome: 'ignored' },
-  automation_disabled: { outcome: 'ignored' },
+  automation_disabled_idle: { outcome: 'ignored' },
   halloween_not_active: { outcome: 'ignored' },
   halloween_no_longer_active: { outcome: 'ignored' },
   other_scene_activated: { outcome: 'ignored' },
@@ -180,8 +180,8 @@ export default defineAutomation<HalloweenContext, typeof HALLOWEEN_REASONS>({
 
     if (!automationEnabled) {
       return isTimer
-        ? { decision: 'stop_animation', reason: 'automation_disabled', actions: cancelAll }
-        : { decision: 'no_action', reason: 'automation_disabled', actions: [] };
+        ? { decision: 'stop_animation', reason: 'automation_disabled_idle', actions: cancelAll }
+        : { decision: 'no_action', reason: 'automation_disabled_idle', actions: [] };
     }
 
     if (!halloweenActive) {

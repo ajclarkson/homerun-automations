@@ -35,7 +35,7 @@ export const PORCH_LIGHT_REASONS = {
   motion_during_fade_back: { outcome: 'acted' },
   hold_expired: { outcome: 'acted' },
   hold_expired_look_missing_garden_off: { outcome: 'acted' },
-  automation_disabled: { outcome: 'acted' },
+  automation_disabled_restore: { outcome: 'acted' },
   look_unreadable: { outcome: 'declined', facts: ['problem'] },
   restore_look_missing: { outcome: 'declined' },
   theme_opted_out: { outcome: 'declined' },
@@ -236,7 +236,7 @@ export function makePorchLightAutomation(config: PorchLightConfig) {
 
       // Rule 1: a switched-off automation must not leave the porch warm.
       if (!automationEnabled) {
-        if (porchWarm && savedLook !== null) return { decision: 'restore', reason: 'automation_disabled', actions: [...clearTimers, ...fadeBack(porch, savedLook, nowMs)] };
+        if (porchWarm && savedLook !== null) return { decision: 'restore', reason: 'automation_disabled_restore', actions: [...clearTimers, ...fadeBack(porch, savedLook, nowMs)] };
         return { decision: 'no_action', reason: 'automation_disabled_idle', actions: clearTimers };
       }
       if (trigger === 'startup') return { decision: 'no_action', reason: 'startup', actions: [] };

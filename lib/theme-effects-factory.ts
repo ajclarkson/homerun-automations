@@ -9,7 +9,7 @@ export const THEME_EFFECTS_REASONS = {
   theme_scene_settled: { outcome: 'acted', facts: ['theme'] },
   scene_without_effects_activated: { outcome: 'acted' },
   no_lights_in_theme_roles: { outcome: 'declined', facts: ['theme'] },
-  automation_disabled: { outcome: 'ignored' },
+  automation_disabled_idle: { outcome: 'ignored' },
   scene_reloaded_not_activated: { outcome: 'ignored' },
   startup_with_theme_active: { outcome: 'ignored', facts: ['theme'] },
   theme_scene_activated: { outcome: 'ignored', facts: ['theme'] },
@@ -138,7 +138,7 @@ export function makeThemeEffectsAutomation(config: ThemeEffectsConfig) {
       const cancelSettle: Action = { type: 'timer.cancel', timerKey: settleTimerKey };
 
       if (!automationEnabled) {
-        return { decision: 'no_action', reason: 'automation_disabled', actions: [] };
+        return { decision: 'no_action', reason: 'automation_disabled_idle', actions: [] };
       }
 
       if (trigger === 'scene_activated') {
