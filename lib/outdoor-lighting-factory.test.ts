@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from './declared-outcome.js';
 import type { HAContext } from '@ajclarkson/homerun';
 import { makeOutdoorLightingAutomation } from './outdoor-lighting-factory.js';
 
@@ -200,14 +201,17 @@ describe('outdoor lighting', () => {
       ['a theme change', themeEvent('autumn'), dark],
     ] as const)('leaves the lights alone at %s', (_name, event, sun) => {
       const result = run(event, { ...sun, ...disabled });
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled' });
+      // Only the sunset that should have lit the garden is worth telling anyone about.
+      expect(result).toMatchObject(_name === 'sunset'
+        ? { decision: 'no_action', reason: 'automation_disabled', outcome: 'declined' }
+        : { decision: 'no_action', reason: 'automation_disabled_idle', outcome: 'ignored' });
       expect(result.actions).toEqual([]);
     });
 
     it('treats a missing toggle helper as switched off rather than acting', () => {
       const { [`input_boolean.${LOCATION}_automation_lights_enabled`]: _, ...stateWithoutToggle } = baseState;
       const result = testAutomation(automation, { event: sunsetEvent, state: { ...stateWithoutToggle, ...dark }, ha: makeHa() });
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled' });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled', outcome: 'declined' });
     });
   });
 
@@ -461,7 +465,7 @@ describe('previewing a scene outside the evening window', () => {
 
   it('does nothing when the automation is disabled', () => {
     const result = runPreview(activated(AUTUMN_SCENE), { ...light, ...disabled });
-    expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled' });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled_idle', outcome: 'ignored' });
     expect(result.actions).toEqual([]);
   });
 
@@ -485,7 +489,7 @@ describe('previewing a scene outside the evening window', () => {
     });
 
     it('does nothing when the automation is disabled', () => {
-      expect(runPreview(timerEvent, { ...light, ...disabled })).toMatchObject({ decision: 'no_action', reason: 'automation_disabled' });
+      expect(runPreview(timerEvent, { ...light, ...disabled })).toMatchObject({ decision: 'no_action', reason: 'automation_disabled_idle', outcome: 'ignored' });
     });
   });
 
@@ -507,5 +511,73 @@ describe('previewing a scene outside the evening window', () => {
     it.each([0, -5, 1.5, Number.NaN])('refuses previewMinutes %s at load', (previewMinutes) => {
       expect(() => makeOutdoorLightingAutomation({ location: LOCATION, previewMinutes })).toThrow(/invalid outdoor lighting previewMinutes/);
     });
+  });
+});
+
+// ── What each decision says about itself ───────────────────────────────────────
+
+describe('outdoor lighting outcomes and facts', () => {
+  const expectDecision = (
+    result: { reason?: string; outcome: string; facts?: unknown },
+    reason: string, outcome: string, facts?: Record<string, unknown>,
+  ) => {
+    expect(result).toMatchObject({ reason, outcome });
+    expect(result.facts).toEqual(facts);
+  };
+
+  it.each([
+    ['sunset', () => run(sunsetEvent, dark)],
+    ['schedule_off', () => { at('22:00'); return run(scheduleOffEvent, dark); }],
+    ['sunrise', () => run(sunriseEvent, light)],
+    ['house_sleep_mode', () => run(houseModeEvent('sleep'), dark)],
+    ['preview_ended', () => runPreview(timerEvent, light)],
+  ] as const)('acts without facts for %s', (reason, go) => {
+    expectDecision(go(), reason, 'acted');
+  });
+
+  it('acts and names the theme when the theme changes while the lights are due', () => {
+    expectDecision(run(themeEvent('autumn'), { ...dark, ...theme('autumn') }), 'theme_changed', 'acted', { theme: 'autumn' });
+  });
+
+  it('acts and names the theme when its scene is missing, at sunset, theme change and restart', () => {
+    const halloween = { ...dark, ...theme('halloween') };
+    expectDecision(run(sunsetEvent, halloween), 'theme_scene_missing', 'acted', { theme: 'halloween' });
+    expectDecision(run(themeEvent('halloween'), halloween), 'theme_scene_missing', 'acted', { theme: 'halloween' });
+    expectDecision(run(onStartEvent, halloween), 'theme_scene_missing', 'acted', { theme: 'halloween' });
+  });
+
+  it('acts and gives the preview length when a scene is switched on outside the evening window', () => {
+    expectDecision(runPreview(activated(AUTUMN_SCENE), light), 'on_outside_evening_window', 'acted', { minutes: 10 });
+  });
+
+  it('declines when sunset finds the house asleep', () => {
+    expectDecision(run(sunsetEvent, { ...dark, ...asleep }), 'sunset_while_house_asleep', 'declined');
+  });
+
+  it('declines when the automation is off at sunset, and ignores it on every other trigger', () => {
+    expectDecision(run(sunsetEvent, { ...dark, ...disabled }), 'automation_disabled', 'declined');
+    expectDecision(run(sunriseEvent, { ...light, ...disabled }), 'automation_disabled_idle', 'ignored');
+  });
+
+  it('ignores a restart sync in either direction, since it restores what is already due', () => {
+    expectDecision(run(onStartEvent, dark), 'startup_sync', 'ignored');
+    expectDecision(run(onStartEvent, light), 'startup_sync', 'ignored');
+  });
+
+  it('ignores a theme change while the lights are off', () => {
+    expectDecision(run(themeEvent('autumn'), { ...light, ...theme('autumn') }), 'theme_changed_while_off', 'ignored');
+  });
+
+  it('ignores the preview timer when sunset has taken over, and a scene switched on in the window', () => {
+    expectDecision(runPreview(timerEvent, dark), 'preview_ended_in_window', 'ignored');
+    expectDecision(runPreview(activated(AUTUMN_SCENE), dark), 'scene_activated_in_window', 'ignored');
+  });
+
+  it('ignores a scenes reload, the off scene, a scene from another area, and a sunset after the off time', () => {
+    expectDecision(runPreview(reloaded(AUTUMN_SCENE), light), 'scene_reloaded_not_activated', 'ignored');
+    expectDecision(runPreview(activated(OFF_SCENE), light), 'no_matching_rule', 'ignored');
+    expectDecision(runPreview(activated('scene.other_garden_all'), light), 'no_matching_rule', 'ignored');
+    at('22:30');
+    expectDecision(run(sunsetEvent, dark), 'no_matching_rule', 'ignored');
   });
 });

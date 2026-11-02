@@ -1,5 +1,5 @@
 import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
-import type { Action } from '@ajclarkson/homerun';
+import type { Action, DeclaredDecision } from '@ajclarkson/homerun';
 import { isSceneActivation } from './scene-activation.js';
 
 export interface OutdoorLightingConfig {
@@ -48,6 +48,32 @@ function validatePreviewMinutes(previewMinutes: number | undefined): void {
   }
 }
 
+// `automation_disabled` is declined only at sunset, when the evening lights were due; on any
+// other trigger it is noise (`automation_disabled_idle`). Two reasons keep the declaration static.
+// `startup_sync` is ignored although it sends a scene: it restores what is already due, and a
+// restart is not news.
+export const OUTDOOR_LIGHTING_REASONS = {
+  sunset: { outcome: 'acted' },
+  schedule_off: { outcome: 'acted' },
+  sunrise: { outcome: 'acted' },
+  house_sleep_mode: { outcome: 'acted' },
+  preview_ended: { outcome: 'acted' },
+  theme_changed: { outcome: 'acted', facts: ['theme'] },
+  theme_scene_missing: { outcome: 'acted', facts: ['theme'] },
+  on_outside_evening_window: { outcome: 'acted', facts: ['minutes'] },
+  sunset_while_house_asleep: { outcome: 'declined' },
+  automation_disabled: { outcome: 'declined' },
+  automation_disabled_idle: { outcome: 'ignored' },
+  startup_sync: { outcome: 'ignored' },
+  theme_changed_while_off: { outcome: 'ignored' },
+  preview_ended_in_window: { outcome: 'ignored' },
+  scene_activated_in_window: { outcome: 'ignored' },
+  scene_reloaded_not_activated: { outcome: 'ignored' },
+  no_matching_rule: { outcome: 'ignored' },
+} as const;
+
+type OutdoorDecision = DeclaredDecision<typeof OUTDOOR_LIGHTING_REASONS>;
+
 interface OutdoorLightingContext {
   trigger: OutdoorLightingTrigger;
   automationEnabled: boolean;
@@ -74,7 +100,8 @@ export function makeOutdoorLightingAutomation(config: OutdoorLightingConfig) {
   const offMinutesSinceNoon = minutesSinceNoon(off.hour, off.minute);
   const themeEntity = `input_select.${location}_light_theme`;
 
-  return defineAutomation<OutdoorLightingContext>({
+  return defineAutomation<OutdoorLightingContext, typeof OUTDOOR_LIGHTING_REASONS>({
+    reasons: OUTDOOR_LIGHTING_REASONS,
     id: `${location}:lighting`,
     location,
     subsystem: 'lighting',
@@ -146,14 +173,20 @@ export function makeOutdoorLightingAutomation(config: OutdoorLightingConfig) {
       };
     },
 
-    reduce: (ctx) => {
-      const { trigger, automationEnabled, inOnWindow, houseAsleep, lightsDue, themeSceneMissing, onScene, offScene } = ctx;
+    reduce: (ctx): OutdoorDecision => {
+      const { trigger, automationEnabled, inOnWindow, houseAsleep, lightsDue, theme, themeSceneMissing, onScene, offScene } = ctx;
       const sceneOn = (entity_id: string) => HomeAssistant.scene.turn_on({ entity_id }, { transition: 0.5 });
       // A missing theme scene is a config gap, so it must not hide behind the ordinary reason.
-      const onReason = (reason: string) => (themeSceneMissing ? 'theme_scene_missing' : reason);
+      const turnOn = (reason: 'sunset' | 'theme_changed'): OutdoorDecision =>
+        themeSceneMissing
+          ? { decision: 'turn_on', reason: 'theme_scene_missing', facts: { theme }, actions: [sceneOn(onScene)] }
+          : reason === 'theme_changed'
+            ? { decision: 'turn_on', reason, facts: { theme }, actions: [sceneOn(onScene)] }
+            : { decision: 'turn_on', reason, actions: [sceneOn(onScene)] };
 
       if (!automationEnabled) {
-        return { decision: 'no_action', reason: 'automation_disabled', actions: [] };
+        // Declined only when the sunset that should have lit the garden found it switched off.
+        return { decision: 'no_action', reason: trigger === 'sunset' ? 'automation_disabled' : 'automation_disabled_idle', actions: [] };
       }
 
       if (trigger === 'scene_activated') return reduceSceneActivated(ctx);
@@ -172,7 +205,7 @@ export function makeOutdoorLightingAutomation(config: OutdoorLightingConfig) {
         if (houseAsleep) {
           return { decision: 'no_action', reason: 'sunset_while_house_asleep', actions: [] };
         }
-        return { decision: 'turn_on', reason: onReason('sunset'), actions: [sceneOn(onScene)] };
+        return turnOn('sunset');
       }
 
       if (trigger === 'schedule_off' || trigger === 'sunrise') {
@@ -184,7 +217,7 @@ export function makeOutdoorLightingAutomation(config: OutdoorLightingConfig) {
         if (!lightsDue) {
           return { decision: 'no_action', reason: 'theme_changed_while_off', actions: [] };
         }
-        return { decision: 'turn_on', reason: onReason('theme_changed'), actions: [sceneOn(onScene)] };
+        return turnOn('theme_changed');
       }
 
       if (trigger === 'system') {
@@ -195,18 +228,16 @@ export function makeOutdoorLightingAutomation(config: OutdoorLightingConfig) {
           payload: JSON.stringify({ off: offTime, preview_min: previewMinutes ?? null }),
           retain: true,
         };
-        return {
-          decision: lightsDue ? 'turn_on' : 'turn_off',
-          reason: lightsDue ? onReason('startup_sync') : 'startup_sync',
-          actions: [sceneOn(lightsDue ? onScene : offScene), publishWindow],
-        };
+        const actions = [sceneOn(lightsDue ? onScene : offScene), publishWindow];
+        if (lightsDue && themeSceneMissing) return { decision: 'turn_on', reason: 'theme_scene_missing', facts: { theme }, actions };
+        return { decision: lightsDue ? 'turn_on' : 'turn_off', reason: 'startup_sync', actions };
       }
 
       return { decision: 'no_action', reason: 'no_matching_rule', actions: [] };
     },
   });
 
-  function reduceSceneActivated(ctx: OutdoorLightingContext) {
+  function reduceSceneActivated(ctx: OutdoorLightingContext): OutdoorDecision {
     const { lightsDue, activatedIsOff, activatedInArea, realActivation } = ctx;
     // Reloads restore old timestamps; they say nothing about anyone switching the garden on.
     if (!realActivation) return { decision: 'no_action', reason: 'scene_reloaded_not_activated', actions: [] };
@@ -217,6 +248,7 @@ export function makeOutdoorLightingAutomation(config: OutdoorLightingConfig) {
     return {
       decision: 'start_preview',
       reason: 'on_outside_evening_window',
+      facts: { minutes: previewMinutes },
       actions: [{ type: 'timer.start', timerKey: previewTimerKey, delayMs: previewMinutes * 60_000 } as Action],
     };
   }

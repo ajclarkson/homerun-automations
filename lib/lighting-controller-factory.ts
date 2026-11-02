@@ -1,4 +1,5 @@
 import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
+import type { DeclaredDecision } from '@ajclarkson/homerun';
 
 export interface LightingRoomConfig {
   location: string;
@@ -39,6 +40,8 @@ interface LightingContext {
   blockedBySleep: boolean;
   recentAutoOff: boolean;
   externalSuppressActive: boolean;
+  /** Entity id of the first active suppressor (sorted, so it is stable), or null when none is on. */
+  externalSuppressSource: string | null;
   isDay: boolean;
   guestModeActive: boolean;
   isCurrentlyOff: boolean;
@@ -46,6 +49,37 @@ interface LightingContext {
   recentAutoOffMs: number;
   occupancySensorState: string | null;
 }
+
+// Every reason the reducer can return. Reasons are static (no values embedded in the name), so
+// an outcome that depends on the trigger is two reasons: `automation_disabled` is `declined`
+// when a person walking in found the automation off, `automation_disabled_idle` is noise.
+export const LIGHTING_REASONS = {
+  lux_low: { outcome: 'acted', facts: ['lux', 'lux_threshold'] },
+  recent_auto_off: { outcome: 'acted' },
+  occupancy_off: { outcome: 'acted' },
+  occupancy_settle_off: { outcome: 'acted' },
+  button_off: { outcome: 'acted' },
+  button_cycle: { outcome: 'acted', facts: ['scene'] },
+  house_sleep_mode: { outcome: 'acted' },
+  lux_high: { outcome: 'declined', facts: ['lux', 'lux_threshold'] },
+  sleep_mode: { outcome: 'declined' },
+  external_suppress_active: { outcome: 'declined', facts: ['source'] },
+  guest_room_sleep_bypass: { outcome: 'declined' },
+  automation_disabled: { outcome: 'declined' },
+  automation_disabled_idle: { outcome: 'ignored' },
+  recent_auto_off_expired: { outcome: 'ignored' },
+  already_on: { outcome: 'ignored' },
+  startup_check_ok: { outcome: 'ignored' },
+  no_matching_rule: { outcome: 'ignored' },
+  occupancy_sensor_not_valid: { outcome: 'ignored' },
+  occupancy_sensor_restored_on: { outcome: 'ignored' },
+  occupancy_settle_pending: { outcome: 'ignored' },
+  occupancy_settle_sensor_not_valid: { outcome: 'ignored' },
+  occupancy_settle_sensor_on: { outcome: 'ignored' },
+  occupancy_settle_already_off: { outcome: 'ignored' },
+} as const;
+
+type LightingDecision = DeclaredDecision<typeof LIGHTING_REASONS>;
 
 const MIN_TIMER_DELAY_MS =      1_000; // 1 second
 const MAX_TIMER_DELAY_MS = 3_600_000; // 1 hour
@@ -123,7 +157,8 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
 
   const buttonEntity = new RegExp(`sensor\\.${location}_button_.*_action`);
 
-  return defineAutomation<LightingContext>({
+  return defineAutomation<LightingContext, typeof LIGHTING_REASONS>({
+    reasons: LIGHTING_REASONS,
     id: `${location}:lighting`,
     location,
     subsystem: 'lighting',
@@ -179,7 +214,9 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
       // Entities suppressing motion-triggered on (e.g. bed occupancy in hallway_upstairs)
       const suppressEntities = ha.entitiesByLabel('lighting_suppress_when_on')
         .filter(e => areaEntities.includes(e));
-      const externalSuppressActive = suppressEntities.some(e => state(e as keyof HAEntities)?.state === 'on');
+      const externalSuppressSource = [...suppressEntities].sort()
+        .find(e => state(e as keyof HAEntities)?.state === 'on') ?? null;
+      const externalSuppressActive = externalSuppressSource !== null;
 
       const luxRaw = parseFloat(state(`sensor.${location}_sensor_motion_illuminance` as keyof HAEntities)?.state ?? '');
       const lux = Number.isFinite(luxRaw) ? luxRaw : null;
@@ -203,7 +240,7 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
 
       return {
         location, trigger, automationEnabled, lux, luxThreshold, occupied, activeScene,
-        houseMode, blockedBySleep, recentAutoOff, externalSuppressActive, isDay,
+        houseMode, blockedBySleep, recentAutoOff, externalSuppressActive, externalSuppressSource, isDay,
         guestModeActive, isCurrentlyOff, scenes, recentAutoOffMs, occupancySensorState,
       };
     },
@@ -219,10 +256,13 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
   });
 }
 
-function reduceRules(ctx: LightingContext, occupancySettleMs: number) {
+// Facts are integers or null, so a consumer never formats 40.00000001 or NaN.
+const roundedOrNull = (n: number | null) => (n === null ? null : Math.round(n));
+
+function reduceRules(ctx: LightingContext, occupancySettleMs: number): LightingDecision {
   const {
     location, trigger, automationEnabled, lux, luxThreshold, occupied, activeScene,
-    blockedBySleep, recentAutoOff, externalSuppressActive, isDay, guestModeActive,
+    blockedBySleep, recentAutoOff, externalSuppressSource, isDay, guestModeActive,
     isCurrentlyOff, scenes, recentAutoOffMs, occupancySensorState,
   } = ctx;
 
@@ -247,9 +287,11 @@ function reduceRules(ctx: LightingContext, occupancySettleMs: number) {
 
   // Rule 1: automation disabled
   if (!automationEnabled) {
+    // Declined only when someone walked in and got no light because of it.
+    const walkedIn = trigger.type === 'occupancy' && trigger.to === 'occupied';
     return {
       decision: 'no_action',
-      reason: 'automation_disabled',
+      reason: walkedIn ? 'automation_disabled' : 'automation_disabled_idle',
       actions: planRecentAutoOffCancel(location),
     };
   }
@@ -300,8 +342,8 @@ function reduceRules(ctx: LightingContext, occupancySettleMs: number) {
   }
 
   // Rule 4: external suppress blocks motion-triggered on
-  if (externalSuppressActive && trigger.type === 'occupancy' && trigger.to === 'occupied') {
-    return { decision: 'no_action', reason: 'external_suppress_active', actions: [] };
+  if (externalSuppressSource !== null && trigger.type === 'occupancy' && trigger.to === 'occupied') {
+    return { decision: 'no_action', reason: 'external_suppress_active', facts: { source: externalSuppressSource }, actions: [] };
   }
 
   // Rule 5: occupancy cleared
@@ -322,15 +364,18 @@ function reduceRules(ctx: LightingContext, occupancySettleMs: number) {
         actions: [...planScene(scenes.off), ...planRecentAutoOffOn(location, recentAutoOffMs)],
       };
     }
+    const nextScene = nextCycleScene(scenes, activeScene);
     return {
       decision: 'activate_scene',
       reason: 'button_cycle',
-      actions: [...planScene(nextCycleScene(scenes, activeScene)), ...planRecentAutoOffCancel(location)],
+      facts: { scene: toSceneKey(nextScene) },
+      actions: [...planScene(nextScene), ...planRecentAutoOffCancel(location)],
     };
   }
 
   // Rule 7: occupancy set
   if (trigger.type === 'occupancy' && trigger.to === 'occupied') {
+    const luxFacts = { lux: roundedOrNull(lux), lux_threshold: roundedOrNull(luxThreshold) };
     if (!isCurrentlyOff) {
       return {
         decision: 'no_action',
@@ -350,12 +395,14 @@ function reduceRules(ctx: LightingContext, occupancySettleMs: number) {
       return {
         decision: 'no_action',
         reason: 'lux_high',
+        facts: luxFacts,
         actions: planRecentAutoOffCancel(location),
       };
     }
     return {
       decision: 'activate_scene',
       reason: 'lux_low',
+      facts: luxFacts,
       actions: [...planScene(autoScene), ...planRecentAutoOffCancel(location)],
     };
   }

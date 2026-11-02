@@ -584,4 +584,5 @@ function expectSourcePublished(actions: Action[], source: string) {
   expect((pub as any).impliesEntity).toBe(`sensor.${LOCATION}_heating_source`);
 }
 
-type Action = { type: string; [key: string]: unknown };
+// Only `type` is read directly; the homerun Action interfaces have no index signature.
+type Action = { type: string };
