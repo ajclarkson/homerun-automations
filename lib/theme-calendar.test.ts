@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
-import { themeFor, validateCalendar, makeThemeCalendarAutomation, CALENDAR_CRON, type CalendarEntry } from './theme-calendar.js';
+import { themeFor, nextChange, unknownThemes, validateCalendar, makeThemeCalendarAutomation, CALENDAR_CRON, type CalendarEntry } from './theme-calendar.js';
 
 const day = (y: number, m: number, d: number) => new Date(y, m - 1, d, 12, 0);
 
@@ -113,6 +113,10 @@ function run(event: typeof daily | typeof onStart, theme: string, extra: Record<
 
 // Just after midnight local time, when the daily check runs.
 const at = (y: number, m: number, d: number, h = 0, min = 5) => vi.setSystemTime(new Date(y, m - 1, d, h, min));
+const TOPIC = `${LOCATION}/lighting/theme_calendar`;
+const publishCall = (view?: unknown) =>
+  expect.objectContaining({ type: 'mqtt.publish', topic: TOPIC, retain: true, ...(view ? { payload: JSON.stringify(view) } : {}) });
+const published = (actions: unknown[]) => JSON.parse((actions.at(-1) as { payload: string }).payload);
 const selectCall = (option: string) =>
   expect.objectContaining({ domain: 'input_select', service: 'select_option', target: { entity_id: THEME }, data: { option } });
 
@@ -136,18 +140,18 @@ describe('following the calendar', () => {
       at(y, m, d);
       const result = run(daily, from);
       expect(result).toMatchObject({ decision: 'switch_theme', reason: 'calendar_boundary' });
-      expect(result.actions).toEqual([selectCall(to)]);
+      expect(result.actions).toEqual([selectCall(to), publishCall()]);
     });
 
     it('overrides an earlier manual pick — a manual pick only lasts until the next change', () => {
       at(2026, 11, 1);
       const result = run(daily, 'normal');
-      expect(result.actions).toEqual([selectCall('autumn')]);
+      expect(result.actions).toEqual([selectCall('autumn'), publishCall()]);
     });
 
     it('does nothing if the theme was already set to the new one by hand', () => {
       at(2026, 12, 1);
-      expect(run(daily, 'christmas')).toMatchObject({ decision: 'no_action', reason: 'already_on_todays_theme' });
+      expect(run(daily, 'christmas')).toMatchObject({ decision: 'publish_calendar', reason: 'already_on_todays_theme' });
     });
   });
 
@@ -159,8 +163,8 @@ describe('following the calendar', () => {
     ] as const)('leaves a manual pick alone %s', (_name, [y, m, d]) => {
       at(y, m, d);
       const result = run(daily, 'bonfire');
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'not_a_calendar_boundary' });
-      expect(result.actions).toEqual([]);
+      expect(result).toMatchObject({ decision: 'publish_calendar', reason: 'not_a_calendar_boundary' });
+      expect(result.actions).toEqual([publishCall()]);
     });
   });
 
@@ -169,17 +173,17 @@ describe('following the calendar', () => {
       at(2026, 11, 5, 9, 0);
       const result = run(onStart, 'autumn');
       expect(result).toMatchObject({ decision: 'switch_theme', reason: 'calendar_boundary_catch_up' });
-      expect(result.actions).toEqual([selectCall('bonfire')]);
+      expect(result.actions).toEqual([selectCall('bonfire'), publishCall()]);
     });
 
     it('leaves the theme alone if someone already changed it by hand today', () => {
       at(2026, 11, 5, 9, 0);
-      expect(run(onStart, 'normal')).toMatchObject({ decision: 'no_action', reason: 'theme_changed_by_hand_today' });
+      expect(run(onStart, 'normal')).toMatchObject({ decision: 'publish_calendar', reason: 'theme_changed_by_hand_today' });
     });
 
     it('does nothing on a day the calendar does not change', () => {
       at(2026, 11, 10, 9, 0);
-      expect(run(onStart, 'normal')).toMatchObject({ decision: 'no_action', reason: 'not_a_calendar_boundary' });
+      expect(run(onStart, 'normal')).toMatchObject({ decision: 'publish_calendar', reason: 'not_a_calendar_boundary' });
     });
   });
 
@@ -190,8 +194,9 @@ describe('following the calendar', () => {
         event: daily,
         state: { [TOGGLE]: { state: 'on' }, [THEME]: { state: 'autumn', attributes: { options: OPTIONS } } },
       });
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'calendar_theme_not_an_option:thanksgiving' });
-      expect(result.actions).toEqual([]);
+      expect(result).toMatchObject({ decision: 'publish_calendar', reason: 'calendar_theme_not_an_option' });
+      expect(result.conditions).toMatchObject({ todayTheme: 'thanksgiving' });
+      expect(result.actions).toEqual([publishCall()]);
     });
   });
 
@@ -199,8 +204,8 @@ describe('following the calendar', () => {
     it('never changes the theme, even on a boundary day', () => {
       at(2026, 11, 5);
       const result = run(daily, 'autumn', { [TOGGLE]: { state: 'off' } });
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'calendar_disabled' });
-      expect(result.actions).toEqual([]);
+      expect(result).toMatchObject({ decision: 'publish_calendar', reason: 'calendar_disabled' });
+      expect(result.actions).toEqual([publishCall()]);
     });
   });
 
@@ -218,5 +223,88 @@ describe('following the calendar', () => {
       expect(testAbort(automation, { event: daily, state: { [TOGGLE]: { state: 'on' }, [THEME]: { state: 'unavailable' } } }).reason)
         .toContain('theme_select_unavailable');
     });
+  });
+});
+
+describe('next calendar change', () => {
+  const from = (y: number, m: number, d: number) => nextChange(day(y, m, d), CALENDAR, 'normal');
+
+  it.each([
+    ['Autumn to Bonfire Night', [2026, 11, 4], { date: '2026-11-05', theme: 'bonfire' }],
+    ['Bonfire Night back to Autumn', [2026, 11, 5], { date: '2026-11-06', theme: 'autumn' }],
+    ['the last day of the year to the fallback', [2026, 12, 31], { date: '2027-01-01', theme: 'normal' }],
+    ['the fallback to Autumn across the year boundary', [2027, 1, 1], { date: '2027-09-01', theme: 'autumn' }],
+    ['Autumn to the nth-weekday entry (4th Thursday of November)', [2026, 11, 25], { date: '2026-11-26', theme: 'thanksgiving' }],
+  ] as const)('finds %s', (_name, [y, m, d], expected) => {
+    expect(from(y, m, d)).toEqual(expected);
+  });
+
+  it('is null when one theme covers the whole year', () => {
+    expect(nextChange(day(2026, 6, 1), [{ theme: 'autumn', from: '01-01', to: '12-31' }], 'autumn')).toBeNull();
+    expect(nextChange(day(2026, 6, 1), [], 'normal')).toBeNull();
+  });
+
+  it('finds a single day that is nearly a year away', () => {
+    expect(nextChange(day(2026, 11, 6), [{ theme: 'bonfire', on: '11-05' }], 'normal')).toEqual({ date: '2027-11-05', theme: 'bonfire' });
+  });
+});
+
+describe('themes the selector does not offer', () => {
+  it('lists calendar themes and the fallback that are missing from the options', () => {
+    expect(unknownThemes(CALENDAR, 'normal', OPTIONS)).toEqual(['thanksgiving']);
+    expect(unknownThemes(CALENDAR, 'plain', [...OPTIONS, 'thanksgiving'])).toEqual(['plain']);
+    expect(unknownThemes(CALENDAR, 'normal', [...OPTIONS, 'thanksgiving'])).toEqual([]);
+  });
+});
+
+describe('publishing the calendar view', () => {
+  it('publishes today, the next change and unknown themes on a boundary day, retained', () => {
+    at(2026, 11, 5);
+    const result = run(daily, 'autumn');
+    expect(result.decision).toBe('switch_theme');
+    expect(published(result.actions)).toEqual({
+      today: 'bonfire',
+      next: { date: '2026-11-06', theme: 'autumn' },
+      unknown_themes: ['thanksgiving'],
+    });
+  });
+
+  it('publishes on a quiet day under publish_calendar', () => {
+    at(2026, 11, 10);
+    const result = run(daily, 'autumn');
+    expect(result).toMatchObject({ decision: 'publish_calendar', reason: 'not_a_calendar_boundary' });
+    expect(published(result.actions)).toMatchObject({ today: 'autumn', next: { date: '2026-11-26', theme: 'thanksgiving' } });
+  });
+
+  it('publishes while the calendar is paused, so HA still shows what it would do', () => {
+    at(2026, 11, 4);
+    const result = run(daily, 'normal', { [TOGGLE]: { state: 'off' } });
+    expect(result).toMatchObject({ decision: 'publish_calendar', reason: 'calendar_disabled' });
+    expect(published(result.actions)).toMatchObject({ today: 'autumn', next: { date: '2026-11-05', theme: 'bonfire' } });
+  });
+
+  it('publishes on start', () => {
+    at(2026, 11, 10, 9, 0);
+    const result = run(onStart, 'autumn');
+    expect(result.actions).toEqual([publishCall()]);
+  });
+
+  it('publishes next as null when the calendar never changes', () => {
+    at(2026, 6, 1);
+    const flat = makeThemeCalendarAutomation({ location: LOCATION, calendar: [], fallback: 'normal' });
+    const result = testAutomation(flat, {
+      event: daily,
+      state: { [TOGGLE]: { state: 'on' }, [THEME]: { state: 'normal', attributes: { options: OPTIONS } } },
+    });
+    expect(published(result.actions)).toEqual({ today: 'normal', next: null, unknown_themes: [] });
+  });
+
+  it('refuses to publish an empty theme name rather than sending garbage to HA', () => {
+    at(2026, 6, 1);
+    const blank = makeThemeCalendarAutomation({ location: LOCATION, calendar: [], fallback: '' });
+    expect(() => testAutomation(blank, {
+      event: daily,
+      state: { [TOGGLE]: { state: 'on' }, [THEME]: { state: 'normal', attributes: { options: OPTIONS } } },
+    })).toThrow(/today must be a non-empty string/);
   });
 });

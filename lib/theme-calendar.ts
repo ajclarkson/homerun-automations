@@ -1,4 +1,5 @@
 import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
+import type { Action } from '@ajclarkson/homerun';
 
 // ── Calendar rules ──────────────────────────────────────────────────────────────
 
@@ -74,6 +75,52 @@ export function themeFor(date: Date, calendar: CalendarEntry[], fallback: string
   return best?.theme ?? fallback;
 }
 
+export interface CalendarChange {
+  /** Local date, 'YYYY-MM-DD'. */
+  date: string;
+  theme: string;
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const isoDate = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const ISO_DATE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+
+/**
+ * The first date in the next 366 days whose calendar theme differs from today's, or null when the
+ * calendar never changes. 366 days covers a full year including Feb 29, so every yearly rule is seen.
+ */
+export function nextChange(today: Date, calendar: CalendarEntry[], fallback: string): CalendarChange | null {
+  const current = themeFor(today, calendar, fallback);
+  for (let offset = 1; offset <= DAYS_IN_YEAR; offset++) {
+    // Noon, so a daylight-saving shift can never push the date across midnight.
+    const date = new Date(today.getFullYear(), today.getMonth(), today.getDate() + offset, 12, 0);
+    const theme = themeFor(date, calendar, fallback);
+    if (theme !== current) return { date: isoDate(date), theme };
+  }
+  return null;
+}
+
+/** Calendar themes (and the fallback) the select does not offer — the calendar could never apply them. */
+export function unknownThemes(calendar: CalendarEntry[], fallback: string, options: string[]): string[] {
+  const wanted = new Set([...calendar.map(entry => entry.theme), fallback]);
+  return [...wanted].filter(theme => !options.includes(theme));
+}
+
+export interface CalendarView {
+  today: string;
+  next: CalendarChange | null;
+  unknown_themes: string[];
+}
+
+/** Fails loudly: a malformed retained payload would put garbage in the HA sensors until the next run. */
+function validateView(view: CalendarView): void {
+  if (typeof view.today !== 'string' || view.today === '') throw new Error('theme calendar view: today must be a non-empty string');
+  if (view.next !== null) {
+    if (typeof view.next.theme !== 'string' || view.next.theme === '') throw new Error('theme calendar view: next.theme must be a non-empty string');
+    if (!ISO_DATE.test(view.next.date)) throw new Error(`theme calendar view: next.date '${view.next.date}' is not YYYY-MM-DD`);
+  }
+}
+
 // ── Automation ──────────────────────────────────────────────────────────────────
 
 export interface ThemeCalendarConfig {
@@ -97,6 +144,8 @@ interface ThemeCalendarContext {
   /** Theme still matches yesterday's calendar theme, i.e. today's switch hasn't happened and nobody overrode it. */
   stillOnYesterdaysTheme: boolean;
   targetIsOption: boolean;
+  /** What the calendar looks like from today — published so HA can explain who chose the theme. */
+  view: CalendarView;
 }
 
 export function makeThemeCalendarAutomation(config: ThemeCalendarConfig) {
@@ -137,34 +186,39 @@ export function makeThemeCalendarAutomation(config: ThemeCalendarConfig) {
         boundaryDay: todayTheme !== yesterdayTheme,
         stillOnYesterdaysTheme: theme.state === yesterdayTheme,
         targetIsOption: options.includes(todayTheme),
+        view: { today: todayTheme, next: nextChange(today, calendar, fallback), unknown_themes: unknownThemes(calendar, fallback, options) },
       };
     },
 
     reduce: (ctx) => {
-      const { trigger, calendarEnabled, currentTheme, todayTheme, boundaryDay, stillOnYesterdaysTheme, targetIsOption } = ctx;
+      const { trigger, calendarEnabled, currentTheme, todayTheme, boundaryDay, stillOnYesterdaysTheme, targetIsOption, view } = ctx;
+      validateView(view);
+      // Every run publishes, so HA always sees the calendar as of today, retained across restarts.
+      const publish: Action = {
+        type: 'mqtt.publish',
+        topic: `${location}/lighting/theme_calendar`,
+        payload: JSON.stringify(view),
+        retain: true,
+      };
+      // Quiet runs keep the reason they did not switch, so Loki still says why.
+      const quiet = (reason: string) => ({ decision: 'publish_calendar', reason, actions: [publish] });
 
-      if (!calendarEnabled) {
-        return { decision: 'no_action', reason: 'calendar_disabled', actions: [] };
-      }
-      if (!boundaryDay) {
-        // Mid-period: leave whatever is selected, including a manual pick.
-        return { decision: 'no_action', reason: 'not_a_calendar_boundary', actions: [] };
-      }
-      if (currentTheme === todayTheme) {
-        return { decision: 'no_action', reason: 'already_on_todays_theme', actions: [] };
-      }
+      if (!calendarEnabled) return quiet('calendar_disabled');
+      // Mid-period: leave whatever is selected, including a manual pick.
+      if (!boundaryDay) return quiet('not_a_calendar_boundary');
+      if (currentTheme === todayTheme) return quiet('already_on_todays_theme');
       // After a restart we can't tell a missed midnight switch from a manual pick made today —
       // only catch up if the theme is still exactly what the calendar had yesterday.
-      if (trigger === 'system' && !stillOnYesterdaysTheme) {
-        return { decision: 'no_action', reason: 'theme_changed_by_hand_today', actions: [] };
-      }
-      if (!targetIsOption) {
-        return { decision: 'no_action', reason: `calendar_theme_not_an_option:${todayTheme}`, actions: [] };
-      }
+      if (trigger === 'system' && !stillOnYesterdaysTheme) return quiet('theme_changed_by_hand_today');
+      // Static reason (the theme is in conditions as todayTheme): a reason embedding a value cannot be declared.
+      if (!targetIsOption) return quiet('calendar_theme_not_an_option');
       return {
         decision: 'switch_theme',
         reason: trigger === 'system' ? 'calendar_boundary_catch_up' : 'calendar_boundary',
-        actions: [HomeAssistant.input_select.select_option({ entity_id: themeEntity }, { option: todayTheme })],
+        actions: [
+          HomeAssistant.input_select.select_option({ entity_id: themeEntity }, { option: todayTheme }),
+          publish,
+        ],
       };
     },
   });
