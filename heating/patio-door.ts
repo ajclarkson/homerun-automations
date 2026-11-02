@@ -1,10 +1,23 @@
-import { defineAutomation, abort, HomeAssistant, type Action } from '@ajclarkson/homerun';
+import { defineAutomation, abort, HomeAssistant, type Action, type DeclaredDecision } from '@ajclarkson/homerun';
 import { WINDOW_GRACE_HELPER, resolveGraceMs } from '../lib/heating-controller-factory.js';
 
 const DOOR_ENTITY = 'binary_sensor.parlour_sensor_door_patio_contact';
 const GRACE_TIMER_KEY = 'house:heating:patio_door_grace';
 
+// Suspending or restoring the house's heating is the notable part. The grace-period wait and the
+// door events that change nothing are `ignored`.
+export const PATIO_DOOR_REASONS = {
+  door_open_heating_on: { outcome: 'acted' },
+  door_closed_was_suspended: { outcome: 'acted' },
+  door_open_within_grace: { outcome: 'ignored' },
+  door_open_heating_already_off: { outcome: 'ignored' },
+  door_closed_not_suspended: { outcome: 'ignored' },
+} as const;
+
+type PatioDoorDecision = DeclaredDecision<typeof PATIO_DOOR_REASONS>;
+
 export default defineAutomation({
+  reasons: PATIO_DOOR_REASONS,
   id: 'house:patio_door',
   location: 'house',
   subsystem: 'heating',
@@ -46,7 +59,7 @@ export default defineAutomation({
     return { doorOpen, heatingOn, suspended, graceRemainingMs };
   },
 
-  reduce: (ctx) => {
+  reduce: (ctx): PatioDoorDecision => {
     const { doorOpen, heatingOn, suspended, graceRemainingMs } = ctx;
     const cancelGrace: Action = { type: 'timer.cancel', timerKey: GRACE_TIMER_KEY };
 
@@ -85,8 +98,8 @@ export default defineAutomation({
     }
 
     const reason = doorOpen && !heatingOn && !suspended
-      ? 'door_open_heating_already_off'
-      : 'door_closed_not_suspended';
+      ? 'door_open_heating_already_off' as const
+      : 'door_closed_not_suspended' as const;
 
     return { decision: 'no_action', reason, actions: [cancelGrace] };
   },

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from './declared-outcome.js';
 import { makeSonosAutomation } from './sonos-controller-factory.js';
 
 const LOCATION = 'test_room';
@@ -60,7 +60,7 @@ describe('makeSonosAutomation', () => {
         state: enabledState,
         ha,
       });
-      expect(result).toMatchObject({ decision: 'join', reason: 'occupancy_on' });
+      expect(result).toMatchObject({ decision: 'join', reason: 'occupancy_on', outcome: 'ignored' });
       expect(result.actions).toEqual([joinAction()]);
     });
 
@@ -70,7 +70,7 @@ describe('makeSonosAutomation', () => {
         state: enabledState,
         ha,
       });
-      expect(result).toMatchObject({ decision: 'unjoin', reason: 'occupancy_off' });
+      expect(result).toMatchObject({ decision: 'unjoin', reason: 'occupancy_off', outcome: 'ignored' });
       expect(result.actions).toEqual([unjoinAction()]);
     });
   });
@@ -82,7 +82,7 @@ describe('makeSonosAutomation', () => {
         state: disabledState,
         ha,
       });
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled' });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled_idle', outcome: 'ignored' });
       expect(result.actions).toEqual([]);
     });
 
@@ -92,7 +92,7 @@ describe('makeSonosAutomation', () => {
         state: disabledState,
         ha,
       });
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled' });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled_idle', outcome: 'ignored' });
       expect(result.actions).toEqual([]);
     });
   });
@@ -104,7 +104,7 @@ describe('makeSonosAutomation', () => {
         state: enabledState,
         ha,
       });
-      expect(result).toMatchObject({ decision: 'join', reason: 'automation_enabled' });
+      expect(result).toMatchObject({ decision: 'join', reason: 'automation_enabled', outcome: 'acted' });
       expect(result.actions).toEqual([joinAction()]);
     });
 
@@ -114,7 +114,7 @@ describe('makeSonosAutomation', () => {
         state: { ...disabledState, [OCCUPIED_SENSOR]: { state: 'on' } },
         ha,
       });
-      expect(result).toMatchObject({ decision: 'unjoin', reason: 'automation_disabled' });
+      expect(result).toMatchObject({ decision: 'unjoin', reason: 'automation_disabled', outcome: 'acted' });
       expect(result.actions).toEqual([unjoinAction()]);
     });
   });
@@ -135,6 +135,23 @@ describe('makeSonosAutomation', () => {
         target: { entity_id: customMaster },
         data: { group_members: [MEDIA_PLAYER] },
       }]);
+    });
+  });
+
+  describe('triggers it cannot act on', () => {
+    it('ignores the room going unavailable while enabled', () => {
+      const result = testAutomation(automation, { event: stateChangedEvent(OCCUPIED_SENSOR, 'unavailable'), state: enabledState, ha });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'occupancy_unknown_state', outcome: 'ignored', actions: [] });
+    });
+
+    it('ignores the automation toggle going unavailable', () => {
+      const result = testAutomation(automation, { event: stateChangedEvent(AUTOMATION_TOGGLE, 'unavailable'), state: enabledState, ha });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_toggle_unknown_state', outcome: 'ignored', actions: [] });
+    });
+
+    it('ignores a trigger that is neither occupancy nor the toggle', () => {
+      const result = testAutomation(automation, { event: { type: 'on_start' as const, correlation_id: 'test-cid' }, state: enabledState, ha });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'unclassified_trigger', outcome: 'ignored', actions: [] });
     });
   });
 

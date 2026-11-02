@@ -20,7 +20,14 @@ function parseHistory(raw: string | undefined): TempHistory {
   }
 }
 
+// Both outcomes are bookkeeping: the nightly record is not something a person would look up.
+export const OUTDOOR_TEMP_HISTORY_REASONS = {
+  end_of_day: { outcome: 'ignored' },
+  already_recorded_today: { outcome: 'ignored' },
+} as const;
+
 export default defineAutomation({
+  reasons: OUTDOOR_TEMP_HISTORY_REASONS,
   id: 'house:outdoor_temp_history',
   location: 'house',
   subsystem: 'thermal',

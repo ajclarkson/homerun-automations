@@ -1,6 +1,16 @@
 import { defineAutomation, abort } from '@ajclarkson/homerun';
 
+// Putting the house to sleep is `acted`. A hold that is refused (nobody in bed, the parlour in
+// use) is `declined`, because the person holding the button expects sleep mode.
+export const SLEEP_MODE_BUTTON_REASONS = {
+  button_hold_bed_occupied: { outcome: 'acted' },
+  bed_not_occupied: { outcome: 'declined' },
+  parlour_active: { outcome: 'declined' },
+  already_in_sleep_mode: { outcome: 'ignored' },
+} as const;
+
 export default defineAutomation({
+  reasons: SLEEP_MODE_BUTTON_REASONS,
   id: 'house:sleep_mode_button',
   location: 'house',
   subsystem: 'house_mode',

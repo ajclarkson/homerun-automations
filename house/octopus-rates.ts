@@ -1,4 +1,4 @@
-import { defineAutomation, abort } from '@ajclarkson/homerun';
+import { defineAutomation, abort, type DeclaredDecision } from '@ajclarkson/homerun';
 
 interface NotifyPayload {
   title: string;
@@ -14,8 +14,26 @@ function notifyAction(service: string, payload: NotifyPayload) {
   };
 }
 
+// The notification is the outcome; the reason says who got it. Nobody home is `ignored`.
+export const CHEAP_RATE_NUDGE_REASONS = {
+  adam: { outcome: 'acted' },
+  sarah: { outcome: 'acted' },
+  adam_and_sarah: { outcome: 'acted' },
+  nobody_home: { outcome: 'ignored' },
+} as const;
+
+export const TOMORROW_RATES_NUDGE_REASONS = {
+  negative_windows: { outcome: 'acted' },
+  cheap_windows: { outcome: 'acted' },
+  no_notable_windows_tomorrow: { outcome: 'ignored' },
+} as const;
+
+type CheapRateDecision = DeclaredDecision<typeof CHEAP_RATE_NUDGE_REASONS>;
+type TomorrowRatesDecision = DeclaredDecision<typeof TOMORROW_RATES_NUDGE_REASONS>;
+
 // Today: fires at 09:00, notifies whoever is home with today's cheapest 2h window
 const cheapRateNudge = defineAutomation({
+  reasons: CHEAP_RATE_NUDGE_REASONS,
   id: 'house:cheap_rate_nudge',
   location: 'house',
   subsystem: 'energy',
@@ -46,7 +64,7 @@ const cheapRateNudge = defineAutomation({
     };
   },
 
-  reduce: (ctx) => {
+  reduce: (ctx): CheapRateDecision => {
     const { nextTime, nextRate, negWindows, adamHome, sarahHome } = ctx;
 
     const notification = buildTodayNotification(negWindows, nextTime, nextRate);
@@ -56,12 +74,9 @@ const cheapRateNudge = defineAutomation({
       ...(sarahHome ? [notifyAction('mobile_app_sarahs_iphone', notification)] : []),
     ];
 
-    const decision = actions.length > 0 ? 'notify' : 'no_action';
-    const reason = actions.length > 0
-      ? [adamHome && 'adam', sarahHome && 'sarah'].filter(Boolean).join('_and_')
-      : 'nobody_home';
-
-    return { decision, reason, actions };
+    if (actions.length === 0) return { decision: 'no_action', reason: 'nobody_home', actions };
+    const reason = adamHome && sarahHome ? 'adam_and_sarah' : adamHome ? 'adam' : 'sarah';
+    return { decision: 'notify', reason, actions };
   },
 });
 
@@ -92,6 +107,7 @@ function buildTodayNotification(
 // Tomorrow: fires when Octopus publishes tomorrow's rates (after 4pm), notifies both
 // people if there are any negative or sub-10p windows worth knowing about.
 const tomorrowRatesNudge = defineAutomation({
+  reasons: TOMORROW_RATES_NUDGE_REASONS,
   id: 'house:tomorrow_rates_nudge',
   location: 'house',
   subsystem: 'energy',
@@ -119,7 +135,7 @@ const tomorrowRatesNudge = defineAutomation({
     };
   },
 
-  reduce: (ctx) => {
+  reduce: (ctx): TomorrowRatesDecision => {
     const { negWindows, cheapWindows, hasNeg, hasCheap } = ctx;
 
     if (!hasNeg && !hasCheap) {

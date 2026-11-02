@@ -1,4 +1,4 @@
-import { defineAutomation, abort, HomeAssistant, type Action } from '@ajclarkson/homerun';
+import { defineAutomation, abort, HomeAssistant, type Action, type DeclaredDecision } from '@ajclarkson/homerun';
 
 // ---- Types ----
 
@@ -196,6 +196,34 @@ function resolveWindowSafety(
   return { windowOpen: true, windowOpenConfirmed, windowOpenPending: !windowOpenConfirmed, windowGraceValidUntilMs };
 }
 
+// ---- Reasons ----
+
+// Every reason the reducer can return. A mode change is `acted` and carries the new mode; the
+// house-mode reason is one name per mode so no value is embedded in a reason. A disabled room
+// reports on every trigger it would have handled, so it is `ignored` rather than history noise.
+export const HEATING_REASONS = {
+  safety_window_open: { outcome: 'acted', facts: ['mode'] },
+  safety_heating_disabled: { outcome: 'acted', facts: ['mode'] },
+  house_mode_sleep: { outcome: 'acted', facts: ['mode'] },
+  house_mode_away: { outcome: 'acted', facts: ['mode'] },
+  house_mode_vacation: { outcome: 'acted', facts: ['mode'] },
+  manual_override: { outcome: 'acted', facts: ['mode'] },
+  schedule_occupied: { outcome: 'acted', facts: ['mode'] },
+  schedule: { outcome: 'acted', facts: ['mode'] },
+  automation_disabled: { outcome: 'ignored' },
+  no_schedule_match: { outcome: 'ignored' },
+  no_change: { outcome: 'ignored' },
+} as const;
+
+type HeatingDecision = DeclaredDecision<typeof HEATING_REASONS>;
+type SetModeReason = Exclude<keyof typeof HEATING_REASONS, 'automation_disabled' | 'no_schedule_match' | 'no_change'>;
+
+const HOUSE_MODE_REASON: Record<HouseMode, SetModeReason> = {
+  sleep: 'house_mode_sleep',
+  away: 'house_mode_away',
+  vacation: 'house_mode_vacation',
+};
+
 // ---- Factory ----
 
 interface HeatingContext {
@@ -227,7 +255,8 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
   const sourceTopic = `${location}/heating/source`;
   const sourceEntity = `sensor.${location}_heating_source`;
 
-  return defineAutomation<HeatingContext>({
+  return defineAutomation<HeatingContext, typeof HEATING_REASONS>({
+    reasons: HEATING_REASONS,
     id: `${location}:heating`,
     location,
     subsystem: 'heating',
@@ -301,15 +330,14 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       };
     },
 
-    reduce: (ctx) => {
+    reduce: (ctx): HeatingDecision => {
       const { automationEnabled, currentMode, safety, house, manualMode, manualExpiring, occupied, schedule, scheduleTimerKey, manualTimerKey, manualSelectEntity, windowGraceTimerKey, now } = ctx;
       const actions: Action[] = [];
       const nowMs = now.getTime();
 
       let targetMode: HeatingMode | null = null;
       let source: HeatingSource = 'none';
-      let decision = 'no_action';
-      let reason = 'uninitialised';
+      let reason: SetModeReason | null = null;
 
       // Stage 1 — automation disabled
       if (!automationEnabled) {
@@ -320,12 +348,10 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       if (safety.windowOpenConfirmed) {
         targetMode = 'minimum';
         source = 'safety';
-        decision = 'set_mode';
         reason = 'safety_window_open';
       } else if (safety.forceMinimum) {
         targetMode = 'minimum';
         source = 'safety';
-        decision = 'set_mode';
         reason = 'safety_heating_disabled';
       }
 
@@ -342,15 +368,13 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       if (!targetMode && house.affectsHeating) {
         targetMode = HOUSE_MODE_MAP[house.mode as HouseMode];
         source = 'house_mode';
-        decision = 'set_mode';
-        reason = `house_mode_${house.mode}`;
+        reason = HOUSE_MODE_REASON[house.mode as HouseMode];
       }
 
       // Stage 4 — manual override
       if (!targetMode && manualMode) {
         targetMode = manualMode;
         source = 'manual';
-        decision = 'set_mode';
         reason = 'manual_override';
         actions.push(...planTimer(manualTimerKey, schedule.validUntilMs, nowMs));
       } else {
@@ -365,12 +389,11 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
         const occupiedMode = schedule.block?.occupiedMode;
         targetMode = (occupied && occupiedMode) ? occupiedMode : schedule.requestedMode;
         source = 'schedule';
-        decision = 'set_mode';
         reason = (occupied && occupiedMode) ? 'schedule_occupied' : 'schedule';
       }
 
       // Stage 6 — no schedule match
-      if (!targetMode) {
+      if (!targetMode || reason === null) {
         return { decision: 'no_action', reason: 'no_schedule_match', actions };
       }
 
@@ -385,7 +408,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       actions.push({ type: 'mqtt.publish', topic: sourceTopic, payload: source, retain: true, impliesEntity: sourceEntity });
       actions.push(...planTimer(scheduleTimerKey, schedule.validUntilMs, nowMs));
 
-      return { decision, reason, actions };
+      return { decision: 'set_mode', reason, facts: { mode: targetMode }, actions };
     },
   });
 }

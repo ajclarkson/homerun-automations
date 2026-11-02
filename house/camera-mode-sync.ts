@@ -1,6 +1,19 @@
-import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
+import { defineAutomation, abort, HomeAssistant, type DeclaredDecision } from '@ajclarkson/homerun';
+
+// Cameras going on or off with the house mode is `acted`. A guest keeping cameras off while the
+// house is away is `declined`; a mode this does not manage is bookkeeping.
+export const CAMERA_MODE_SYNC_REASONS = {
+  house_away: { outcome: 'acted' },
+  sleep_kitchen_camera_on: { outcome: 'acted' },
+  house_not_away: { outcome: 'acted' },
+  away_but_guest_present: { outcome: 'declined' },
+  mode_not_managed: { outcome: 'ignored', facts: ['mode'] },
+} as const;
+
+type CameraModeDecision = DeclaredDecision<typeof CAMERA_MODE_SYNC_REASONS>;
 
 export default defineAutomation({
+  reasons: CAMERA_MODE_SYNC_REASONS,
   id: 'house:camera_mode_sync',
   location: 'house',
   subsystem: 'cameras',
@@ -29,7 +42,7 @@ export default defineAutomation({
     };
   },
 
-  reduce: (ctx) => {
+  reduce: (ctx): CameraModeDecision => {
     const { houseMode, guestPresent } = ctx;
 
     if (houseMode === 'away' && !guestPresent) {
@@ -73,7 +86,8 @@ export default defineAutomation({
 
     return {
       decision: 'no_action',
-      reason: `mode_not_managed:${houseMode}`,
+      reason: 'mode_not_managed',
+      facts: { mode: houseMode },
       actions: [],
     };
   },

@@ -1,6 +1,18 @@
-import { defineAutomation, abort } from '@ajclarkson/homerun';
+import { defineAutomation, abort, type DeclaredDecision } from '@ajclarkson/homerun';
+
+// Telling a person to open or close the door is what `acted` means here; the temperatures are
+// whole degrees so the sentence never shows 24.700000001.
+export const DOOR_VENTILATION_REASONS = {
+  open_door: { outcome: 'acted', facts: ['indoor', 'outdoor'] },
+  close_door: { outcome: 'acted', facts: ['indoor', 'outdoor'] },
+  not_active: { outcome: 'ignored' },
+  conditions_not_met: { outcome: 'ignored' },
+} as const;
+
+type DoorVentilationDecision = DeclaredDecision<typeof DOOR_VENTILATION_REASONS>;
 
 export default defineAutomation({
+  reasons: DOOR_VENTILATION_REASONS,
   id: 'foreign_office:door_ventilation',
   location: 'foreign_office',
   subsystem: 'thermal',
@@ -68,7 +80,7 @@ export default defineAutomation({
     };
   },
 
-  reduce: (ctx) => {
+  reduce: (ctx): DoorVentilationDecision => {
     const {
       foIndoorTemp, outdoorTemp,
       doorOpen, foOccupied, wfhAdam,
@@ -81,6 +93,7 @@ export default defineAutomation({
       return { decision: 'no_action', reason: 'not_active', actions: [] };
     }
 
+    const facts = { indoor: Math.round(foIndoorTemp), outdoor: Math.round(outdoorTemp) };
     const nowIso = new Date().toISOString();
 
     if (outdoorCoolerThanIndoor && indoorActuallyWarm && !outdoorTooCold && !doorOpen && !openCooldownActive) {
@@ -91,6 +104,7 @@ export default defineAutomation({
       return {
         decision: 'notify',
         reason: 'open_door',
+        facts,
         actions: [
           {
             type: 'ha.call_service',
@@ -113,6 +127,7 @@ export default defineAutomation({
       return {
         decision: 'notify',
         reason: 'close_door',
+        facts,
         actions: [
           {
             type: 'ha.call_service',

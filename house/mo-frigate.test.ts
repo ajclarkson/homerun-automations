@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './mo-frigate.js';
 
 const NOW = new Date('2026-07-21T14:00:00.000Z');
@@ -56,11 +57,15 @@ describe('event classification', () => {
     const result = run(eatingPayload);
     expect(result.decision).toBe('notify');
     expect(result.reason).toBe('eating');
+    expect(result.outcome).toBe('acted');
+    expect(result.facts).toEqual({ room: 'Kitchen' });
   });
 
   it('classifies type:new without feeder as spotted', () => {
     const result = run(spottedPayload);
     expect(result.reason).toBe('spotted');
+    expect(result.outcome).toBe('acted');
+    expect(result.facts).toEqual({ room: 'Kitchen' });
   });
 
   it('takes no action for type:update without feeder entry (routine Frigate noise)', () => {
@@ -70,6 +75,7 @@ describe('event classification', () => {
     });
     expect(result.decision).toBe('no_action');
     expect(result.reason).toBe('not_actionable');
+    expect(result.outcome).toBe('ignored');
   });
 
   it('takes no action when label is not cat', () => {
@@ -152,11 +158,12 @@ describe('cooldown', () => {
     const result = run(eatingPayload, { 'input_text.mo_cooldown_eating': { state: RECENT } });
     expect(result.decision).toBe('no_action');
     expect(result.reason).toBe('cooldown_active');
+    expect(result.outcome).toBe('ignored');
   });
 
   it('suppresses spotted notification within cooldown window for that camera', () => {
     const result = run(spottedPayload, { 'input_text.mo_cooldown_spotted_kitchen': { state: RECENT } });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'cooldown_active', outcome: 'ignored' });
   });
 
   it('does not suppress when cooldown has expired', () => {

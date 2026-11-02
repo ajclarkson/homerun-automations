@@ -1,6 +1,23 @@
 import { defineAutomation, HomeAssistant } from '@ajclarkson/homerun';
-import type { Action } from '@ajclarkson/homerun';
+import type { Action, DeclaredDecision } from '@ajclarkson/homerun';
 import { isSceneActivation } from './scene-activation.js';
+
+// Starting or stopping effects is what a person sees (`acted`). Scheduling the start and the
+// scene bookkeeping are `ignored`: the start itself is reported when the scene has settled.
+export const THEME_EFFECTS_REASONS = {
+  theme_scene_settled: { outcome: 'acted', facts: ['theme'] },
+  startup_with_theme_active: { outcome: 'acted', facts: ['theme'] },
+  scene_without_effects_activated: { outcome: 'acted' },
+  no_lights_in_theme_roles: { outcome: 'declined', facts: ['theme'] },
+  automation_disabled: { outcome: 'ignored' },
+  scene_reloaded_not_activated: { outcome: 'ignored' },
+  theme_scene_activated: { outcome: 'ignored', facts: ['theme'] },
+  off_scene_activated: { outcome: 'ignored' },
+  no_effect_lights: { outcome: 'ignored' },
+  no_effects_theme_active: { outcome: 'ignored' },
+} as const;
+
+type ThemeEffectsDecision = DeclaredDecision<typeof THEME_EFFECTS_REASONS>;
 
 // Lights take part in themes by role, assigned with HA labels and filtered to the location's area.
 export type LightRole = 'feature' | 'accent';
@@ -58,7 +75,8 @@ export function makeThemeEffectsAutomation(config: ThemeEffectsConfig) {
   const usedRoles = (Object.keys(ROLE_LABELS) as LightRole[])
     .filter(role => Object.values(themes).some(effects => effects[role]));
 
-  return defineAutomation<ThemeEffectsContext>({
+  return defineAutomation<ThemeEffectsContext, typeof THEME_EFFECTS_REASONS>({
+    reasons: THEME_EFFECTS_REASONS,
     id: `${location}:theme_effects`,
     location,
     subsystem: 'lighting',
@@ -112,7 +130,7 @@ export function makeThemeEffectsAutomation(config: ThemeEffectsConfig) {
       };
     },
 
-    reduce: (ctx) => {
+    reduce: (ctx): ThemeEffectsDecision => {
       const { trigger, automationEnabled, realActivation, effectsTheme, sceneIsOff, start, stopLights } = ctx;
       const effectOn = ({ entity_id, effect }: EffectCommand): Action =>
         HomeAssistant.light.turn_on({ entity_id }, { effect });
@@ -130,6 +148,7 @@ export function makeThemeEffectsAutomation(config: ThemeEffectsConfig) {
           return {
             decision: 'schedule_effects',
             reason: 'theme_scene_activated',
+            facts: { theme: effectsTheme },
             actions: [{ type: 'timer.start', timerKey: settleTimerKey, delayMs: EFFECTS_SETTLE_MS }],
           };
         }
@@ -153,11 +172,12 @@ export function makeThemeEffectsAutomation(config: ThemeEffectsConfig) {
         return { decision: 'no_action', reason: 'no_effects_theme_active', actions: [] };
       }
       if (start.length === 0) {
-        return { decision: 'no_action', reason: 'no_lights_in_theme_roles', actions: [] };
+        return { decision: 'no_action', reason: 'no_lights_in_theme_roles', facts: { theme: effectsTheme }, actions: [] };
       }
       return {
         decision: 'start_effects',
         reason: trigger === 'system' ? 'startup_with_theme_active' : 'theme_scene_settled',
+        facts: { theme: effectsTheme },
         actions: start.flatMap(command => [
           effectOn(command),
           ...(command.brightness !== undefined

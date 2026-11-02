@@ -1,5 +1,20 @@
-import { defineAutomation, abort, type Action } from '@ajclarkson/homerun';
+import { defineAutomation, abort, type Action, type DeclaredDecision } from '@ajclarkson/homerun';
 import type { TriggerEvent } from '@ajclarkson/homerun';
+
+// Moving the house to or from away, vacation or normal is `acted`. `sitter_present` is the
+// set_normal case; the same sitter with the house already normal changes nothing.
+export const AWAY_DETECTION_REASONS = {
+  sitter_present: { outcome: 'acted' },
+  sitter_mode_ended_house_empty: { outcome: 'acted' },
+  away_duration_exceeded: { outcome: 'acted' },
+  all_left_door_recently: { outcome: 'acted' },
+  someone_returned: { outcome: 'acted' },
+  sitter_present_no_change: { outcome: 'ignored' },
+  no_door_event: { outcome: 'ignored' },
+  not_in_away_mode: { outcome: 'ignored' },
+} as const;
+
+type AwayDecision = DeclaredDecision<typeof AWAY_DETECTION_REASONS>;
 
 const DOOR_WINDOW_MS = 15 * 60 * 1000;
 const MODIFIER_ENTITY = 'input_select.house_active_mode_modifier';
@@ -14,6 +29,7 @@ const MIN_TIMER_DELAY_MS = 250;
 const MAX_TIMER_DELAY_MS = 8 * 24 * 60 * 60 * 1000;
 
 export default defineAutomation({
+  reasons: AWAY_DETECTION_REASONS,
   id: 'house:away_detection',
   location: 'house',
   subsystem: 'house_mode',
@@ -93,11 +109,11 @@ export default defineAutomation({
     };
   },
 
-  reduce: (ctx) => {
+  reduce: (ctx): AwayDecision => {
     const { noneHome, doorRecentlyChanged, houseMode, sitterActive, sitterJustLeft, vacationEligible, vacationTimerValidUntilMs } = ctx;
     const actions: Action[] = [];
     let decision = 'uninitialised';
-    let reason = 'uninitialised';
+    let reason: keyof typeof AWAY_DETECTION_REASONS = 'not_in_away_mode';
 
     if (vacationTimerValidUntilMs !== null) {
       const delayMs = Math.min(Math.max(vacationTimerValidUntilMs - Date.now(), MIN_TIMER_DELAY_MS), MAX_TIMER_DELAY_MS);
@@ -112,7 +128,7 @@ export default defineAutomation({
       actions.push({ type: 'mqtt.publish', topic: 'house/mode/active', payload: 'normal', impliesEntity: 'sensor.house_active_mode' });
     } else if (sitterActive) {
       decision = 'no_action';
-      reason = 'sitter_present';
+      reason = 'sitter_present_no_change';
     } else if (noneHome && sitterJustLeft && houseMode !== 'away') {
       decision = 'set_away';
       reason = 'sitter_mode_ended_house_empty';

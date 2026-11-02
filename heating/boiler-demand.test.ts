@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './boiler-demand.js';
 
 const heatRequiredTrigger = (room: string) => ({
@@ -42,6 +43,7 @@ describe('house:boiler_demand', () => {
     });
     expect(result.decision).toBe('boiler_off');
     expect(result.reason).toBe('no_demand');
+    expect(result.outcome).toBe('acted');
     const action = result.actions[0];
     if (action.type === 'mqtt.publish') {
       expect(JSON.parse(action.payload).occupied_heating_setpoint_heat).toBe(5);
@@ -59,6 +61,7 @@ describe('house:boiler_demand', () => {
     });
     expect(result.decision).toBe('boiler_off');
     expect(result.reason).toBe('heating_disabled');
+    expect(result.outcome).toBe('acted');
   });
 
   it('includes all calling rooms in the reason', () => {
@@ -70,8 +73,10 @@ describe('house:boiler_demand', () => {
         'binary_sensor.bedroom_trv_heat_required': { state: 'on' },
       },
     });
-    expect(result.reason).toContain('parlour');
-    expect(result.reason).toContain('bedroom');
+    expect(result.reason).toBe('demand');
+    expect(result.outcome).toBe('acted');
+    expect(result.facts).toEqual({ rooms: 'parlour,bedroom' });
+    expect(result.outcome).toBe('acted');
   });
 
   it('aborts when heating enabled state is unavailable', () => {

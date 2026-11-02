@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './door-ventilation.js';
 
 const NOW = new Date('2026-07-21T14:00:00.000Z');
@@ -44,6 +45,8 @@ describe('open_door', () => {
     const result = run();
     expect(result.decision).toBe('notify');
     expect(result.reason).toBe('open_door');
+    expect(result.outcome).toBe('acted');
+    expect(result.facts).toEqual({ indoor: 28, outdoor: 20 });
     expect(result.actions).toContainEqual(expect.objectContaining({
       data: expect.objectContaining({ title: 'Open the foreign office door' }),
     }));
@@ -76,12 +79,13 @@ describe('open_door', () => {
 
   it('no_action when outdoor is below the minimum outdoor temperature', () => {
     const result = run({ 'weather.forecast_home': { state: 'cloudy', attributes: { temperature: 8 } } });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 
   it('notifies when outdoor is exactly at the minimum outdoor temperature', () => {
     const result = run({ 'weather.forecast_home': { state: 'cloudy', attributes: { temperature: 10 } } });
     expect(result.reason).toBe('open_door');
+    expect(result.outcome).toBe('acted');
   });
 
   it('no_action when indoor is below the comfort threshold', () => {
@@ -89,7 +93,7 @@ describe('open_door', () => {
       'sensor.foreign_office_sensor_climate_temperature': { state: '21' },
       'weather.forecast_home': { state: 'cloudy', attributes: { temperature: 12 } },
     });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 
   it('notifies when indoor is exactly at the comfort threshold', () => {
@@ -98,22 +102,23 @@ describe('open_door', () => {
       'weather.forecast_home': { state: 'sunny', attributes: { temperature: 15 } },
     });
     expect(result.reason).toBe('open_door');
+    expect(result.outcome).toBe('acted');
   });
 
   it('suppresses when within cooldown window', () => {
     const result = run({ 'input_text.foreign_office_notification_door_open_last': { state: RECENT } });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 
   it('no_action when door is already open', () => {
     const result = run({ 'binary_sensor.foreign_office_sensor_door_contact': { state: 'on' } });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 
   it('no_action when outdoor is not cool enough', () => {
     // outdoor 24 — delta 3 — threshold 25; 24 < 25 ✓ — so set outdoor to 26 (above threshold)
     const result = run({ 'weather.forecast_home': { state: 'sunny', attributes: { temperature: 26 } } });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 });
 
@@ -129,6 +134,8 @@ describe('close_door', () => {
     const result = run(doorOpenWarmState);
     expect(result.decision).toBe('notify');
     expect(result.reason).toBe('close_door');
+    expect(result.outcome).toBe('acted');
+    expect(result.facts).toEqual({ indoor: 28, outdoor: 30 });
     expect(result.actions).toContainEqual(expect.objectContaining({
       data: expect.objectContaining({ title: 'Close the foreign office door' }),
     }));
@@ -148,12 +155,12 @@ describe('close_door', () => {
       ...doorOpenWarmState,
       'input_text.foreign_office_notification_door_close_last': { state: RECENT },
     });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 
   it('no_action when door is already closed', () => {
     const result = run({ 'weather.forecast_home': { state: 'sunny', attributes: { temperature: 30 } } });
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'conditions_not_met', outcome: 'ignored' });
   });
 });
 
@@ -164,12 +171,14 @@ describe('active gate', () => {
     const result = run({ 'binary_sensor.foreign_office_occupied': { state: 'off' } });
     expect(result.decision).toBe('no_action');
     expect(result.reason).toBe('not_active');
+    expect(result.outcome).toBe('ignored');
   });
 
   it('no_action when adam is not wfh', () => {
     const result = run({ 'input_boolean.wfh_adam': { state: 'off' } });
     expect(result.decision).toBe('no_action');
     expect(result.reason).toBe('not_active');
+    expect(result.outcome).toBe('ignored');
   });
 });
 

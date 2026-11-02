@@ -1,4 +1,4 @@
-import { defineAutomation, abort, type Action, type HAState } from '@ajclarkson/homerun';
+import { defineAutomation, abort, type Action, type DeclaredDecision, type HAState } from '@ajclarkson/homerun';
 import {
   HUMIDITY_ENTITY, SHOWER_ENTITY, SHOWER_TOPIC,
   SHOWER_MAX_ON_TIMER, SHOWER_END_CONFIRM_TIMER, MAX_SHOWER_ON_MS,
@@ -14,6 +14,20 @@ const MAX_ENTITY = 'sensor.bathroom_humidity_max_10m';
 const RISE_HELPER = 'input_number.bathroom_automation_shower_rise';
 const DROP_HELPER = 'input_number.bathroom_automation_shower_end_drop';
 const CONFIRM_HELPER = 'input_number.bathroom_automation_shower_end_confirm';
+
+// The detector flipping its flag is `acted`. Tracking a shower that is already running or ending
+// is bookkeeping, so it is `ignored`.
+export const SHOWER_REASONS = {
+  shower_started: { outcome: 'acted' },
+  shower_ended: { outcome: 'acted' },
+  shower_max_duration: { outcome: 'acted' },
+  no_shower: { outcome: 'ignored' },
+  shower_running: { outcome: 'ignored' },
+  shower_resumed: { outcome: 'ignored' },
+  shower_end_pending: { outcome: 'ignored' },
+} as const;
+
+type ShowerDecision = DeclaredDecision<typeof SHOWER_REASONS>;
 
 type ShowerTrigger = 'humidity' | 'max_on_expired' | 'end_confirm_expired' | 'start_up';
 
@@ -147,14 +161,14 @@ const startTimer = (timerKey: string, delayMs: number): Action => ({
 });
 const cancelTimer = (timerKey: string): Action => ({ type: 'timer.cancel', timerKey });
 
-function endShower(reason: string) {
+function endShower(reason: 'shower_ended' | 'shower_max_duration'): ShowerDecision {
   return {
     decision: 'set_off', reason,
     actions: [publishShower('OFF'), cancelTimer(SHOWER_MAX_ON_TIMER), cancelTimer(SHOWER_END_CONFIRM_TIMER)],
   };
 }
 
-function reduceShowerOff(ctx: ShowerContext) {
+function reduceShowerOff(ctx: ShowerContext): ShowerDecision {
   if (ctx.trigger === 'max_on_expired' || ctx.trigger === 'end_confirm_expired') {
     return { decision: 'no_action', reason: 'no_shower', actions: [] };
   }
@@ -167,7 +181,7 @@ function reduceShowerOff(ctx: ShowerContext) {
   return { decision: 'no_action', reason: 'no_shower', actions: [] };
 }
 
-function reduceShowerOn(ctx: ShowerContext) {
+function reduceShowerOn(ctx: ShowerContext): ShowerDecision {
   if (ctx.trigger === 'max_on_expired') return endShower('shower_max_duration');
   if (ctx.trigger === 'end_confirm_expired') {
     // No re-check of the drop line: after a quiet 5 min the sensor's 10-min max has shrunk to
@@ -200,7 +214,8 @@ function reduceShowerOn(ctx: ShowerContext) {
   };
 }
 
-export default defineAutomation<ShowerContext>({
+export default defineAutomation<ShowerContext, typeof SHOWER_REASONS>({
+  reasons: SHOWER_REASONS,
   id: 'bathroom:shower',
   location: 'bathroom',
   subsystem: 'shower',
@@ -214,5 +229,5 @@ export default defineAutomation<ShowerContext>({
 
   context: (state, _ha, event) => buildContext(state, event as ShowerEvent),
 
-  reduce: (ctx) => (ctx.showerOn ? reduceShowerOn(ctx) : reduceShowerOff(ctx)),
+  reduce: (ctx): ShowerDecision => (ctx.showerOn ? reduceShowerOn(ctx) : reduceShowerOff(ctx)),
 });

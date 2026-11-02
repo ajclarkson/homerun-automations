@@ -17,7 +17,13 @@ const toNumber = (s: string | undefined) => (s === undefined || s.trim() === '' 
 // Tells both people whenever the Octoplus points balance goes up. The source isn't known — it could
 // be a wheel of fortune prize, a power down session reward or anything else — so the message only
 // reports the amount and new balance.
+// The notification is the outcome. Credit and balance are finite by the context's own checks.
+export const OCTOPUS_POINTS_REASONS = {
+  points_increased: { outcome: 'acted', facts: ['credited', 'balance'] },
+} as const;
+
 export default defineAutomation({
+  reasons: OCTOPUS_POINTS_REASONS,
   id: 'house:octopus_points_credited',
   location: 'house',
   subsystem: 'energy',
@@ -42,6 +48,7 @@ export default defineAutomation({
     return {
       decision: 'notify',
       reason: 'points_increased',
+      facts: { credited: ctx.credited, balance: ctx.balance },
       actions: [
         notifyAction('mobile_app_adams_iphone', message),
         notifyAction('mobile_app_sarahs_iphone', message),

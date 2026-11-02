@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './away-detection.js';
 
 const RECENTLY = new Date(Date.now() - 10 * 60 * 1000).toISOString();
@@ -41,6 +42,7 @@ describe('house:away-detection', () => {
 
     expect(result.decision).toBe('set_away');
     expect(result.reason).toBe('all_left_door_recently');
+    expect(result.outcome).toBe('acted');
     expect(result.actions).toEqual([
       cancelVacationTimer,
       { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'away', impliesEntity: 'sensor.house_active_mode' },
@@ -58,6 +60,7 @@ describe('house:away-detection', () => {
 
     expect(result.decision).toBe('no_action');
     expect(result.reason).toBe('no_door_event');
+    expect(result.outcome).toBe('ignored');
     expect(result.actions).toEqual([cancelVacationTimer]);
   });
 
@@ -73,6 +76,7 @@ describe('house:away-detection', () => {
 
     expect(result.decision).toBe('set_normal');
     expect(result.reason).toBe('someone_returned');
+    expect(result.outcome).toBe('acted');
     expect(result.actions).toEqual([
       cancelVacationTimer,
       { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'normal', impliesEntity: 'sensor.house_active_mode' },
@@ -87,6 +91,7 @@ describe('house:away-detection', () => {
 
     expect(result.decision).toBe('no_action');
     expect(result.reason).toBe('not_in_away_mode');
+    expect(result.outcome).toBe('ignored');
     expect(result.actions).toEqual([cancelVacationTimer]);
   });
 
@@ -151,7 +156,9 @@ describe('house:away-detection', () => {
     });
 
     expect(result.decision).toBe('no_action');
-    expect(result.reason).toBe('sitter_present');
+    expect(result.reason).toBe('sitter_present_no_change');
+    expect(result.outcome).toBe('ignored');
+    expect(result.outcome).toBe('ignored');
     expect(result.actions).toEqual([cancelVacationTimer]);
   });
 
@@ -167,6 +174,7 @@ describe('house:away-detection', () => {
 
     expect(result.decision).toBe('set_normal');
     expect(result.reason).toBe('sitter_present');
+    expect(result.outcome).toBe('acted');
     expect(result.actions).toEqual([
       cancelVacationTimer,
       { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'normal', impliesEntity: 'sensor.house_active_mode' },
@@ -185,6 +193,7 @@ describe('house:away-detection', () => {
 
     expect(result.decision).toBe('set_normal');
     expect(result.reason).toBe('sitter_present');
+    expect(result.outcome).toBe('acted');
     expect(result.actions).toEqual([
       cancelVacationTimer,
       { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'normal', impliesEntity: 'sensor.house_active_mode' },
@@ -203,6 +212,7 @@ describe('house:away-detection', () => {
 
     expect(result.decision).toBe('set_away');
     expect(result.reason).toBe('sitter_mode_ended_house_empty');
+    expect(result.outcome).toBe('acted');
     expect(result.actions).toEqual([
       cancelVacationTimer,
       { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'away', impliesEntity: 'sensor.house_active_mode' },
@@ -222,6 +232,7 @@ describe('house:away-detection', () => {
 
     expect(result.decision).toBe('no_action');
     expect(result.reason).toBe('not_in_away_mode');
+    expect(result.outcome).toBe('ignored');
     expect(result.actions).toEqual([cancelVacationTimer]);
   });
 
@@ -241,6 +252,7 @@ describe('house:away-detection', () => {
 
       expect(result.decision).toBe('set_vacation');
       expect(result.reason).toBe('away_duration_exceeded');
+      expect(result.outcome).toBe('acted');
       expect(result.actions).toEqual([
         cancelVacationTimer,
         { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'vacation', impliesEntity: 'sensor.house_active_mode' },
@@ -334,6 +346,7 @@ describe('house:away-detection', () => {
 
       expect(result.decision).toBe('set_vacation');
       expect(result.reason).toBe('away_duration_exceeded');
+      expect(result.outcome).toBe('acted');
     });
   });
 });

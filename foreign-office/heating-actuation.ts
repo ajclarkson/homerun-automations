@@ -1,4 +1,4 @@
-import { defineAutomation, HomeAssistant } from '@ajclarkson/homerun';
+import { defineAutomation, HomeAssistant, type DeclaredDecision } from '@ajclarkson/homerun';
 
 const MODE_HELPERS: Record<string, string> = {
   comfort:        'input_number.global_temperature_comfort',
@@ -14,7 +14,22 @@ const PRICE_ENTITY = 'sensor.octopus_energy_electricity_24e8140196_1012483035417
 const OCCUPIED_ENTITY = 'binary_sensor.foreign_office_occupied';
 const SOURCE_ENTITY = 'sensor.foreign_office_heating_source';
 
+// Pushing the room's mode to its heater mirrors a mode the heating automation already reported, so
+// it is `ignored`, except when negative power prices upgrade an empty room to comfort: that is
+// `acted`. A mode that cannot be turned into a temperature is `declined`. `clamped_from` is the
+// unclamped setpoint, null when no clamp applied.
+export const HEATING_ACTUATION_REASONS = {
+  temperature_set_arbitrage: { outcome: 'acted', facts: ['mode', 'target', 'clamped_from'] },
+  temperature_set: { outcome: 'ignored', facts: ['mode', 'target', 'clamped_from'] },
+  helper_unavailable: { outcome: 'declined', facts: ['mode'] },
+  unknown_mode: { outcome: 'declined', facts: ['mode'] },
+  mode_unavailable: { outcome: 'ignored', facts: ['mode'] },
+} as const;
+
+type HeatingActuationDecision = DeclaredDecision<typeof HEATING_ACTUATION_REASONS>;
+
 export default defineAutomation({
+  reasons: HEATING_ACTUATION_REASONS,
   id: 'foreign_office:heating_actuation',
   location: 'foreign_office',
   subsystem: 'heating',
@@ -52,17 +67,17 @@ export default defineAutomation({
     return { mode, modeToTemp, arbitrageEligible };
   },
 
-  reduce: (ctx) => {
+  reduce: (ctx): HeatingActuationDecision => {
     const { mode, modeToTemp, arbitrageEligible } = ctx;
 
     if (!mode || mode === 'unknown' || mode === 'unavailable') {
-      return { decision: 'no_action', reason: `mode_unavailable:${mode}`, actions: [] };
+      return { decision: 'no_action', reason: 'mode_unavailable', facts: { mode: mode ?? null }, actions: [] };
     }
 
     const raw = modeToTemp[mode];
     if (raw === undefined) {
-      const reason = mode in MODE_HELPERS ? `helper_unavailable:${mode}` : `unknown_mode:${mode}`;
-      return { decision: 'no_action', reason, actions: [] };
+      const reason = mode in MODE_HELPERS ? 'helper_unavailable' as const : 'unknown_mode' as const;
+      return { decision: 'no_action', reason, facts: { mode }, actions: [] };
     }
 
     const comfortRaw = modeToTemp['comfort'];
@@ -71,12 +86,12 @@ export default defineAutomation({
     const effectiveRaw = arbitrageApplied ? comfortRaw! : raw;
 
     const temperature = Math.min(Math.max(effectiveRaw, MIN_SETPOINT_C), MAX_SETPOINT_C);
-    const clampNote = temperature !== effectiveRaw ? `(clamped_from_${effectiveRaw})` : '';
-    const arbitrageNote = arbitrageApplied ? '+arbitrage_negative_price' : '';
+    const facts = { mode: effectiveMode, target: temperature, clamped_from: temperature !== effectiveRaw ? effectiveRaw : null };
 
     return {
       decision: 'set_temperature',
-      reason: `${effectiveMode}@${temperature}${clampNote}${arbitrageNote}`,
+      reason: arbitrageApplied ? 'temperature_set_arbitrage' : 'temperature_set',
+      facts,
       actions: [
         HomeAssistant.climate.set_temperature({ entity_id: 'climate.foreign_office' }, { hvac_mode: 'heat', temperature }),
       ],

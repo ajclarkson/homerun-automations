@@ -1,7 +1,18 @@
-import { defineAutomation, abort } from '@ajclarkson/homerun';
+import { defineAutomation, abort, type DeclaredDecision } from '@ajclarkson/homerun';
 import { HEATING_ROOMS } from '../lib/heating-rooms.js';
 
+// The boiler call starting or stopping is what a person notices. The rooms are one comma-joined
+// fact so the reason stays static.
+export const BOILER_DEMAND_REASONS = {
+  demand: { outcome: 'acted', facts: ['rooms'] },
+  no_demand: { outcome: 'acted' },
+  heating_disabled: { outcome: 'acted' },
+} as const;
+
+type BoilerDecision = DeclaredDecision<typeof BOILER_DEMAND_REASONS>;
+
 export default defineAutomation({
+  reasons: BOILER_DEMAND_REASONS,
   id: 'house:boiler_demand',
   location: 'house',
   subsystem: 'heating',
@@ -31,40 +42,26 @@ export default defineAutomation({
     };
   },
 
-  reduce: (ctx) => {
+  reduce: (ctx): BoilerDecision => {
     const { heatingEnabled, callingRooms, demand } = ctx;
 
-    let decision = 'uninitialised';
-    let reason = 'uninitialised';
-    let setpoint = 5;
+    const actions = (setpoint: number) => [{
+      type: 'mqtt.publish' as const,
+      topic: 'zigbee2mqtt/boiler_receiver/set',
+      payload: JSON.stringify({
+        system_mode_heat: 'heat',
+        temperature_setpoint_hold_heat: 1,
+        occupied_heating_setpoint_heat: setpoint,
+      }),
+      retain: false,
+    }];
 
     if (!heatingEnabled) {
-      decision = 'boiler_off';
-      reason = 'heating_disabled';
-      setpoint = 5;
-    } else if (demand) {
-      decision = 'boiler_on';
-      reason = `demand:${callingRooms.join(',')}`;
-      setpoint = 30;
-    } else {
-      decision = 'boiler_off';
-      reason = 'no_demand';
-      setpoint = 5;
+      return { decision: 'boiler_off', reason: 'heating_disabled', actions: actions(5) };
     }
-
-    return {
-      decision,
-      reason,
-      actions: [{
-        type: 'mqtt.publish',
-        topic: 'zigbee2mqtt/boiler_receiver/set',
-        payload: JSON.stringify({
-          system_mode_heat: 'heat',
-          temperature_setpoint_hold_heat: 1,
-          occupied_heating_setpoint_heat: setpoint,
-        }),
-        retain: false,
-      }],
-    };
+    if (demand) {
+      return { decision: 'boiler_on', reason: 'demand', facts: { rooms: callingRooms.join(',') }, actions: actions(30) };
+    }
+    return { decision: 'boiler_off', reason: 'no_demand', actions: actions(5) };
   },
 });

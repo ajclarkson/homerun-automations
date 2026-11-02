@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './guest-mode.js';
 
 const trigger = {
@@ -19,7 +20,8 @@ describe('house:guest-mode', () => {
       state: { 'input_select.house_active_mode_modifier': { state: 'guest' } },
     });
 
-    expect(result.decision).toBe('guest_active');
+    expect(result).toMatchObject({ decision: 'guest_active', reason: 'guest_present', outcome: 'acted' });
+    expect(result.facts).toEqual({ modifier: 'guest' });
     expect(result.actions).toEqual([{
       type: 'ha.call_service',
       domain: 'input_boolean',
@@ -34,7 +36,8 @@ describe('house:guest-mode', () => {
       state: { 'input_select.house_active_mode_modifier': { state: 'none' } },
     });
 
-    expect(result.decision).toBe('guest_inactive');
+    expect(result).toMatchObject({ decision: 'guest_inactive', reason: 'guest_absent', outcome: 'acted' });
+    expect(result.facts).toEqual({ modifier: 'none' });
     expect(result.actions).toEqual([{
       type: 'ha.call_service',
       domain: 'input_boolean',
@@ -49,7 +52,8 @@ describe('house:guest-mode', () => {
       state: { 'input_select.house_active_mode_modifier': { state: 'sitter' } },
     });
 
-    expect(result.decision).toBe('guest_inactive');
+    expect(result).toMatchObject({ decision: 'guest_inactive', reason: 'guest_absent', outcome: 'acted' });
+    expect(result.facts).toEqual({ modifier: 'sitter' });
     expect(result.actions).toEqual([{
       type: 'ha.call_service',
       domain: 'input_boolean',

@@ -1,8 +1,18 @@
-import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
+import { defineAutomation, abort, HomeAssistant, type DeclaredDecision } from '@ajclarkson/homerun';
 
 const OVERTEMP_THRESHOLD_C = 25;
 
+// Switching the heater off for overtemperature is the notable event; the rest is monitoring.
+export const OVERTEMP_SAFETY_REASONS = {
+  overtemp_heater_on: { outcome: 'acted', facts: ['temp'] },
+  overtemp_heater_already_off: { outcome: 'ignored' },
+  temp_normal: { outcome: 'ignored' },
+} as const;
+
+type OvertempDecision = DeclaredDecision<typeof OVERTEMP_SAFETY_REASONS>;
+
 export default defineAutomation({
+  reasons: OVERTEMP_SAFETY_REASONS,
   id: 'foreign_office:overtemp_safety',
   location: 'foreign_office',
   subsystem: 'heating',
@@ -31,13 +41,14 @@ export default defineAutomation({
     };
   },
 
-  reduce: (ctx) => {
+  reduce: (ctx): OvertempDecision => {
     const { temp, heaterOn } = ctx;
 
     if (temp > OVERTEMP_THRESHOLD_C && heaterOn) {
       return {
         decision: 'turn_off_heater',
         reason: 'overtemp_heater_on',
+        facts: { temp: Math.round(temp * 10) / 10 },
         actions: [
           HomeAssistant.switch.turn_off({ entity_id: 'switch.foreign_office_plug_heater' }),
         ],

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from './declared-outcome.js';
 import { makeHeatingAutomation, type HeatingRoomConfig } from './heating-controller-factory.js';
 
 // ---- Test fixtures ----
@@ -84,6 +85,7 @@ describe('when automation is disabled', () => {
     const result = run({ [`input_boolean.${LOCATION}_automation_heating_enabled`]: { state: 'off' } });
     expect(result.decision).toBe('blocked');
     expect(result.reason).toBe('automation_disabled');
+    expect(result.outcome).toBe('ignored');
     expect(result.actions).toEqual([]);
   });
 });
@@ -95,7 +97,9 @@ describe('safety — window open', () => {
     const result = run({ [`binary_sensor.${LOCATION}_external_openings`]: { state: 'on' } });
     expect(result.decision).toBe('set_mode');
     expect(result.reason).toBe('safety_window_open');
+    expect(result.outcome).toBe('acted');
     expectModePublished(result.actions, 'minimum');
+    expect(result.facts).toEqual({ mode: 'minimum' });
     expectSourcePublished(result.actions, 'safety');
   });
 
@@ -105,7 +109,9 @@ describe('safety — window open', () => {
       'sensor.house_active_mode': { state: 'sleep' },
     });
     expect(result.reason).toBe('safety_window_open');
+    expect(result.outcome).toBe('acted');
     expectModePublished(result.actions, 'minimum');
+    expect(result.facts).toEqual({ mode: 'minimum' });
   });
 });
 
@@ -139,7 +145,9 @@ describe('safety — window open grace period', () => {
       [GRACE_HELPER]: { state: '2' },
     });
     expect(result.reason).toBe('safety_window_open');
+    expect(result.outcome).toBe('acted');
     expectModePublished(result.actions, 'minimum');
+    expect(result.facts).toEqual({ mode: 'minimum' });
   });
 
   it('cancels the grace timer once the window closes', () => {
@@ -166,6 +174,7 @@ describe('safety — window open grace period', () => {
       [GRACE_HELPER]: { state: 'unavailable' },
     });
     expect(result.reason).toBe('safety_window_open');
+    expect(result.outcome).toBe('acted');
   });
 
   it('forces minimum immediately when the open-since timestamp is unknown, failing toward the stricter behaviour', () => {
@@ -174,6 +183,7 @@ describe('safety — window open grace period', () => {
       [GRACE_HELPER]: { state: '2' },
     });
     expect(result.reason).toBe('safety_window_open');
+    expect(result.outcome).toBe('acted');
   });
 
   it('clamps an excessive grace value to MAX_WINDOW_GRACE_MINUTES', () => {
@@ -196,7 +206,9 @@ describe('safety — window open grace period', () => {
       },
     });
     expect(result.reason).toBe('safety_window_open');
+    expect(result.outcome).toBe('acted');
     expectModePublished(result.actions, 'minimum');
+    expect(result.facts).toEqual({ mode: 'minimum' });
   });
 });
 
@@ -205,7 +217,9 @@ describe('safety — house heating disabled (forceMinimum)', () => {
     const result = run({ 'input_boolean.house_heating_enabled': { state: 'off' } });
     expect(result.decision).toBe('set_mode');
     expect(result.reason).toBe('safety_heating_disabled');
+    expect(result.outcome).toBe('acted');
     expectModePublished(result.actions, 'minimum');
+    expect(result.facts).toEqual({ mode: 'minimum' });
     expectSourcePublished(result.actions, 'safety');
   });
 
@@ -215,6 +229,7 @@ describe('safety — house heating disabled (forceMinimum)', () => {
       'input_boolean.house_heating_enabled': { state: 'off' },
     });
     expect(result.reason).toBe('safety_window_open');
+    expect(result.outcome).toBe('acted');
   });
 
   it('does not force minimum when independent flag is set', () => {
@@ -234,7 +249,9 @@ describe('independent rooms opt out of house mode overrides', () => {
     );
     expect(result.reason).not.toMatch(/^house_mode/);
     expect(result.reason).toBe('schedule');
+    expect(result.outcome).toBe('acted');
     expectModePublished(result.actions, 'baseline_day');
+    expect(result.facts).toEqual({ mode: 'baseline_day' });
   });
 
   it('keeps following its own schedule when the house enters away mode', () => {
@@ -250,6 +267,7 @@ describe('independent rooms opt out of house mode overrides', () => {
   it('a non-independent room in the same house mode is still overridden', () => {
     const result = run({ 'sensor.house_active_mode': { state: 'sleep' } }, baseConfig);
     expect(result.reason).toBe('house_mode_sleep');
+    expect(result.outcome).toBe('acted');
   });
 });
 
@@ -260,20 +278,26 @@ describe('house mode overrides', () => {
     const result = run({ 'sensor.house_active_mode': { state: 'sleep' } });
     expect(result.decision).toBe('set_mode');
     expect(result.reason).toBe('house_mode_sleep');
+    expect(result.outcome).toBe('acted');
     expectModePublished(result.actions, 'baseline_night');
+    expect(result.facts).toEqual({ mode: 'baseline_night' });
     expectSourcePublished(result.actions, 'house_mode');
   });
 
   it('away mode maps to baseline_night, not minimum, so the cat is not left in a cold house', () => {
     const result = run({ 'sensor.house_active_mode': { state: 'away' } });
     expect(result.reason).toBe('house_mode_away');
+    expect(result.outcome).toBe('acted');
     expectModePublished(result.actions, 'baseline_night');
+    expect(result.facts).toEqual({ mode: 'baseline_night' });
   });
 
   it('vacation mode maps to minimum', () => {
     const result = run({ 'sensor.house_active_mode': { state: 'vacation' } });
     expect(result.reason).toBe('house_mode_vacation');
+    expect(result.outcome).toBe('acted');
     expectModePublished(result.actions, 'minimum');
+    expect(result.facts).toEqual({ mode: 'minimum' });
   });
 
   it('normal house mode does not override schedule', () => {
@@ -294,7 +318,9 @@ describe('manual override', () => {
     const result = run({ [`input_select.${LOCATION}_heating_manual_mode`]: { state: 'comfort' } });
     expect(result.decision).toBe('set_mode');
     expect(result.reason).toBe('manual_override');
+    expect(result.outcome).toBe('acted');
     expectModePublished(result.actions, 'comfort');
+    expect(result.facts).toEqual({ mode: 'comfort' });
     expectSourcePublished(result.actions, 'manual');
   });
 
@@ -328,13 +354,16 @@ describe('manual override', () => {
     expect(reset).toBeDefined();
     expect((reset as any).data?.option).toBe('auto');
     expectModePublished(result.actions, 'baseline_day');
+    expect(result.facts).toEqual({ mode: 'baseline_day' });
     expect(result.reason).toBe('schedule');
+    expect(result.outcome).toBe('acted');
   });
 
   it('manual override takes precedence over schedule', () => {
     // At 10:00 schedule says baseline_day; manual says comfort
     const result = run({ [`input_select.${LOCATION}_heating_manual_mode`]: { state: 'baseline_night' } });
     expectModePublished(result.actions, 'baseline_night');
+    expect(result.facts).toEqual({ mode: 'baseline_night' });
   });
 
   it('safety takes precedence over manual override', () => {
@@ -343,7 +372,9 @@ describe('manual override', () => {
       [`binary_sensor.${LOCATION}_external_openings`]: { state: 'on' },
     });
     expectModePublished(result.actions, 'minimum');
+    expect(result.facts).toEqual({ mode: 'minimum' });
     expect(result.reason).toBe('safety_window_open');
+    expect(result.outcome).toBe('acted');
   });
 
   it('house mode takes precedence over manual override', () => {
@@ -352,7 +383,9 @@ describe('manual override', () => {
       'sensor.house_active_mode': { state: 'away' },
     });
     expectModePublished(result.actions, 'baseline_night');
+    expect(result.facts).toEqual({ mode: 'baseline_night' });
     expect(result.reason).toBe('house_mode_away');
+    expect(result.outcome).toBe('acted');
   });
 
   it('treats unrecognised manual mode value as auto (falls through to schedule)', () => {
@@ -361,7 +394,9 @@ describe('manual override', () => {
       [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' },
     });
     expectModePublished(result.actions, 'baseline_day');
+    expect(result.facts).toEqual({ mode: 'baseline_day' });
     expect(result.reason).toBe('schedule');
+    expect(result.outcome).toBe('acted');
   });
 });
 
@@ -372,6 +407,7 @@ describe('schedule resolution', () => {
     // Wednesday 10:00 — in 06:00–16:00 block
     const result = run({ [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } }); // force a mode change
     expectModePublished(result.actions, 'baseline_day');
+    expect(result.facts).toEqual({ mode: 'baseline_day' });
     expectSourcePublished(result.actions, 'schedule');
   });
 
@@ -379,24 +415,28 @@ describe('schedule resolution', () => {
     pinTime('2026-01-07T18:00:00.000Z'); // Wednesday 18:00
     const result = run({ [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } });
     expectModePublished(result.actions, 'comfort');
+    expect(result.facts).toEqual({ mode: 'comfort' });
   });
 
   it('resolves baseline_night for overnight block', () => {
     pinTime('2026-01-07T23:00:00.000Z'); // Wednesday 23:00
     const result = run({ [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } });
     expectModePublished(result.actions, 'baseline_night');
+    expect(result.facts).toEqual({ mode: 'baseline_night' });
   });
 
   it('resolves overnight block correctly past midnight', () => {
     pinTime('2026-01-08T02:00:00.000Z'); // Thursday 02:00 — overnight from Wednesday
     const result = run({ [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } });
     expectModePublished(result.actions, 'baseline_night');
+    expect(result.facts).toEqual({ mode: 'baseline_night' });
   });
 
   it('uses weekend schedule on a Saturday', () => {
     pinTime('2026-01-10T14:00:00.000Z'); // Saturday 14:00
     const result = run({ [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } });
-    expectModePublished(result.actions, 'comfort'); // weekend 06:00–22:00 = comfort
+    expectModePublished(result.actions, 'comfort');
+    expect(result.facts).toEqual({ mode: 'comfort' }); // weekend 06:00–22:00 = comfort
   });
 
   it('prefers weekday_wfh_adam context when wfh_adam is on on a weekday', () => {
@@ -415,6 +455,7 @@ describe('schedule resolution', () => {
       wfhConfig,
     );
     expectModePublished(result.actions, 'comfort');
+    expect(result.facts).toEqual({ mode: 'comfort' });
   });
 
   it('falls back to weekday context when wfh_adam is off', () => {
@@ -433,6 +474,7 @@ describe('schedule resolution', () => {
       wfhConfig,
     );
     expectModePublished(result.actions, 'baseline_day');
+    expect(result.facts).toEqual({ mode: 'baseline_day' });
   });
 
   it('returns no_action when no schedule block matches', () => {
@@ -443,6 +485,7 @@ describe('schedule resolution', () => {
     const result = run({}, sparseConfig);
     expect(result.decision).toBe('no_action');
     expect(result.reason).toBe('no_schedule_match');
+    expect(result.outcome).toBe('ignored');
   });
 
   it('plans a schedule boundary timer for the next block end', () => {
@@ -476,7 +519,9 @@ describe('occupancy upgrade', () => {
       occupancyConfig,
     );
     expectModePublished(result.actions, 'comfort');
+    expect(result.facts).toEqual({ mode: 'comfort' });
     expect(result.reason).toBe('schedule_occupied');
+    expect(result.outcome).toBe('acted');
   });
 
   it('uses base mode when room is unoccupied', () => {
@@ -485,7 +530,9 @@ describe('occupancy upgrade', () => {
       occupancyConfig,
     );
     expectModePublished(result.actions, 'baseline_day');
+    expect(result.facts).toEqual({ mode: 'baseline_day' });
     expect(result.reason).toBe('schedule');
+    expect(result.outcome).toBe('acted');
   });
 
   it('ignores occupiedMode when not set on the block', () => {
@@ -496,7 +543,9 @@ describe('occupancy upgrade', () => {
       occupancyConfig,
     );
     expectModePublished(result.actions, 'comfort');
+    expect(result.facts).toEqual({ mode: 'comfort' });
     expect(result.reason).toBe('schedule');
+    expect(result.outcome).toBe('acted');
   });
 
   it('safety overrides occupied mode', () => {
@@ -508,7 +557,9 @@ describe('occupancy upgrade', () => {
       occupancyConfig,
     );
     expectModePublished(result.actions, 'minimum');
+    expect(result.facts).toEqual({ mode: 'minimum' });
     expect(result.reason).toBe('safety_window_open');
+    expect(result.outcome).toBe('acted');
   });
 
   it('manual override takes precedence over occupied mode', () => {
@@ -521,7 +572,9 @@ describe('occupancy upgrade', () => {
       occupancyConfig,
     );
     expectModePublished(result.actions, 'baseline_night');
+    expect(result.facts).toEqual({ mode: 'baseline_night' });
     expect(result.reason).toBe('manual_override');
+    expect(result.outcome).toBe('acted');
   });
 });
 
@@ -533,6 +586,7 @@ describe('no-op detection', () => {
     const result = run();
     expect(result.decision).toBe('maintain');
     expect(result.reason).toBe('no_change');
+    expect(result.outcome).toBe('ignored');
   });
 
   it('still plans the schedule timer when maintaining', () => {

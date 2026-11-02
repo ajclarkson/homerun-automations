@@ -40,7 +40,7 @@ Read `agent_docs/principles.md` — these are the rules that produce correct beh
 
 ## What not to do
 
-- New or changed automations declare their reasons (`reasons: { <reason>: { outcome, facts? } }` in `defineAutomation`). The lighting, occupancy, outdoor lighting and theme calendar factories do; the rest emit undeclared reasons until they are converted. Reason names and fact keys are static identifiers: split a rule whose outcome depends on the trigger into two reasons, and use `null` for an unknown fact, never omit it. Tests resolve each decision with `testDeclared` from `lib/declared-outcome.ts` so an undeclared reason or wrong fact fails the test.
+- Every automation declares its reasons (`reasons: { <reason>: { outcome, facts? } }` in `defineAutomation`); `lib/all-declared.test.ts` fails on one that does not. Outcomes: `acted` (a person would notice: a mode change, a device on or off, a notification, a boiler call), `declined` (a rule chose not to act and a person would want to know why), `ignored` (heartbeats, syncs, "already in state", bookkeeping; never stored in history). Reason names and fact keys are static identifiers: split a rule whose outcome depends on the trigger into two reasons, and use `null` for an unknown fact, never omit it. Tests resolve each decision with `testDeclared` from `lib/declared-outcome.ts` so an undeclared reason or wrong fact fails the test.
 
 - Do not hardcode entity IDs or room names inside shared factory functions — they must be derived from `location` config or discovered via HA labels.
 - Do not use `initial:` on HA helpers — it breaks state persistence across restarts.

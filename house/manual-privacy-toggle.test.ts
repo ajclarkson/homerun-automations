@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './manual-privacy-toggle.js';
 
 const trigger = {
@@ -16,7 +17,7 @@ describe('house:manual-privacy-toggle', () => {
       state: { 'switch.parlour_privacy': { state: 'on' } },
     });
 
-    expect(result.decision).toBe('disable_privacy');
+    expect(result).toMatchObject({ decision: 'disable_privacy', reason: 'button_double_press', outcome: 'acted' });
     expect(result.actions).toEqual([{
       type: 'ha.call_service',
       domain: 'switch',
@@ -31,7 +32,7 @@ describe('house:manual-privacy-toggle', () => {
       state: { 'switch.parlour_privacy': { state: 'off' } },
     });
 
-    expect(result.decision).toBe('enable_privacy');
+    expect(result).toMatchObject({ decision: 'enable_privacy', reason: 'button_double_press', outcome: 'acted' });
     expect(result.actions).toEqual([{
       type: 'ha.call_service',
       domain: 'switch',

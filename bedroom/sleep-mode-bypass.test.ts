@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './sleep-mode-bypass.js';
 
 const doublePressEvent = {
@@ -19,7 +20,8 @@ describe('bedroom:sleep_mode_bypass', () => {
       event: doublePressEvent,
       state: baseState,
     });
-    expect(result.decision).toBe('set_sleep_bypass');
+    expect(result).toMatchObject({ decision: 'set_sleep_bypass', reason: 'double_press_bypass', outcome: 'acted' });
+    expect(result.facts).toBeUndefined();
     expect(result.actions).toEqual([
       { type: 'mqtt.publish', topic: 'house/mode/active', payload: 'sleep', impliesEntity: 'sensor.house_active_mode' },
     ]);
@@ -30,7 +32,7 @@ describe('bedroom:sleep_mode_bypass', () => {
       event: doublePressEvent,
       state: { 'sensor.house_active_mode': { state: 'sleep' } },
     });
-    expect(result).toMatchObject({ decision: 'no_action', reason: 'already_in_sleep_mode' });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'already_in_sleep_mode', outcome: 'ignored' });
   });
 
   it('aborts when house mode is unavailable', () => {

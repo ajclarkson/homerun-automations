@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './camera-mode-sync.js';
 
 const trigger = {
@@ -22,8 +23,9 @@ describe('house:camera-mode-sync', () => {
       state: { ...baseState, 'sensor.house_active_mode': { state: 'away' } },
     });
 
-    expect(result.decision).toBe('cameras_on');
+    expect(result).toMatchObject({ decision: 'cameras_on', reason: 'house_away', outcome: 'acted' });
     expect(result.reason).toBe('house_away');
+    expect(result.outcome).toBe('acted');
     expect(result.actions).toEqual([
       { type: 'ha.call_service', domain: 'switch', service: 'turn_off', target: { entity_id: 'group.cameras_privacy' } },
     ]);
@@ -35,8 +37,9 @@ describe('house:camera-mode-sync', () => {
       state: { 'sensor.house_active_mode': { state: 'away' }, 'input_select.house_active_mode_modifier': { state: 'guest' } },
     });
 
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'away_but_guest_present', outcome: 'declined' });
     expect(result.reason).toBe('away_but_guest_present');
+    expect(result.outcome).toBe('declined');
     expect(result.actions).toHaveLength(0);
   });
 
@@ -46,7 +49,7 @@ describe('house:camera-mode-sync', () => {
       state: { ...baseState, 'sensor.house_active_mode': { state: 'sleep' } },
     });
 
-    expect(result.decision).toBe('sleep_mo_monitoring');
+    expect(result).toMatchObject({ decision: 'sleep_mo_monitoring', reason: 'sleep_kitchen_camera_on', outcome: 'acted' });
     expect(result.actions).toEqual([
       { type: 'ha.call_service', domain: 'switch', service: 'turn_on', target: { entity_id: 'group.cameras_privacy' } },
       { type: 'ha.call_service', domain: 'switch', service: 'turn_off', target: { entity_id: 'switch.kitchen_privacy' } },
@@ -59,8 +62,9 @@ describe('house:camera-mode-sync', () => {
       state: baseState,
     });
 
-    expect(result.decision).toBe('cameras_off');
+    expect(result).toMatchObject({ decision: 'cameras_off', reason: 'house_not_away', outcome: 'acted' });
     expect(result.reason).toBe('house_not_away');
+    expect(result.outcome).toBe('acted');
     expect(result.actions).toEqual([
       { type: 'ha.call_service', domain: 'switch', service: 'turn_on', target: { entity_id: 'group.cameras_privacy' } },
     ]);
@@ -72,8 +76,12 @@ describe('house:camera-mode-sync', () => {
       state: { ...baseState, 'sensor.house_active_mode': { state: 'vacation' } },
     });
 
-    expect(result.decision).toBe('no_action');
-    expect(result.reason).toBe('mode_not_managed:vacation');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'mode_not_managed', outcome: 'ignored' });
+    expect(result.facts).toEqual({ mode: 'vacation' });
+    expect(result.reason).toBe('mode_not_managed');
+    expect(result.outcome).toBe('ignored');
+    expect(result.facts).toEqual({ mode: 'vacation' });
+    expect(result.outcome).toBe('ignored');
     expect(result.actions).toHaveLength(0);
   });
 
@@ -91,8 +99,9 @@ describe('house:camera-mode-sync', () => {
       state: { 'sensor.house_active_mode': { state: 'away' }, 'input_select.house_active_mode_modifier': { state: 'guest' } },
     });
 
-    expect(result.decision).toBe('no_action');
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'away_but_guest_present', outcome: 'declined' });
     expect(result.reason).toBe('away_but_guest_present');
+    expect(result.outcome).toBe('declined');
   });
 
   it('aborts when house mode is unavailable', () => {

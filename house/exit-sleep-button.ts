@@ -1,7 +1,17 @@
 import { defineAutomation, abort } from '@ajclarkson/homerun';
 import type { TriggerEvent } from '@ajclarkson/homerun';
 
+// Leaving sleep mode is `acted`. A press that cannot leave sleep because someone is in bed or a
+// guest is staying is `declined`: the person pressing expects something to happen.
+export const EXIT_SLEEP_BUTTON_REASONS = {
+  button_pressed: { outcome: 'acted' },
+  bed_occupied: { outcome: 'declined' },
+  guest_mode_active: { outcome: 'declined' },
+  not_in_sleep_mode: { outcome: 'ignored' },
+} as const;
+
 export default defineAutomation({
+  reasons: EXIT_SLEEP_BUTTON_REASONS,
   id: 'house:exit_sleep_button',
   location: 'house',
   subsystem: 'house_mode',

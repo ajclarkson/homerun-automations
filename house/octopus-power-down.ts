@@ -45,7 +45,13 @@ function describeSession(event: AvailableEvent): string {
 // Joins every power down session (formerly "saving sessions") as soon as Octopus announces it.
 // `available_events` only lists sessions not yet joined, so a joined session drops out of it and
 // is never re-joined. on_start catches anything announced while offline.
+// Joining a power down session is `acted`; the count is a fact so the reason stays static.
+export const OCTOPUS_POWER_DOWN_REASONS = {
+  sessions_joined: { outcome: 'acted', facts: ['count'] },
+} as const;
+
 export default defineAutomation({
+  reasons: OCTOPUS_POWER_DOWN_REASONS,
   id: 'house:octopus_power_down_auto_join',
   location: 'house',
   subsystem: 'energy',
@@ -77,7 +83,8 @@ export default defineAutomation({
 
     return {
       decision: 'join',
-      reason: `${available.length}_available`,
+      reason: 'sessions_joined',
+      facts: { count: available.length },
       actions: [...available.map(joinAction), ...notifications],
     };
   },

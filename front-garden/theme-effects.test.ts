@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import type { HAContext } from '@ajclarkson/homerun';
 import automation from './theme-effects.js';
 
@@ -37,6 +37,7 @@ const fullBrightness = (entity_id: string) =>
 
 describe('front garden theme effects', () => {
   it('gives only the maple a full-brightness fireplace flicker for Halloween — the birch has its own animation', () => {
+    expect(settledOn('front_garden_halloween')).toMatchObject({ reason: 'theme_scene_settled', outcome: 'acted', facts: { theme: 'halloween' } });
     expect(settledOn('front_garden_halloween').actions).toEqual([effect(MAPLE, 'fireplace'), fullBrightness(MAPLE)]);
   });
 
@@ -48,6 +49,6 @@ describe('front garden theme effects', () => {
   });
 
   it('runs no effects for Autumn', () => {
-    expect(settledOn('front_garden_autumn')).toMatchObject({ decision: 'no_action', reason: 'no_effects_theme_active' });
+    expect(settledOn('front_garden_autumn')).toMatchObject({ decision: 'no_action', reason: 'no_effects_theme_active', outcome: 'ignored' });
   });
 });
