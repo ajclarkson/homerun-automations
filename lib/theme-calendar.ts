@@ -1,5 +1,5 @@
 import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
-import type { Action } from '@ajclarkson/homerun';
+import type { Action, DeclaredDecision } from '@ajclarkson/homerun';
 
 // ── Calendar rules ──────────────────────────────────────────────────────────────
 
@@ -133,6 +133,20 @@ export interface ThemeCalendarConfig {
 // Runs just after midnight, when outdoor lights are already off, so a switch never visibly jumps.
 export const CALENDAR_CRON = '5 0 * * *';
 
+// The quiet runs (`publish_calendar`) are all `ignored`, so they stay out of the garden's history
+// while still publishing the retained calendar view.
+export const THEME_CALENDAR_REASONS = {
+  calendar_boundary: { outcome: 'acted', facts: ['theme'] },
+  calendar_boundary_catch_up: { outcome: 'acted', facts: ['theme'] },
+  calendar_theme_not_an_option: { outcome: 'declined', facts: ['theme'] },
+  theme_changed_by_hand_today: { outcome: 'declined' },
+  calendar_disabled: { outcome: 'ignored' },
+  not_a_calendar_boundary: { outcome: 'ignored' },
+  already_on_todays_theme: { outcome: 'ignored' },
+} as const;
+
+type ThemeCalendarDecision = DeclaredDecision<typeof THEME_CALENDAR_REASONS>;
+
 interface ThemeCalendarContext {
   trigger: 'daily' | 'system';
   calendarEnabled: boolean;
@@ -154,7 +168,8 @@ export function makeThemeCalendarAutomation(config: ThemeCalendarConfig) {
   const themeEntity = `input_select.${location}_light_theme`;
   const enabledEntity = `input_boolean.${location}_light_theme_calendar_enabled`;
 
-  return defineAutomation<ThemeCalendarContext>({
+  return defineAutomation<ThemeCalendarContext, typeof THEME_CALENDAR_REASONS>({
+    reasons: THEME_CALENDAR_REASONS,
     id: `${location}:theme_calendar`,
     location,
     subsystem: 'lighting',
@@ -190,7 +205,7 @@ export function makeThemeCalendarAutomation(config: ThemeCalendarConfig) {
       };
     },
 
-    reduce: (ctx) => {
+    reduce: (ctx): ThemeCalendarDecision => {
       const { trigger, calendarEnabled, currentTheme, todayTheme, boundaryDay, stillOnYesterdaysTheme, targetIsOption, view } = ctx;
       validateView(view);
       // Every run publishes, so HA always sees the calendar as of today, retained across restarts.
@@ -201,7 +216,8 @@ export function makeThemeCalendarAutomation(config: ThemeCalendarConfig) {
         retain: true,
       };
       // Quiet runs keep the reason they did not switch, so Loki still says why.
-      const quiet = (reason: string) => ({ decision: 'publish_calendar', reason, actions: [publish] });
+      const quiet = (reason: 'calendar_disabled' | 'not_a_calendar_boundary' | 'already_on_todays_theme' | 'theme_changed_by_hand_today'): ThemeCalendarDecision =>
+        ({ decision: 'publish_calendar', reason, actions: [publish] });
 
       if (!calendarEnabled) return quiet('calendar_disabled');
       // Mid-period: leave whatever is selected, including a manual pick.
@@ -211,10 +227,13 @@ export function makeThemeCalendarAutomation(config: ThemeCalendarConfig) {
       // only catch up if the theme is still exactly what the calendar had yesterday.
       if (trigger === 'system' && !stillOnYesterdaysTheme) return quiet('theme_changed_by_hand_today');
       // Static reason (the theme is in conditions as todayTheme): a reason embedding a value cannot be declared.
-      if (!targetIsOption) return quiet('calendar_theme_not_an_option');
+      if (!targetIsOption) {
+        return { decision: 'publish_calendar', reason: 'calendar_theme_not_an_option', facts: { theme: todayTheme }, actions: [publish] };
+      }
       return {
         decision: 'switch_theme',
         reason: trigger === 'system' ? 'calendar_boundary_catch_up' : 'calendar_boundary',
+        facts: { theme: todayTheme },
         actions: [
           HomeAssistant.input_select.select_option({ entity_id: themeEntity }, { option: todayTheme }),
           publish,

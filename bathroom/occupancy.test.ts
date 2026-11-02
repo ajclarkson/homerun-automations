@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import occupancy from './occupancy.js';
 
 const SHOWER = 'binary_sensor.bathroom_shower';
@@ -27,7 +27,12 @@ describe('bathroom occupancy and the shower', () => {
   });
   it('holds the room occupied while water is running (once the hold label is applied)', () => {
     const r = testAutomation(occupancy, { event: ev('on'), state: state('on'), ha });
-    expect(r.reason).toBe('strong_hold_active');
+    expect(r).toMatchObject({ reason: 'evidence_still_present', outcome: 'ignored' });
+  });
+  it('declines to empty the room when the clear timer fires mid-shower, and says which hold', () => {
+    const timer = { type: 'timer_expired' as const, timerKey: 'bathroom:occupied_clear', correlation_id: 'c' };
+    const r = testAutomation(occupancy, { event: timer, state: state('on'), ha });
+    expect(r).toMatchObject({ decision: 'no_change', reason: 'strong_hold_active', outcome: 'declined', facts: { hold: SHOWER } });
   });
   it('starts the normal clear timer when the shower ends', () => {
     const r = testAutomation(occupancy, { event: ev('off'), state: state('off'), ha });

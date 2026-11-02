@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from './declared-outcome.js';
 import type { HAContext } from '@ajclarkson/homerun';
 import { makeLightingAutomation } from './lighting-controller-factory.js';
 
@@ -200,13 +201,13 @@ describe('makeLightingAutomation', () => {
       ['on', 'unknown'],
     ] as const)('new state invalid (%s -> %s): no scene, no publish, no timer', (from, to) => {
       const result = run(transition(from, to), withSensor(to));
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'occupancy_sensor_not_valid' });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'occupancy_sensor_not_valid', outcome: 'ignored' });
       expect(result.actions).toEqual([]);
     });
 
     it.each(['unavailable', 'unknown'] as const)('%s -> off starts a settle timer without touching lights', (from) => {
       const result = run(transition(from, 'off'), withSensor('off'));
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'occupancy_settle_pending' });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'occupancy_settle_pending', outcome: 'ignored' });
       expect(result.actions).toEqual([{ type: 'timer.start', timerKey: SETTLE_KEY, delayMs: 300_000 }]);
     });
 
@@ -217,13 +218,13 @@ describe('makeLightingAutomation', () => {
 
     it('does not start a settle timer when automation is disabled', () => {
       const result = run(transition('unknown', 'off'), { ...withSensor('off'), [`input_boolean.${LOCATION}_automation_lights_enabled`]: { state: 'off' } });
-      expect(result.reason).toBe('automation_disabled');
+      expect(result).toMatchObject({ reason: 'automation_disabled_idle', outcome: 'ignored' });
       expect(types(result)).not.toContain('timer.start');
     });
 
     it('sensor returning on after an outage cancels the settle timer and leaves lights alone', () => {
       const result = run(transition('unknown', 'on'), withSensor('on'));
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'occupancy_sensor_restored_on' });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'occupancy_sensor_restored_on', outcome: 'ignored' });
       expect(result.actions).toEqual([{ type: 'timer.cancel', timerKey: SETTLE_KEY }]);
     });
 
@@ -233,7 +234,7 @@ describe('makeLightingAutomation', () => {
       expect(results.map((r) => r.reason)).toEqual(['occupancy_sensor_not_valid', 'occupancy_sensor_not_valid', 'occupancy_settle_pending']);
       results.forEach((r) => expect(hasOffScene(r)).toBe(false));
       const fired = run(settleEvent(), withSensor('off'));
-      expect(fired).toMatchObject({ decision: 'turn_off', reason: 'occupancy_settle_off' });
+      expect(fired).toMatchObject({ decision: 'turn_off', reason: 'occupancy_settle_off', outcome: 'acted' });
       expect(hasOffScene(fired)).toBe(true);
       expect(fired.actions).toContainEqual({ type: 'timer.start', timerKey: `${LOCATION}:lighting_recent_auto_off`, delayMs: 300_000 });
       expect(publishesAutoOff(fired)).toBe(true);
@@ -248,19 +249,19 @@ describe('makeLightingAutomation', () => {
       expect(hasOffScene(back)).toBe(false);
       // Even if the cancel were lost, firing with sensor on does nothing.
       const fired = run(settleEvent(), withSensor('on'));
-      expect(fired).toMatchObject({ decision: 'no_action', reason: 'occupancy_settle_sensor_on' });
+      expect(fired).toMatchObject({ decision: 'no_action', reason: 'occupancy_settle_sensor_on', outcome: 'ignored' });
       expect(fired.actions).toEqual([]);
     });
 
     it.each(['unavailable', 'unknown'])('settle timer firing with sensor %s does nothing and does not re-arm', (st) => {
       const fired = run(settleEvent(), withSensor(st));
-      expect(fired).toMatchObject({ decision: 'no_action', reason: 'occupancy_settle_sensor_not_valid' });
+      expect(fired).toMatchObject({ decision: 'no_action', reason: 'occupancy_settle_sensor_not_valid', outcome: 'ignored' });
       expect(fired.actions).toEqual([]);
     });
 
     it('settle timer firing with lights already off does nothing', () => {
       const fired = run(settleEvent(), withSensor('off', baseState));
-      expect(fired).toMatchObject({ decision: 'no_action', reason: 'occupancy_settle_already_off' });
+      expect(fired).toMatchObject({ decision: 'no_action', reason: 'occupancy_settle_already_off', outcome: 'ignored' });
       expect(fired.actions).toEqual([]);
     });
 
@@ -471,6 +472,110 @@ describe('makeLightingAutomation', () => {
         ha: makeHa(),
       });
       expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled' });
+    });
+  });
+
+  describe('what the decision says about itself (outcome and facts)', () => {
+    const occupied = { ...baseState, [`binary_sensor.${LOCATION}_occupied`]: { state: 'on' } };
+    // A sensor with no reading reports 'unavailable', which parses to no lux.
+    const withLux = (lux: string | null, extra: Record<string, { state: string }> = {}) => ({
+      ...occupied,
+      [`sensor.${LOCATION}_sensor_motion_illuminance`]: { state: lux ?? 'unavailable' },
+      ...extra,
+    });
+    const disabled = { [`input_boolean.${LOCATION}_automation_lights_enabled`]: { state: 'off' } };
+    const sleeping = { 'sensor.house_active_mode': { state: 'sleep' } };
+    const lightsOn = { [`sensor.${LOCATION}_active_scene`]: { state: `${LOCATION}_low` } };
+    const SUPPRESSOR = 'binary_sensor.test_room_bed_occupied';
+    const run = (event: Parameters<typeof testAutomation>[1]['event'], state: Record<string, { state: string }>, ha = makeHa(), auto = automation) =>
+      testAutomation(auto, { event, state, ha });
+
+    it('acts with the rounded lux and threshold when it is dark enough', () => {
+      const r = run(occupancyEvent('on'), withLux('10.6', { [`input_number.${LOCATION}_automation_lux_threshold_dark`]: { state: '15.4' } }));
+      expect(r).toMatchObject({ reason: 'lux_low', outcome: 'acted' });
+      expect(r.facts).toEqual({ lux: 11, lux_threshold: 15 });
+    });
+
+    it('acts with a null lux when there is no reading, because the lights still come on', () => {
+      const r = run(occupancyEvent('on'), withLux(null));
+      expect(r).toMatchObject({ reason: 'lux_low', outcome: 'acted' });
+      expect(r.facts).toEqual({ lux: null, lux_threshold: 15 });
+    });
+
+    it('declines with the rounded lux and threshold when the room is bright enough', () => {
+      const r = run(occupancyEvent('on'), withLux('84.5'));
+      expect(r).toMatchObject({ reason: 'lux_high', outcome: 'declined' });
+      expect(r.facts).toEqual({ lux: 85, lux_threshold: 15 });
+    });
+
+    it('acts without facts when the room was only just emptied', () => {
+      const r = run(occupancyEvent('on'), withLux('100', { [`binary_sensor.${LOCATION}_lighting_recent_auto_off`]: { state: 'on' } }));
+      expect(r).toMatchObject({ reason: 'recent_auto_off', outcome: 'acted' });
+      expect(r.facts).toBeUndefined();
+    });
+
+    it('ignores an occupancy change when the lights are already on', () => {
+      const r = run(occupancyEvent('on'), withLux('10', lightsOn));
+      expect(r).toMatchObject({ reason: 'already_on', outcome: 'ignored' });
+      expect(r.facts).toBeUndefined();
+    });
+
+    it.each([
+      ['the room empties', occupancyEvent('off'), baseState, 'occupancy_off'],
+      ['the wall button is held', buttonEvent('hold'), baseState, 'button_off'],
+      ['the house goes to sleep', houseModeEvent('sleep'), baseState, 'house_sleep_mode'],
+    ] as const)('acts without facts when %s', (_name, event, state, reason) => {
+      const r = run(event, state);
+      expect(r).toMatchObject({ reason, outcome: 'acted' });
+      expect(r.facts).toBeUndefined();
+    });
+
+    it('acts with the scene it moved to when the wall button is pressed', () => {
+      const r = run(buttonEvent('single_press'), { ...baseState, ...lightsOn });
+      expect(r).toMatchObject({ reason: 'button_cycle', outcome: 'acted' });
+      expect(r.facts).toEqual({ scene: `${LOCATION}_daylight` });
+    });
+
+    it('declines when sleep mode blocks the lights', () => {
+      const r = run(occupancyEvent('on'), { ...occupied, ...sleeping }, makeHa(), automationSleepBlocked);
+      expect(r).toMatchObject({ reason: 'sleep_mode', outcome: 'declined' });
+    });
+
+    it('declines in a guest room that bypasses sleep mode', () => {
+      const guest = { 'input_select.house_active_mode_modifier': { state: 'guest' }, [`input_boolean.${LOCATION}_automation_presence_override`]: { state: 'on' } };
+      const r = run(houseModeEvent('sleep'), { ...baseState, ...guest });
+      expect(r).toMatchObject({ reason: 'guest_room_sleep_bypass', outcome: 'declined' });
+    });
+
+    it('declines and names the entity that suppresses the lights', () => {
+      const r = run(occupancyEvent('on'), { ...occupied, [SUPPRESSOR]: { state: 'on' } }, makeHa({ suppressEntity: SUPPRESSOR }));
+      expect(r).toMatchObject({ reason: 'external_suppress_active', outcome: 'declined' });
+      expect(r.facts).toEqual({ source: SUPPRESSOR });
+    });
+
+    it('declines when someone walks in and the automation is off', () => {
+      const r = run(occupancyEvent('on'), { ...occupied, ...disabled });
+      expect(r).toMatchObject({ reason: 'automation_disabled', outcome: 'declined' });
+      expect(r.facts).toBeUndefined();
+    });
+
+    it.each([
+      ['the room empties', occupancyEvent('off')],
+      ['the wall button is pressed', buttonEvent('single_press')],
+      ['the house goes to sleep', houseModeEvent('sleep')],
+      ['homerun restarts', onStartEvent()],
+    ] as const)('ignores it when the automation is off and %s', (_name, event) => {
+      const r = run(event, { ...baseState, ...disabled });
+      expect(r).toMatchObject({ reason: 'automation_disabled_idle', outcome: 'ignored' });
+    });
+
+    it('ignores the recent-auto-off timer expiring, and a restart', () => {
+      expect(run(timerEvent(), baseState)).toMatchObject({ reason: 'recent_auto_off_expired', outcome: 'ignored' });
+      expect(run(onStartEvent(), baseState)).toMatchObject({ reason: 'startup_check_ok', outcome: 'ignored' });
+    });
+
+    it('ignores house mode changes that are not sleep', () => {
+      expect(run(houseModeEvent('away'), baseState)).toMatchObject({ reason: 'no_matching_rule', outcome: 'ignored' });
     });
   });
 

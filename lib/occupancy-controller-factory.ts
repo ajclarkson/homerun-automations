@@ -9,6 +9,24 @@ export interface OccupancyRoomConfig {
   extraTriggers?: Trigger[];
 }
 
+// Reasons are static, so a rule whose outcome depends on the room's prior state is split:
+// marking the room occupied or empty is `acted`; a strong hold refusing to let the clear
+// timer empty the room is `declined` (a person asks "why is it still occupied?"); the rest is noise.
+export const OCCUPANCY_REASONS = {
+  motion_detected: { outcome: 'acted' },
+  strong_hold_started: { outcome: 'acted', facts: ['hold'] },
+  timer_expired: { outcome: 'acted' },
+  containment_failsafe_expired: { outcome: 'acted' },
+  strong_hold_active: { outcome: 'declined', facts: ['hold'] },
+  evidence_still_present: { outcome: 'ignored' },
+  motion_disabled_ignore_pir: { outcome: 'ignored' },
+  timer_expired_already_empty: { outcome: 'ignored' },
+  door_open_tighten_timer: { outcome: 'ignored' },
+  contained_failsafe_wait: { outcome: 'ignored' },
+  normal_clear_timer: { outcome: 'ignored' },
+  already_unoccupied: { outcome: 'ignored' },
+} as const;
+
 type OccupancyTrigger =
   | { type: 'motion'; to: 'on' | 'off' }
   | { type: 'state_change'; entity: string; to: string }
@@ -23,6 +41,8 @@ interface OccupancyContext {
   motionActive: boolean;
   pirTriggered: boolean;
   strongHoldActive: boolean;
+  /** Entity id of the first active strong hold (sorted, so it is stable), or null. */
+  activeHold: string | null;
   evidenceNow: boolean;
   isDoorMsg: boolean;
   sealedNow: boolean;
@@ -53,7 +73,8 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
   const containmentMaxMs = containmentMaxMins * 60_000;
   const reopenTightenMs = reopenTightenMins * 60_000;
 
-  return defineAutomation<OccupancyContext>({
+  return defineAutomation<OccupancyContext, typeof OCCUPANCY_REASONS>({
+    reasons: OCCUPANCY_REASONS,
     id: `${location}:occupancy`,
     location,
     subsystem: 'occupied',
@@ -98,11 +119,12 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
       const motionActive = motionEnabled && pirRaw;
       const pirTriggered = sourceEntity === motionSensor && sourceValue === 'on';
 
-      const strongHoldActive = strongHoldEntities.some(e => {
+      const activeHold = [...strongHoldEntities].sort().find(e => {
         const override = ha.labelsFor(e).find(l => l.startsWith('presence_hold_state_'));
         const holdState = override ? override.slice('presence_hold_state_'.length) : 'on';
         return readState(e) === holdState;
-      });
+      }) ?? null;
+      const strongHoldActive = activeHold !== null;
 
       const isDoorMsg = doorEntities.some(e => e === sourceEntity);
       const sealedNow =
@@ -116,7 +138,7 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
       return {
         location, trigger,
         motionEnabled, pirRaw, motionActive, pirTriggered,
-        strongHoldActive, evidenceNow, isDoorMsg, sealedNow,
+        strongHoldActive, activeHold, evidenceNow, isDoorMsg, sealedNow,
         occupiedBefore, containedBefore,
         sourceEntity, sourceValue,
       };
@@ -125,7 +147,7 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
     reduce: (ctx) => {
       const {
         trigger, motionEnabled, pirRaw, motionActive, pirTriggered,
-        strongHoldActive, evidenceNow, isDoorMsg, sealedNow,
+        strongHoldActive, activeHold, evidenceNow, isDoorMsg, sealedNow,
         occupiedBefore, containedBefore,
         sourceValue,
       } = ctx;
@@ -163,11 +185,16 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
         if (!occupiedBefore) publish(occupiedTopic, 'ON', occupiedEntity);
         publishContainedIfChanged();
         timerCancel();
-        return {
-          decision: occupiedBefore ? 'no_change' : 'set_occupied',
-          reason: strongHoldActive ? 'strong_hold_active' : 'motion_detected',
-          actions,
-        };
+        if (!occupiedBefore) {
+          return strongHoldActive
+            ? { decision: 'set_occupied', reason: 'strong_hold_started', facts: { hold: activeHold }, actions }
+            : { decision: 'set_occupied', reason: 'motion_detected', actions };
+        }
+        // Declined only when the clear timer ran out and the hold overruled it; every other
+        // trigger merely re-confirms a room that is already occupied.
+        return isTimer && strongHoldActive
+          ? { decision: 'no_change', reason: 'strong_hold_active', facts: { hold: activeHold }, actions }
+          : { decision: 'no_change', reason: 'evidence_still_present', actions };
       }
 
       // Branch 2: Clear timer fired — mark unoccupied
@@ -176,8 +203,9 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
         // Explicitly clear containment regardless of computed containedNext,
         // because the timer expiry always terminates containment
         if (containedBefore) publish(containedTopic, 'OFF', containedEntity);
+        if (!occupiedBefore) return { decision: 'no_change', reason: 'timer_expired_already_empty', actions };
         return {
-          decision: occupiedBefore ? 'clear_occupied' : 'no_change',
+          decision: 'clear_occupied',
           reason: containedBefore ? 'containment_failsafe_expired' : 'timer_expired',
           actions,
         };

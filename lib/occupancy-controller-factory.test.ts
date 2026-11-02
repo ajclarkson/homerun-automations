@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { testAutomation } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from './declared-outcome.js';
 import type { HAContext } from '@ajclarkson/homerun';
 import { makeOccupancyAutomation } from './occupancy-controller-factory.js';
 
@@ -84,7 +84,7 @@ describe('makeOccupancyAutomation', () => {
         state: baseState,
         ha: noHolds,
       });
-      expect(result).toMatchObject({ decision: 'set_occupied', reason: 'motion_detected' });
+      expect(result).toMatchObject({ decision: 'set_occupied', reason: 'motion_detected', outcome: 'acted' });
       expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/state`, payload: 'ON', retain: true, impliesEntity: `binary_sensor.${LOCATION}_occupied` });
       expect(result.actions).toContainEqual({ type: 'timer.cancel', timerKey: TIMER_KEY });
     });
@@ -95,7 +95,7 @@ describe('makeOccupancyAutomation', () => {
         state: occupiedState,
         ha: noHolds,
       });
-      expect(result).toMatchObject({ decision: 'no_change', reason: 'motion_detected' });
+      expect(result).toMatchObject({ decision: 'no_change', reason: 'evidence_still_present', outcome: 'ignored' });
       expect(result.actions).not.toContainEqual(expect.objectContaining({ payload: 'ON' }));
       expect(result.actions).toContainEqual({ type: 'timer.cancel', timerKey: TIMER_KEY });
     });
@@ -106,7 +106,7 @@ describe('makeOccupancyAutomation', () => {
         state: baseState,
         ha: withStrongHold,
       });
-      expect(result).toMatchObject({ decision: 'set_occupied', reason: 'strong_hold_active' });
+      expect(result).toMatchObject({ decision: 'set_occupied', reason: 'strong_hold_started', outcome: 'acted', facts: { hold: PRESENCE_OVERRIDE } });
       expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/state`, payload: 'ON', retain: true, impliesEntity: `binary_sensor.${LOCATION}_occupied` });
     });
 
@@ -116,7 +116,7 @@ describe('makeOccupancyAutomation', () => {
         state: occupiedState,
         ha: withStrongHold,
       });
-      expect(result).toMatchObject({ decision: 'no_change', reason: 'strong_hold_active' });
+      expect(result).toMatchObject({ decision: 'no_change', reason: 'evidence_still_present' });
       expect(result.actions).toContainEqual({ type: 'timer.cancel', timerKey: TIMER_KEY });
     });
 
@@ -126,7 +126,7 @@ describe('makeOccupancyAutomation', () => {
         state: { ...baseState, [PRESENCE_OVERRIDE]: { state: 'on' } },
         ha: withStrongHold,
       });
-      expect(result).toMatchObject({ reason: 'strong_hold_active' });
+      expect(result).toMatchObject({ reason: 'strong_hold_started', facts: { hold: PRESENCE_OVERRIDE } });
     });
 
     describe('custom hold state via presence_hold_state_ label', () => {
@@ -142,7 +142,7 @@ describe('makeOccupancyAutomation', () => {
           state: { ...baseState, [MEDIA_PLAYER]: { state: 'playing' } },
           ha: withMediaHold,
         });
-        expect(result).toMatchObject({ decision: 'set_occupied', reason: 'strong_hold_active' });
+        expect(result).toMatchObject({ decision: 'set_occupied', reason: 'strong_hold_started', facts: { hold: MEDIA_PLAYER } });
       });
 
       it('does not hold when entity is in a different state', () => {
@@ -192,7 +192,7 @@ describe('makeOccupancyAutomation', () => {
         state: { ...occupiedState, [PRESENCE_OVERRIDE]: { state: 'on' }, [MOTION_SENSOR]: { state: 'on' } },
         ha: withStrongHold,
       });
-      expect(result).toMatchObject({ reason: 'motion_detected' });
+      expect(result).toMatchObject({ reason: 'evidence_still_present' });
       expect(result.actions).toContainEqual({ type: 'timer.cancel', timerKey: TIMER_KEY });
     });
   });
@@ -215,7 +215,7 @@ describe('makeOccupancyAutomation', () => {
         state: { ...occupiedState, [MOTION_SENSOR]: { state: 'on' }, [DOOR_ENTITY]: { state: 'off' } },
         ha: withDoor,
       });
-      expect(result).toMatchObject({ reason: 'motion_detected' });
+      expect(result).toMatchObject({ reason: 'evidence_still_present' });
       expect(result.actions).toContainEqual({ type: 'timer.cancel', timerKey: TIMER_KEY });
     });
 
@@ -249,7 +249,7 @@ describe('makeOccupancyAutomation', () => {
         state: baseState,
         ha: noHolds,
       });
-      expect(result).toMatchObject({ decision: 'no_change', reason: 'timer_expired' });
+      expect(result).toMatchObject({ decision: 'no_change', reason: 'timer_expired_already_empty', outcome: 'ignored' });
       expect(result.actions).not.toContainEqual(expect.objectContaining({ topic: `${LOCATION}/occupied/state`, payload: 'OFF' }));
     });
 

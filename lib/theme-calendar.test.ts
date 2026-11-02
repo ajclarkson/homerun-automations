@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { testAutomation, testAbort } from '@ajclarkson/homerun/testing';
+import { testAbort } from '@ajclarkson/homerun/testing';
+import { testDeclared as testAutomation } from './declared-outcome.js';
 import { themeFor, nextChange, unknownThemes, validateCalendar, makeThemeCalendarAutomation, CALENDAR_CRON, type CalendarEntry } from './theme-calendar.js';
 
 const day = (y: number, m: number, d: number) => new Date(y, m - 1, d, 12, 0);
@@ -139,7 +140,7 @@ describe('following the calendar', () => {
     ] as const)('switches the theme when %s', (_name, [y, m, d], from, to) => {
       at(y, m, d);
       const result = run(daily, from);
-      expect(result).toMatchObject({ decision: 'switch_theme', reason: 'calendar_boundary' });
+      expect(result).toMatchObject({ decision: 'switch_theme', reason: 'calendar_boundary', outcome: 'acted', facts: { theme: to } });
       expect(result.actions).toEqual([selectCall(to), publishCall()]);
     });
 
@@ -151,7 +152,7 @@ describe('following the calendar', () => {
 
     it('does nothing if the theme was already set to the new one by hand', () => {
       at(2026, 12, 1);
-      expect(run(daily, 'christmas')).toMatchObject({ decision: 'publish_calendar', reason: 'already_on_todays_theme' });
+      expect(run(daily, 'christmas')).toMatchObject({ decision: 'publish_calendar', reason: 'already_on_todays_theme', outcome: 'ignored' });
     });
   });
 
@@ -163,7 +164,7 @@ describe('following the calendar', () => {
     ] as const)('leaves a manual pick alone %s', (_name, [y, m, d]) => {
       at(y, m, d);
       const result = run(daily, 'bonfire');
-      expect(result).toMatchObject({ decision: 'publish_calendar', reason: 'not_a_calendar_boundary' });
+      expect(result).toMatchObject({ decision: 'publish_calendar', reason: 'not_a_calendar_boundary', outcome: 'ignored' });
       expect(result.actions).toEqual([publishCall()]);
     });
   });
@@ -172,13 +173,13 @@ describe('following the calendar', () => {
     it('catches up a switch missed while homerun was down, if the theme is still yesterday\'s', () => {
       at(2026, 11, 5, 9, 0);
       const result = run(onStart, 'autumn');
-      expect(result).toMatchObject({ decision: 'switch_theme', reason: 'calendar_boundary_catch_up' });
+      expect(result).toMatchObject({ decision: 'switch_theme', reason: 'calendar_boundary_catch_up', outcome: 'acted', facts: { theme: 'bonfire' } });
       expect(result.actions).toEqual([selectCall('bonfire'), publishCall()]);
     });
 
     it('leaves the theme alone if someone already changed it by hand today', () => {
       at(2026, 11, 5, 9, 0);
-      expect(run(onStart, 'normal')).toMatchObject({ decision: 'publish_calendar', reason: 'theme_changed_by_hand_today' });
+      expect(run(onStart, 'normal')).toMatchObject({ decision: 'publish_calendar', reason: 'theme_changed_by_hand_today', outcome: 'declined' });
     });
 
     it('does nothing on a day the calendar does not change', () => {
@@ -194,7 +195,7 @@ describe('following the calendar', () => {
         event: daily,
         state: { [TOGGLE]: { state: 'on' }, [THEME]: { state: 'autumn', attributes: { options: OPTIONS } } },
       });
-      expect(result).toMatchObject({ decision: 'publish_calendar', reason: 'calendar_theme_not_an_option' });
+      expect(result).toMatchObject({ decision: 'publish_calendar', reason: 'calendar_theme_not_an_option', outcome: 'declined', facts: { theme: 'thanksgiving' } });
       expect(result.conditions).toMatchObject({ todayTheme: 'thanksgiving' });
       expect(result.actions).toEqual([publishCall()]);
     });
@@ -204,7 +205,7 @@ describe('following the calendar', () => {
     it('never changes the theme, even on a boundary day', () => {
       at(2026, 11, 5);
       const result = run(daily, 'autumn', { [TOGGLE]: { state: 'off' } });
-      expect(result).toMatchObject({ decision: 'publish_calendar', reason: 'calendar_disabled' });
+      expect(result).toMatchObject({ decision: 'publish_calendar', reason: 'calendar_disabled', outcome: 'ignored' });
       expect(result.actions).toEqual([publishCall()]);
     });
   });
