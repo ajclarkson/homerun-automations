@@ -201,7 +201,7 @@ describe('theme effects', () => {
       ['a restart', onStart, activeScene(SPOOKY_SCENE)],
     ] as const)('leaves the lights alone on %s', (_name, event, state) => {
       const result = run(event, { ...state, ...disabled });
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled', outcome: 'ignored' });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled_idle', outcome: 'ignored' });
       expect(result.actions).toEqual([]);
     });
   });

@@ -54,4 +54,22 @@ describe('every automation declares its reasons', () => {
     const ids = (await loadAll()).map(({ automation }) => automation.id);
     expect(ids.filter((id, i) => ids.indexOf(id) !== i)).toEqual([]);
   });
+
+  // Pulse words a reason by `subsystem:reason`, so automations sharing a subsystem must give a shared
+  // reason name one meaning. Differing meanings take distinct names (e.g. `_idle`, `_restore`).
+  it('gives a reason name shared within a subsystem the same outcome and fact keys', async () => {
+    const seen = new Map<string, { id: string; outcome: string; facts: string }>();
+    const problems: string[] = [];
+    for (const { automation } of await loadAll()) {
+      for (const [name, spec] of Object.entries(automation.reasons ?? {})) {
+        const key = `${automation.subsystem}:${name}`;
+        const here = { id: automation.id, outcome: spec.outcome, facts: [...(spec.facts ?? [])].sort().join(',') };
+        const first = seen.get(key);
+        if (!first) { seen.set(key, here); continue; }
+        if (first.outcome !== here.outcome) problems.push(`${key}: outcome ${first.outcome} in ${first.id} but ${here.outcome} in ${here.id}`);
+        if (first.facts !== here.facts) problems.push(`${key}: facts [${first.facts}] in ${first.id} but [${here.facts}] in ${here.id}`);
+      }
+    }
+    expect(problems).toEqual([]);
+  });
 });

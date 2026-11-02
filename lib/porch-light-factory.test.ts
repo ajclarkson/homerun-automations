@@ -140,7 +140,7 @@ describe('Porch light on motion', () => {
 
     it('puts the porch back if the automation is switched off while it is warm', () => {
       const result = run(motion('off'), { [PORCH]: warmLook, [`input_boolean.${LOCATION}_automation_lights_enabled`]: { state: 'off' } });
-      expect(result).toMatchObject({ decision: 'restore', reason: 'automation_disabled', outcome: 'acted' });
+      expect(result).toMatchObject({ decision: 'restore', reason: 'automation_disabled_restore', outcome: 'acted' });
       expect(result.actions).toEqual([cancel(HOLD_TIMER), cancel(SETTLE_TIMER), ...restoreActions]);
     });
   });

@@ -279,13 +279,13 @@ describe('Halloween animation', () => {
 
     it('stops the animation if automatic lights are switched off mid-evening', () => {
       const result = run(timer(TIMERS.drift), { ...halloweenOn, ...disabled });
-      expect(result).toMatchObject({ decision: 'stop_animation', reason: 'automation_disabled', outcome: 'ignored' });
+      expect(result).toMatchObject({ decision: 'stop_animation', reason: 'automation_disabled_idle', outcome: 'ignored' });
       expect(result.actions).toEqual(cancelAll);
     });
 
     it('does not start when automatic lights are switched off', () => {
       const result = run(sceneActivated(HALLOWEEN), { ...halloweenOn, ...disabled });
-      expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled', outcome: 'ignored' });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled_idle', outcome: 'ignored' });
       expect(result.actions).toEqual([]);
     });
   });
