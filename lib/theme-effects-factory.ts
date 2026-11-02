@@ -2,15 +2,16 @@ import { defineAutomation, HomeAssistant } from '@ajclarkson/homerun';
 import type { Action, DeclaredDecision } from '@ajclarkson/homerun';
 import { isSceneActivation } from './scene-activation.js';
 
-// Starting or stopping effects is what a person sees (`acted`). Scheduling the start and the
+// Starting or stopping effects is what a person sees (`acted`); re-applying the running effect after a
+// restart is not, so `startup_with_theme_active` is `ignored`. Scheduling the start and the
 // scene bookkeeping are `ignored`: the start itself is reported when the scene has settled.
 export const THEME_EFFECTS_REASONS = {
   theme_scene_settled: { outcome: 'acted', facts: ['theme'] },
-  startup_with_theme_active: { outcome: 'acted', facts: ['theme'] },
   scene_without_effects_activated: { outcome: 'acted' },
   no_lights_in_theme_roles: { outcome: 'declined', facts: ['theme'] },
   automation_disabled: { outcome: 'ignored' },
   scene_reloaded_not_activated: { outcome: 'ignored' },
+  startup_with_theme_active: { outcome: 'ignored', facts: ['theme'] },
   theme_scene_activated: { outcome: 'ignored', facts: ['theme'] },
   off_scene_activated: { outcome: 'ignored' },
   no_effect_lights: { outcome: 'ignored' },

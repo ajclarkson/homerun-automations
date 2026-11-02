@@ -14,14 +14,15 @@ const LOCATION = 'front_garden';
 const FEATURE_LABEL = 'outdoor_light_feature';
 const HALLOWEEN_SCENE_LABEL = 'scene_theme_halloween';
 
-// Starting the animation is `acted`. Everything else is the animation running or stopping itself
+// Starting the animation on a scene change is `acted`; after a restart it is `ignored` (the lights
+// are already on the theme). Everything else is the animation running or stopping itself
 // (drift every minute, lightning every few), so it is `ignored`; lights missing for the theme is a
 // setup fault a person would ask about, so it is `declined`.
 export const HALLOWEEN_REASONS = {
   halloween_scene_activated: { outcome: 'acted' },
-  startup_with_halloween_active: { outcome: 'acted' },
   no_feature_lights: { outcome: 'declined' },
   scene_reloaded_not_activated: { outcome: 'ignored' },
+  startup_with_halloween_active: { outcome: 'ignored' },
   automation_disabled: { outcome: 'ignored' },
   halloween_not_active: { outcome: 'ignored' },
   halloween_no_longer_active: { outcome: 'ignored' },

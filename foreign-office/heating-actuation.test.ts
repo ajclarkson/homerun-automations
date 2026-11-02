@@ -207,4 +207,18 @@ describe('foreign_office:heating_actuation', () => {
       expect(result).toMatchObject({ reason: 'temperature_set_arbitrage', outcome: 'acted', facts: { mode: 'comfort' } });
     });
   });
+
+  it('re-applying negative-price arbitrage after a homerun restart is ignored', () => {
+    const result = testAutomation(automation, {
+      event: { type: 'on_start' as const, correlation_id: 'test' },
+      state: {
+        ...baseState,
+        'sensor.foreign_office_active_heating': { state: 'minimum' },
+        'sensor.foreign_office_heating_source': { state: 'schedule' },
+        'binary_sensor.foreign_office_occupied': { state: 'off' },
+        'sensor.octopus_energy_electricity_24e8140196_1012483035417_current_rate': { state: '-2.5' },
+      },
+    });
+    expect(result).toMatchObject({ reason: 'temperature_set_arbitrage_startup', outcome: 'ignored', facts: { mode: 'comfort' } });
+  });
 });

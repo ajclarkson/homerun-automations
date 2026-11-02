@@ -121,4 +121,17 @@ describe('house:camera-mode-sync', () => {
 
     expect(result.reason).toMatch(/modifier_unavailable/);
   });
+
+  describe('after a homerun restart', () => {
+    const onStart = { type: 'on_start' as const, correlation_id: 'test' };
+    it.each([
+      ['away', 'house_away_startup'],
+      ['sleep', 'sleep_kitchen_camera_on_startup'],
+      ['normal', 'house_not_away_startup'],
+    ])('re-asserts %s without adding history (%s)', (mode, reason) => {
+      const result = testAutomation(automation, { event: onStart, state: { ...baseState, 'sensor.house_active_mode': { state: mode } } });
+      expect(result).toMatchObject({ reason, outcome: 'ignored' });
+      expect(result.actions.length).toBeGreaterThan(0);
+    });
+  });
 });

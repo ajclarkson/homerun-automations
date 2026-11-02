@@ -349,4 +349,10 @@ describe('house:away-detection', () => {
       expect(result.outcome).toBe('acted');
     });
   });
+
+  it('re-asserting away after a homerun restart is ignored', () => {
+    const result = testAutomation(automation, { event: { type: 'on_start' as const, correlation_id: 'test' }, state: baseState });
+    expect(result).toMatchObject({ decision: 'set_away', reason: 'all_left_door_recently_startup', outcome: 'ignored' });
+    expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: 'house/mode/active', payload: 'away', impliesEntity: 'sensor.house_active_mode' });
+  });
 });

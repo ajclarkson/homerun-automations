@@ -8,6 +8,7 @@ export const AWAY_DETECTION_REASONS = {
   sitter_mode_ended_house_empty: { outcome: 'acted' },
   away_duration_exceeded: { outcome: 'acted' },
   all_left_door_recently: { outcome: 'acted' },
+  all_left_door_recently_startup: { outcome: 'ignored' },
   someone_returned: { outcome: 'acted' },
   sitter_present_no_change: { outcome: 'ignored' },
   no_door_event: { outcome: 'ignored' },
@@ -106,11 +107,12 @@ export default defineAutomation({
       sitterJustLeft,
       vacationEligible,
       vacationTimerValidUntilMs,
+      startup: event.type === 'on_start',
     };
   },
 
   reduce: (ctx): AwayDecision => {
-    const { noneHome, doorRecentlyChanged, houseMode, sitterActive, sitterJustLeft, vacationEligible, vacationTimerValidUntilMs } = ctx;
+    const { noneHome, doorRecentlyChanged, houseMode, sitterActive, sitterJustLeft, vacationEligible, vacationTimerValidUntilMs, startup } = ctx;
     const actions: Action[] = [];
     let decision = 'uninitialised';
     let reason: keyof typeof AWAY_DETECTION_REASONS = 'not_in_away_mode';
@@ -139,7 +141,7 @@ export default defineAutomation({
       actions.push({ type: 'mqtt.publish', topic: 'house/mode/active', payload: 'vacation', impliesEntity: 'sensor.house_active_mode' });
     } else if (noneHome && doorRecentlyChanged) {
       decision = 'set_away';
-      reason = 'all_left_door_recently';
+      reason = startup ? 'all_left_door_recently_startup' : 'all_left_door_recently';
       actions.push({ type: 'mqtt.publish', topic: 'house/mode/active', payload: 'away', impliesEntity: 'sensor.house_active_mode' });
     } else if (!noneHome && houseMode === 'away') {
       decision = 'set_normal';

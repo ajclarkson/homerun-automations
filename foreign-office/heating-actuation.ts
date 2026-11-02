@@ -20,6 +20,7 @@ const SOURCE_ENTITY = 'sensor.foreign_office_heating_source';
 // unclamped setpoint, null when no clamp applied.
 export const HEATING_ACTUATION_REASONS = {
   temperature_set_arbitrage: { outcome: 'acted', facts: ['mode', 'target', 'clamped_from'] },
+  temperature_set_arbitrage_startup: { outcome: 'ignored', facts: ['mode', 'target', 'clamped_from'] },
   temperature_set: { outcome: 'ignored', facts: ['mode', 'target', 'clamped_from'] },
   helper_unavailable: { outcome: 'declined', facts: ['mode'] },
   unknown_mode: { outcome: 'declined', facts: ['mode'] },
@@ -42,7 +43,7 @@ export default defineAutomation({
     { type: 'on_start' },
   ],
 
-  context: (state) => {
+  context: (state, _ha, event) => {
     const modeToTemp: Record<string, number> = {};
     for (const [mode, helper] of Object.entries(MODE_HELPERS)) {
       const val = parseFloat(state(helper as keyof HAEntities)?.state ?? '');
@@ -64,11 +65,11 @@ export default defineAutomation({
     // manual choice or a safety-forced minimum.
     const arbitrageEligible = source === 'schedule' && !occupied && priceNegative;
 
-    return { mode, modeToTemp, arbitrageEligible };
+    return { mode, modeToTemp, arbitrageEligible, startup: event.type === 'on_start' };
   },
 
   reduce: (ctx): HeatingActuationDecision => {
-    const { mode, modeToTemp, arbitrageEligible } = ctx;
+    const { mode, modeToTemp, arbitrageEligible, startup } = ctx;
 
     if (!mode || mode === 'unknown' || mode === 'unavailable') {
       return { decision: 'no_action', reason: 'mode_unavailable', facts: { mode: mode ?? null }, actions: [] };
@@ -90,7 +91,7 @@ export default defineAutomation({
 
     return {
       decision: 'set_temperature',
-      reason: arbitrageApplied ? 'temperature_set_arbitrage' : 'temperature_set',
+      reason: arbitrageApplied ? (startup ? 'temperature_set_arbitrage_startup' : 'temperature_set_arbitrage') : 'temperature_set',
       facts,
       actions: [
         HomeAssistant.climate.set_temperature({ entity_id: 'climate.foreign_office' }, { hvac_mode: 'heat', temperature }),

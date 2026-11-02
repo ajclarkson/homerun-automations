@@ -162,7 +162,7 @@ describe('theme effects', () => {
   describe('after a restart', () => {
     it("re-applies the active theme's effects", () => {
       const result = run(onStart, activeScene(SPOOKY_SCENE));
-      expect(result).toMatchObject({ decision: 'start_effects', reason: 'startup_with_theme_active', outcome: 'acted', facts: { theme: 'spooky' } });
+      expect(result).toMatchObject({ decision: 'start_effects', reason: 'startup_with_theme_active', outcome: 'ignored', facts: { theme: 'spooky' } });
       expect(result.actions).toEqual([effectCall(ACCENT, 'fireplace')]);
     });
 

@@ -101,7 +101,7 @@ describe('Halloween animation', () => {
 
     it('picks the animation back up after a restart while Halloween is showing', () => {
       const result = run(onStart, halloweenOn);
-      expect(result).toMatchObject({ decision: 'start_animation', reason: 'startup_with_halloween_active', outcome: 'acted' });
+      expect(result).toMatchObject({ decision: 'start_animation', reason: 'startup_with_halloween_active', outcome: 'ignored' });
     });
 
     it('starts with drift only once lightning hours are over', () => {

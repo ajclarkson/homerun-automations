@@ -77,4 +77,14 @@ describe('house:guest-mode', () => {
       state: {},
     });
   });
+
+  describe('after a homerun restart', () => {
+    const onStart = { type: 'on_start' as const, correlation_id: 'test' };
+    it.each([['guest', 'guest_present_startup'], ['none', 'guest_absent_startup']])('modifier %s is %s and ignored', (modifier, reason) => {
+      const result = testAutomation(automation, { event: onStart, state: { 'input_select.house_active_mode_modifier': { state: modifier } } });
+      expect(result).toMatchObject({ reason, outcome: 'ignored' });
+      expect(result.facts).toEqual({ modifier });
+      expect(result.actions).toHaveLength(1);
+    });
+  });
 });
