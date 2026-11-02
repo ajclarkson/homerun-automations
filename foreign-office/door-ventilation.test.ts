@@ -201,3 +201,91 @@ describe('abort on missing sensors', () => {
     expect(result.reason).toMatch(/sensor_unavailable:outdoorTemp/);
   });
 });
+
+// ─── helper clamps ───────────────────────────────────────────────────────────
+
+describe('tunable helpers are clamped to their HA ranges', () => {
+  const key = (name: string) => `input_number.foreign_office_automation_${name}`;
+
+  // delta 3 against indoor 28, outdoor 20 opens; a delta read as 50 unclamped would not (28-50 < 20).
+  it('clamps an oversized open delta to 10, so an 11-degree gap still notifies', () => {
+    const result = run({
+      [key('door_open_delta')]: { state: '50' },
+      'weather.forecast_home': { state: 'sunny', attributes: { temperature: 17 } },
+    });
+    expect(result.reason).toBe('open_door');
+  });
+
+  it('clamps a zero open delta to 0.5, so a 0.2-degree gap does not notify', () => {
+    const result = run({
+      [key('door_open_delta')]: { state: '0' },
+      'sensor.foreign_office_sensor_climate_temperature': { state: '28' },
+      'weather.forecast_home': { state: 'sunny', attributes: { temperature: 27.8 } },
+    });
+    expect(result.reason).toBe('conditions_not_met');
+  });
+
+  it('clamps min outdoor above 20 down to 20, so 19 degrees outside is too cold', () => {
+    const result = run({
+      [key('door_open_min_outdoor')]: { state: '99' },
+      'weather.forecast_home': { state: 'sunny', attributes: { temperature: 19 } },
+    });
+    expect(result.reason).toBe('conditions_not_met');
+  });
+
+  it('clamps a negative min outdoor to 0, so -1 outside is too cold', () => {
+    const result = run({
+      [key('door_open_min_outdoor')]: { state: '-30' },
+      'weather.forecast_home': { state: 'sunny', attributes: { temperature: -1 } },
+    });
+    expect(result.reason).toBe('conditions_not_met');
+  });
+
+  it('clamps the comfort threshold above 28 down to 28, so 28 indoors counts as warm', () => {
+    const result = run({ [key('door_indoor_comfort_threshold')]: { state: '40' } });
+    expect(result.reason).toBe('open_door');
+  });
+
+  it('clamps the comfort threshold below 18 up to 18, so 17 indoors is not warm', () => {
+    const result = run({
+      [key('door_indoor_comfort_threshold')]: { state: '0' },
+      'sensor.foreign_office_sensor_climate_temperature': { state: '17' },
+      'weather.forecast_home': { state: 'sunny', attributes: { temperature: 5 } },
+      [key('door_open_min_outdoor')]: { state: '0' },
+    });
+    expect(result.reason).toBe('conditions_not_met');
+  });
+
+  it('clamps a zero cooldown to 15 minutes, so a 10-minute-old notification still blocks', () => {
+    const result = run({
+      [key('door_notification_cooldown_mins')]: { state: '0' },
+      'input_text.foreign_office_notification_door_open_last': { state: RECENT },
+    });
+    expect(result.reason).toBe('conditions_not_met');
+  });
+
+  it('clamps a huge cooldown to 240 minutes, so a 5-hour-old notification no longer blocks', () => {
+    const result = run({
+      [key('door_notification_cooldown_mins')]: { state: '99999' },
+      'input_text.foreign_office_notification_door_open_last': { state: new Date(NOW.getTime() - 300 * 60 * 1000).toISOString() },
+    });
+    expect(result.reason).toBe('open_door');
+  });
+
+  it('leaves in-range values unchanged: 60 minute cooldown lets a 90 minute old notification through', () => {
+    expect(run().reason).toBe('open_door');
+  });
+
+  it.each([
+    ['door_open_delta', 'openDelta'],
+    ['door_open_min_outdoor', 'minOutdoor'],
+    ['door_indoor_comfort_threshold', 'comfortThreshold'],
+    ['door_notification_cooldown_mins', 'cooldownMins'],
+  ])('still aborts when %s is unavailable', (helper, name) => {
+    const result = testAbort(automation, {
+      event: triggerEvent,
+      state: { ...baseState, [key(helper)]: { state: 'unavailable' } },
+    });
+    expect(result.reason).toBe(`sensor_unavailable:${name}`);
+  });
+});

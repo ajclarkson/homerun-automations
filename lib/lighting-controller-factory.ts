@@ -1,5 +1,9 @@
 import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
 import type { DeclaredDecision } from '@ajclarkson/homerun';
+import { clamp } from './clamp.js';
+
+// Same range as the input_number helper and the Pulse room settings stepper.
+export const LUX_THRESHOLD_DARK_RANGE = { min: 0, max: 500 } as const;
 
 export interface LightingRoomConfig {
   location: string;
@@ -222,7 +226,7 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
       const lux = Number.isFinite(luxRaw) ? luxRaw : null;
       const luxThreshRaw = parseFloat(state(`input_number.${location}_automation_lux_threshold_dark` as keyof HAEntities)?.state ?? '');
       if (!Number.isFinite(luxThreshRaw)) return abort(`lux_threshold_unavailable:${location}`);
-      const luxThreshold = luxThreshRaw;
+      const luxThreshold = clamp(luxThreshRaw, LUX_THRESHOLD_DARK_RANGE.min, LUX_THRESHOLD_DARK_RANGE.max);
       const automationEnabled = state(`input_boolean.${location}_automation_lights_enabled` as keyof HAEntities)?.state === 'on';
       const houseMode = state('sensor.house_active_mode')?.state ?? 'unknown';
       const houseModifier = state('input_select.house_active_mode_modifier')?.state ?? 'none';

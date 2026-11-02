@@ -1,4 +1,16 @@
 import { defineAutomation, abort, type DeclaredDecision } from '@ajclarkson/homerun';
+import { clamp } from '../lib/clamp.js';
+
+// Same ranges as the input_number helpers (and the Pulse room settings steppers), so a value
+// set outside them by hand or by a bad restore cannot make the rule fire constantly or never.
+export const OPEN_DELTA_RANGE = { min: 0.5, max: 10 } as const;
+export const MIN_OUTDOOR_RANGE = { min: 0, max: 20 } as const;
+export const COMFORT_THRESHOLD_RANGE = { min: 18, max: 28 } as const;
+export const COOLDOWN_MINS_RANGE = { min: 15, max: 240 } as const;
+
+// Unavailable or non-numeric stays NaN so the abort below still sees it.
+const clampFinite = (value: number, range: { min: number; max: number }): number =>
+  Number.isFinite(value) ? clamp(value, range.min, range.max) : value;
 
 // Telling a person to open or close the door is what `acted` means here; the temperatures are
 // whole degrees so the sentence never shows 24.700000001.
@@ -27,10 +39,10 @@ export default defineAutomation({
   ],
 
   context: (state) => {
-    const openDelta    = parseFloat(state('input_number.foreign_office_automation_door_open_delta')?.state ?? '');
-    const minOutdoor   = parseFloat(state('input_number.foreign_office_automation_door_open_min_outdoor')?.state ?? '');
-    const comfortThreshold = parseFloat(state('input_number.foreign_office_automation_door_indoor_comfort_threshold')?.state ?? '');
-    const cooldownMins = parseInt(state('input_number.foreign_office_automation_door_notification_cooldown_mins')?.state ?? '', 10);
+    const openDelta    = clampFinite(parseFloat(state('input_number.foreign_office_automation_door_open_delta')?.state ?? ''), OPEN_DELTA_RANGE);
+    const minOutdoor   = clampFinite(parseFloat(state('input_number.foreign_office_automation_door_open_min_outdoor')?.state ?? ''), MIN_OUTDOOR_RANGE);
+    const comfortThreshold = clampFinite(parseFloat(state('input_number.foreign_office_automation_door_indoor_comfort_threshold')?.state ?? ''), COMFORT_THRESHOLD_RANGE);
+    const cooldownMins = clampFinite(parseInt(state('input_number.foreign_office_automation_door_notification_cooldown_mins')?.state ?? '', 10), COOLDOWN_MINS_RANGE);
     const foIndoorTemp = parseFloat(state('sensor.foreign_office_sensor_climate_temperature')?.state ?? '');
     const outdoorTemp  = state('weather.forecast_home')?.attributes?.['temperature'] as number | undefined;
 
