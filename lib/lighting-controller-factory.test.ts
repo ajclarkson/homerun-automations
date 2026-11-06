@@ -349,6 +349,79 @@ describe('makeLightingAutomation', () => {
     });
   });
 
+  describe('buttons always work', () => {
+    const disabled = { [`input_boolean.${LOCATION}_automation_lights_enabled`]: { state: 'off' } };
+    const sleepOccupied = {
+      [`binary_sensor.${LOCATION}_occupied`]: { state: 'on' },
+      'sensor.house_active_mode': { state: 'sleep' },
+    };
+    const sceneOn = (scene: string) => ({
+      type: 'ha.call_service', domain: 'scene', service: 'turn_on',
+      target: { entity_id: `scene.${LOCATION}_${scene}` }, data: { transition: 0.5 },
+    });
+
+    it('single press cycles scenes while the lights automation is disabled', () => {
+      const result = testAutomation(automation, {
+        event: buttonEvent('single_press'),
+        state: { ...baseState, ...disabled },
+        ha: makeHa(),
+      });
+      expect(result).toMatchObject({ decision: 'activate_scene', reason: 'button_cycle' });
+      expect(result.actions).toContainEqual(sceneOn('low'));
+    });
+
+    it('hold turns off while disabled and cancels, not sets, recent_auto_off', () => {
+      const result = testAutomation(automation, {
+        event: buttonEvent('hold'),
+        state: { ...baseState, ...disabled },
+        ha: makeHa(),
+      });
+      expect(result).toMatchObject({ decision: 'turn_off', reason: 'button_off' });
+      expect(result.actions).toContainEqual(sceneOn('off'));
+      expect(result.actions).toContainEqual(expect.objectContaining({ type: 'mqtt.publish', payload: 'OFF' }));
+      expect(result.actions).not.toContainEqual(expect.objectContaining({ type: 'mqtt.publish', payload: 'ON' }));
+    });
+
+    it('single press cycles scenes in sleep mode in an occupied room', () => {
+      const result = testAutomation(automationSleepBlocked, {
+        event: buttonEvent('single_press'),
+        state: { ...baseState, ...sleepOccupied },
+        ha: makeHa(),
+      });
+      expect(result).toMatchObject({ decision: 'activate_scene', reason: 'button_cycle' });
+      expect(result.actions).toContainEqual(sceneOn('low'));
+    });
+
+    it('hold turns off in sleep mode in an occupied room and sets recent_auto_off', () => {
+      const result = testAutomation(automationSleepBlocked, {
+        event: buttonEvent('hold'),
+        state: { ...baseState, ...sleepOccupied },
+        ha: makeHa(),
+      });
+      expect(result).toMatchObject({ decision: 'turn_off', reason: 'button_off' });
+      expect(result.actions).toContainEqual(sceneOn('off'));
+      expect(result.actions).toContainEqual(expect.objectContaining({ type: 'mqtt.publish', payload: 'ON' }));
+    });
+
+    it('still blocks occupancy-driven on while disabled', () => {
+      const result = testAutomation(automation, {
+        event: occupancyEvent('on'),
+        state: { ...baseState, ...disabled, [`binary_sensor.${LOCATION}_occupied`]: { state: 'on' } },
+        ha: makeHa(),
+      });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'automation_disabled' });
+    });
+
+    it('still blocks occupancy-driven on in sleep mode', () => {
+      const result = testAutomation(automationSleepBlocked, {
+        event: occupancyEvent('on'),
+        state: { ...baseState, ...sleepOccupied },
+        ha: makeHa(),
+      });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'sleep_mode' });
+    });
+  });
+
   describe('house mode → sleep', () => {
     it('turns off lights when house enters sleep mode', () => {
       const result = testAutomation(automation, {
@@ -570,12 +643,16 @@ describe('makeLightingAutomation', () => {
 
     it.each([
       ['the room empties', occupancyEvent('off')],
-      ['the wall button is pressed', buttonEvent('single_press')],
       ['the house goes to sleep', houseModeEvent('sleep')],
       ['homerun restarts', onStartEvent()],
     ] as const)('ignores it when the automation is off and %s', (_name, event) => {
       const r = run(event, { ...baseState, ...disabled });
       expect(r).toMatchObject({ reason: 'automation_disabled_idle', outcome: 'ignored' });
+    });
+
+    it('still acts when the wall button is pressed while the automation is off', () => {
+      const r = run(buttonEvent('single_press'), { ...baseState, ...disabled });
+      expect(r).toMatchObject({ reason: 'button_cycle', outcome: 'acted' });
     });
 
     it('ignores the recent-auto-off timer expiring, and a restart', () => {

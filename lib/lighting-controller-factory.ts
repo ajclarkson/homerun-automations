@@ -289,7 +289,32 @@ function reduceRules(ctx: LightingContext, occupancySettleMs: number): LightingD
     return { decision: 'no_action', reason: 'occupancy_sensor_restored_on', actions: planSettleCancel(location) };
   }
 
-  // Rule 1: automation disabled
+  // Rule 1: button press. A person asking for something always acts, so this sits before the
+  // automation toggle (Rule 2) and the sleep block (Rule 4): those only gate automatic changes.
+  if (trigger.type === 'button') {
+    if (trigger.gesture === 'hold') {
+      // While the automation is off, do not open a recent-auto-off window: it would outlive the
+      // toggle and turn the lights back on at the first occupancy after re-enabling. Cancel
+      // instead, as the disabled rule does.
+      return {
+        decision: 'turn_off',
+        reason: 'button_off',
+        actions: [
+          ...planScene(scenes.off),
+          ...(automationEnabled ? planRecentAutoOffOn(location, recentAutoOffMs) : planRecentAutoOffCancel(location)),
+        ],
+      };
+    }
+    const nextScene = nextCycleScene(scenes, activeScene);
+    return {
+      decision: 'activate_scene',
+      reason: 'button_cycle',
+      facts: { scene: toSceneKey(nextScene) },
+      actions: [...planScene(nextScene), ...planRecentAutoOffCancel(location)],
+    };
+  }
+
+  // Rule 2: automation disabled (blocks automatic changes only; buttons handled above)
   if (!automationEnabled) {
     // Declined only when someone walked in and got no light because of it.
     const walkedIn = trigger.type === 'occupancy' && trigger.to === 'occupied';
@@ -300,7 +325,7 @@ function reduceRules(ctx: LightingContext, occupancySettleMs: number): LightingD
     };
   }
 
-  // Rule 1b: first valid `off` after an outage — defer the decision
+  // Rule 2b: first valid `off` after an outage — defer the decision
   if (trigger.type === 'occupancy_settle_start') {
     return {
       decision: 'no_action',
@@ -309,7 +334,7 @@ function reduceRules(ctx: LightingContext, occupancySettleMs: number): LightingD
     };
   }
 
-  // Rule 1c: settle timer fired — re-read the sensor; never re-arm, so a sensor that stays
+  // Rule 2c: settle timer fired — re-read the sensor; never re-arm, so a sensor that stays
   // invalid is left alone until its next valid transition.
   if (trigger.type === 'occupancy_settle_fired') {
     if (!isValidOccupancyState(occupancySensorState)) {
@@ -328,7 +353,7 @@ function reduceRules(ctx: LightingContext, occupancySettleMs: number): LightingD
     };
   }
 
-  // Rule 2: house entering sleep mode
+  // Rule 3: house entering sleep mode
   if (trigger.type === 'house_mode' && trigger.to === 'sleep') {
     if (guestModeActive) {
       return { decision: 'no_action', reason: 'guest_room_sleep_bypass', actions: [] };
@@ -340,40 +365,22 @@ function reduceRules(ctx: LightingContext, occupancySettleMs: number): LightingD
     };
   }
 
-  // Rule 3: sleep mode blocks occupancy-triggered on
+  // Rule 4: sleep mode blocks occupancy-triggered on (buttons already handled in Rule 1)
   if (blockedBySleep && occupied) {
     return { decision: 'no_action', reason: 'sleep_mode', actions: [] };
   }
 
-  // Rule 4: external suppress blocks motion-triggered on
+  // Rule 5: external suppress blocks motion-triggered on
   if (externalSuppressSource !== null && trigger.type === 'occupancy' && trigger.to === 'occupied') {
     return { decision: 'no_action', reason: 'external_suppress_active', facts: { source: externalSuppressSource }, actions: [] };
   }
 
-  // Rule 5: occupancy cleared
+  // Rule 6: occupancy cleared
   if (trigger.type === 'occupancy' && trigger.to === 'unoccupied') {
     return {
       decision: 'turn_off',
       reason: 'occupancy_off',
       actions: [...planScene(scenes.off), ...planRecentAutoOffOn(location, recentAutoOffMs)],
-    };
-  }
-
-  // Rule 6: button press
-  if (trigger.type === 'button') {
-    if (trigger.gesture === 'hold') {
-      return {
-        decision: 'turn_off',
-        reason: 'button_off',
-        actions: [...planScene(scenes.off), ...planRecentAutoOffOn(location, recentAutoOffMs)],
-      };
-    }
-    const nextScene = nextCycleScene(scenes, activeScene);
-    return {
-      decision: 'activate_scene',
-      reason: 'button_cycle',
-      facts: { scene: toSceneKey(nextScene) },
-      actions: [...planScene(nextScene), ...planRecentAutoOffCancel(location)],
     };
   }
 
