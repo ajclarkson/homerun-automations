@@ -7,9 +7,10 @@ import { isSceneActivation } from './scene-activation.js';
 // scene bookkeeping are `ignored`: the start itself is reported when the scene has settled.
 export const THEME_EFFECTS_REASONS = {
   theme_scene_settled: { outcome: 'acted', facts: ['theme'] },
-  scene_without_effects_activated: { outcome: 'acted' },
+  theme_effects_stopped: { outcome: 'acted', facts: ['theme'] },
   no_lights_in_theme_roles: { outcome: 'declined', facts: ['theme'] },
   automation_disabled_idle: { outcome: 'ignored' },
+  scene_without_effects_activated: { outcome: 'ignored' },
   scene_reloaded_not_activated: { outcome: 'ignored' },
   startup_with_theme_active: { outcome: 'ignored', facts: ['theme'] },
   theme_scene_activated: { outcome: 'ignored', facts: ['theme'] },
@@ -62,6 +63,8 @@ interface ThemeEffectsContext {
   /** Theme that scene belongs to, if that theme has effects configured. */
   effectsTheme: string | null;
   sceneIsOff: boolean;
+  /** scene_activated only: the effects theme whose scene was active just before this activation, if any. */
+  previousEffectsTheme: string | null;
   /** Effects to start for effectsTheme — one per light in each configured role. */
   start: EffectCommand[];
   /** Every light in a role any theme uses — cleared when a scene without effects takes over. */
@@ -119,8 +122,20 @@ export function makeThemeEffectsAutomation(config: ThemeEffectsConfig) {
           })
         : [];
 
+      // The active-scene sensor is a template that updates after the scene's own state change, so at
+      // this moment it normally still names the previous scene. If it already names the new one the
+      // previous scene is unknowable, and the stop is reported as the quiet `ignored` twin.
+      const activeNow = state(`sensor.${location}_active_scene` as keyof HAEntities)?.state;
+      const previousScene = trigger === 'scene_activated' && activeNow && activeNow !== 'unknown' && activeNow !== 'unavailable' && `scene.${activeNow}` !== scene
+        ? `scene.${activeNow}`
+        : null;
+      const previousEffectsTheme = previousScene
+        ? Object.keys(themes).find(theme => inArea(`scene_theme_${theme}`).includes(previousScene)) ?? null
+        : null;
+
       return {
         trigger,
+        previousEffectsTheme,
         automationEnabled: state(`input_boolean.${location}_automation_lights_enabled` as keyof HAEntities)?.state === 'on',
         realActivation,
         scene,
@@ -132,7 +147,7 @@ export function makeThemeEffectsAutomation(config: ThemeEffectsConfig) {
     },
 
     reduce: (ctx): ThemeEffectsDecision => {
-      const { trigger, automationEnabled, realActivation, effectsTheme, sceneIsOff, start, stopLights } = ctx;
+      const { trigger, automationEnabled, realActivation, effectsTheme, sceneIsOff, start, stopLights, previousEffectsTheme } = ctx;
       const effectOn = ({ entity_id, effect }: EffectCommand): Action =>
         HomeAssistant.light.turn_on({ entity_id }, { effect });
       const cancelSettle: Action = { type: 'timer.cancel', timerKey: settleTimerKey };
@@ -161,11 +176,12 @@ export function makeThemeEffectsAutomation(config: ThemeEffectsConfig) {
           return { decision: 'no_action', reason: 'no_effect_lights', actions: [cancelSettle] };
         }
         // A new colour doesn't reliably cancel a running Hue effect, so clear any that may be running.
-        return {
-          decision: 'stop_effects',
-          reason: 'scene_without_effects_activated',
-          actions: [cancelSettle, ...stopLights.map(entity_id => effectOn({ entity_id, effect: STOP_EFFECT }))],
-        };
+        // The stop is sent either way; it is only news when a theme's effects were actually running.
+        const stopActions = [cancelSettle, ...stopLights.map(entity_id => effectOn({ entity_id, effect: STOP_EFFECT }))];
+        if (previousEffectsTheme) {
+          return { decision: 'stop_effects', reason: 'theme_effects_stopped', facts: { theme: previousEffectsTheme }, actions: stopActions };
+        }
+        return { decision: 'stop_effects', reason: 'scene_without_effects_activated', actions: stopActions };
       }
 
       // scene_settled / system: start effects for whatever scene is active now.

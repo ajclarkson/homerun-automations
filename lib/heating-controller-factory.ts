@@ -204,12 +204,12 @@ function resolveWindowSafety(
 export const HEATING_REASONS = {
   safety_window_open: { outcome: 'acted', facts: ['mode'] },
   safety_heating_disabled: { outcome: 'acted', facts: ['mode'] },
-  house_mode_sleep: { outcome: 'acted', facts: ['mode'] },
-  house_mode_away: { outcome: 'acted', facts: ['mode'] },
-  house_mode_vacation: { outcome: 'acted', facts: ['mode'] },
-  manual_override: { outcome: 'acted', facts: ['mode'] },
-  schedule_occupied: { outcome: 'acted', facts: ['mode'] },
-  schedule: { outcome: 'acted', facts: ['mode'] },
+  house_mode_sleep: { outcome: 'acted', facts: ['mode', 'cause'] },
+  house_mode_away: { outcome: 'acted', facts: ['mode', 'cause'] },
+  house_mode_vacation: { outcome: 'acted', facts: ['mode', 'cause'] },
+  manual_override: { outcome: 'acted', facts: ['mode', 'cause'] },
+  schedule_occupied: { outcome: 'acted', facts: ['mode', 'cause'] },
+  schedule: { outcome: 'acted', facts: ['mode', 'cause'] },
   automation_disabled: { outcome: 'ignored' },
   no_schedule_match: { outcome: 'ignored' },
   no_change: { outcome: 'ignored' },
@@ -223,6 +223,45 @@ const HOUSE_MODE_REASON: Record<HouseMode, SetModeReason> = {
   away: 'house_mode_away',
   vacation: 'house_mode_vacation',
 };
+
+// ---- Cause ----
+
+// Why the reducer ran, in words a person recognises. The reason says what was decided; the cause
+// says what set it off (the 6pm boundary, the window closing, someone arriving).
+// `manual_set` is a person picking a mode; the rest mirror the triggers below. `other` exists only
+// as a runtime fallback: a trigger added to the list without a cause must not stop heating from
+// deciding, but the test that walks every declared trigger fails until it is mapped.
+export type HeatingCause =
+  | 'boundary' | 'window_closed' | 'house_mode' | 'manual_ended' | 'manual_set'
+  | 'occupancy' | 'heating_on' | 'wfh' | 'startup' | 'other';
+
+type CauseEvent =
+  | { type: 'state_changed'; entity_id: string; new_state: { state: string } }
+  | { type: 'timer_expired'; timerKey: string }
+  | { type: string };
+
+export function causeOf(event: CauseEvent, location: string): HeatingCause {
+  if (event.type === 'on_start') return 'startup';
+  if (event.type === 'timer_expired') {
+    const { timerKey } = event as { timerKey: string };
+    if (timerKey === `${location}:${SCHEDULE_TIMER_SUFFIX}`) return 'boundary';
+    if (timerKey === `${location}:${MANUAL_TIMER_SUFFIX}`) return 'manual_ended';
+    // The grace timer ends a window episode; the closing itself is a window state change.
+    if (timerKey === `${location}:${WINDOW_GRACE_TIMER_SUFFIX}`) return 'window_closed';
+    return 'other';
+  }
+  if (event.type === 'state_changed') {
+    const { entity_id, new_state } = event as { entity_id: string; new_state: { state: string } };
+    if (entity_id === 'sensor.house_active_mode') return 'house_mode';
+    if (entity_id === 'input_boolean.house_heating_enabled') return 'heating_on';
+    if (entity_id === `input_boolean.${location}_automation_heating_enabled`) return 'heating_on';
+    if (entity_id === `binary_sensor.${location}_external_openings`) return 'window_closed';
+    if (entity_id === 'input_boolean.wfh_adam' || entity_id === 'input_boolean.wfh_sarah') return 'wfh';
+    if (entity_id === `binary_sensor.${location}_occupied`) return 'occupancy';
+    if (entity_id === `input_select.${location}_heating_manual_mode`) return new_state.state === 'auto' ? 'manual_ended' : 'manual_set';
+  }
+  return 'other';
+}
 
 // ---- Factory ----
 
@@ -240,6 +279,7 @@ interface HeatingContext {
   manualTimerKey: string;
   manualSelectEntity: string;
   windowGraceTimerKey: string;
+  cause: HeatingCause;
 }
 
 export function makeHeatingAutomation(config: HeatingRoomConfig) {
@@ -324,6 +364,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
         manualTimerKey,
         manualSelectEntity,
         windowGraceTimerKey,
+        cause: causeOf(event, location),
         wfhAdam,
         wfhSarah,
         weekday,
@@ -331,7 +372,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
     },
 
     reduce: (ctx): HeatingDecision => {
-      const { automationEnabled, currentMode, safety, house, manualMode, manualExpiring, occupied, schedule, scheduleTimerKey, manualTimerKey, manualSelectEntity, windowGraceTimerKey, now } = ctx;
+      const { automationEnabled, currentMode, safety, house, manualMode, manualExpiring, occupied, schedule, scheduleTimerKey, manualTimerKey, manualSelectEntity, windowGraceTimerKey, now, cause } = ctx;
       const actions: Action[] = [];
       const nowMs = now.getTime();
 
@@ -408,7 +449,11 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       actions.push({ type: 'mqtt.publish', topic: sourceTopic, payload: source, retain: true, impliesEntity: sourceEntity });
       actions.push(...planTimer(scheduleTimerKey, schedule.validUntilMs, nowMs));
 
-      return { decision: 'set_mode', reason, facts: { mode: targetMode }, actions };
+      // Safety overrides are their own explanation; every other reason also carries its cause.
+      if (reason === 'safety_window_open' || reason === 'safety_heating_disabled') {
+        return { decision: 'set_mode', reason, facts: { mode: targetMode }, actions };
+      }
+      return { decision: 'set_mode', reason, facts: { mode: targetMode, cause }, actions };
     },
   });
 }

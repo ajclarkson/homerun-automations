@@ -3,15 +3,15 @@ import { defineAutomation, abort, HomeAssistant, type DeclaredDecision } from '@
 // Inferring a work-from-home day is `acted`. Clearing the flag is mostly a no-change write after a
 // weekend or a day out, so the `off` reasons are `ignored`.
 export const WFH_ADAM_REASONS = {
-  always_wfh_wed_fri: { outcome: 'acted' },
-  home_at_inference_time: { outcome: 'acted' },
+  always_wfh_wed_fri: { outcome: 'acted', facts: ['person'] },
+  home_at_inference_time: { outcome: 'acted', facts: ['person', 'time'] },
   house_away: { outcome: 'ignored' },
   not_workday: { outcome: 'ignored' },
   not_home_at_inference_time: { outcome: 'ignored' },
 } as const;
 
 export const WFH_SARAH_REASONS = {
-  home_at_inference_time: { outcome: 'acted' },
+  home_at_inference_time: { outcome: 'acted', facts: ['person', 'time'] },
   house_away: { outcome: 'ignored' },
   not_workday: { outcome: 'ignored' },
   not_home_at_inference_time: { outcome: 'ignored' },
@@ -21,6 +21,11 @@ export const WFH_RESET_REASONS = {
   non_workday: { outcome: 'ignored' },
   not_a_non_workday: { outcome: 'ignored' },
 } as const;
+
+// The wall-clock time each person is checked, kept beside the cron below so a time fact cannot
+// drift from when the check actually runs.
+const ADAM_INFERENCE_TIME = '08:00';
+const SARAH_INFERENCE_TIME = '07:15';
 
 type WfhAdamDecision = DeclaredDecision<typeof WFH_ADAM_REASONS>;
 type WfhSarahDecision = DeclaredDecision<typeof WFH_SARAH_REASONS>;
@@ -57,24 +62,15 @@ const adamWfh = defineAutomation({
   reduce: (ctx): WfhAdamDecision => {
     const { houseMode, workday, adamHome, alwaysOn } = ctx;
 
-    let decision: 'on' | 'off' = 'off';
-    let reason: keyof typeof WFH_ADAM_REASONS = 'not_home_at_inference_time';
+    const turnOff = (reason: 'house_away' | 'not_workday' | 'not_home_at_inference_time'): WfhAdamDecision =>
+      ({ decision: 'off', reason, actions: [HomeAssistant.input_boolean.turn_off({ entity_id: 'input_boolean.wfh_adam' })] });
+    const turnOn = HomeAssistant.input_boolean.turn_on({ entity_id: 'input_boolean.wfh_adam' });
 
-    if (houseMode === 'away')    { decision = 'off'; reason = 'house_away'; }
-    else if (workday !== 'on')   { decision = 'off'; reason = 'not_workday'; }
-    else if (alwaysOn)           { decision = 'on';  reason = 'always_wfh_wed_fri'; }
-    else if (adamHome)           { decision = 'on';  reason = 'home_at_inference_time'; }
-    else                         { decision = 'off'; reason = 'not_home_at_inference_time'; }
-
-    return {
-      decision,
-      reason,
-      actions: [
-        decision === 'on'
-          ? HomeAssistant.input_boolean.turn_on({ entity_id: 'input_boolean.wfh_adam' })
-          : HomeAssistant.input_boolean.turn_off({ entity_id: 'input_boolean.wfh_adam' }),
-      ],
-    };
+    if (houseMode === 'away')  return turnOff('house_away');
+    if (workday !== 'on')      return turnOff('not_workday');
+    if (alwaysOn)              return { decision: 'on', reason: 'always_wfh_wed_fri', facts: { person: 'adam' }, actions: [turnOn] };
+    if (adamHome)              return { decision: 'on', reason: 'home_at_inference_time', facts: { person: 'adam', time: ADAM_INFERENCE_TIME }, actions: [turnOn] };
+    return turnOff('not_home_at_inference_time');
   },
 });
 
@@ -106,23 +102,20 @@ const sarahWfh = defineAutomation({
   reduce: (ctx): WfhSarahDecision => {
     const { houseMode, workday, sarahHome } = ctx;
 
-    let decision: 'on' | 'off' = 'off';
-    let reason: keyof typeof WFH_SARAH_REASONS = 'not_home_at_inference_time';
+    const turnOff = (reason: 'house_away' | 'not_workday' | 'not_home_at_inference_time'): WfhSarahDecision =>
+      ({ decision: 'off', reason, actions: [HomeAssistant.input_boolean.turn_off({ entity_id: 'input_boolean.wfh_sarah' })] });
 
-    if (houseMode === 'away')    { decision = 'off'; reason = 'house_away'; }
-    else if (workday !== 'on')   { decision = 'off'; reason = 'not_workday'; }
-    else if (sarahHome)          { decision = 'on';  reason = 'home_at_inference_time'; }
-    else                         { decision = 'off'; reason = 'not_home_at_inference_time'; }
-
-    return {
-      decision,
-      reason,
-      actions: [
-        decision === 'on'
-          ? HomeAssistant.input_boolean.turn_on({ entity_id: 'input_boolean.wfh_sarah' })
-          : HomeAssistant.input_boolean.turn_off({ entity_id: 'input_boolean.wfh_sarah' }),
-      ],
-    };
+    if (houseMode === 'away')  return turnOff('house_away');
+    if (workday !== 'on')      return turnOff('not_workday');
+    if (sarahHome) {
+      return {
+        decision: 'on',
+        reason: 'home_at_inference_time',
+        facts: { person: 'sarah', time: SARAH_INFERENCE_TIME },
+        actions: [HomeAssistant.input_boolean.turn_on({ entity_id: 'input_boolean.wfh_sarah' })],
+      };
+    }
+    return turnOff('not_home_at_inference_time');
   },
 });
 

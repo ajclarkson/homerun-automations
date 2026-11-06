@@ -240,6 +240,7 @@ describe('makeOccupancyAutomation', () => {
         ha: noHolds,
       });
       expect(result).toMatchObject({ decision: 'clear_occupied', reason: 'timer_expired' });
+      expect(result.facts).toEqual({ minutes: 2 });
       expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/state`, payload: 'OFF', retain: true, impliesEntity: `binary_sensor.${LOCATION}_occupied` });
     });
 
@@ -264,6 +265,7 @@ describe('makeOccupancyAutomation', () => {
         ha: withDoor,
       });
       expect(result).toMatchObject({ decision: 'clear_occupied', reason: 'containment_failsafe_expired' });
+      expect(result.facts).toEqual({ hours: 1 });
       expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/state`, payload: 'OFF', retain: true, impliesEntity: `binary_sensor.${LOCATION}_occupied` });
       expect(result.actions).toContainEqual({ type: 'mqtt.publish', topic: `${LOCATION}/occupied/contained/state`, payload: 'OFF', retain: true, impliesEntity: `binary_sensor.${LOCATION}_occupied_contained` });
     });

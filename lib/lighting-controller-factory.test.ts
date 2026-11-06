@@ -159,7 +159,7 @@ describe('makeLightingAutomation', () => {
     it('turns off lights and sets recent_auto_off', () => {
       const result = testAutomation(automation, {
         event: occupancyEvent('off'),
-        state: baseState,
+        state: { ...baseState, [`sensor.${LOCATION}_active_scene`]: { state: `${LOCATION}_low` } },
         ha: makeHa(),
       });
       expect(result).toMatchObject({ decision: 'turn_off', reason: 'occupancy_off' });
@@ -173,6 +173,38 @@ describe('makeLightingAutomation', () => {
       expect(result.actions).toContainEqual(
         expect.objectContaining({ type: 'timer.start', timerKey: `${LOCATION}:lighting_recent_auto_off` }),
       );
+    });
+  });
+
+  describe('a daytime walk-through of a bright room', () => {
+    const bright = {
+      ...baseState,
+      'sun.sun': { state: 'above_horizon' },
+      [`sensor.${LOCATION}_sensor_motion_illuminance`]: { state: '300' },
+    };
+    const flagActions = (actions: readonly unknown[]) =>
+      actions.filter((a) => (a as { topic?: string }).topic === `${LOCATION}/lighting/recent_auto_off` && (a as { payload?: string }).payload === 'ON');
+
+    it('does not light the room on re-entry within the recent-off window', () => {
+      const enter = testAutomation(automation, { event: occupancyEvent('on'), state: { ...bright, [`binary_sensor.${LOCATION}_occupied`]: { state: 'on' } }, ha: makeHa() });
+      expect(enter).toMatchObject({ reason: 'lux_high' });
+
+      // The lights never came on, so leaving must not raise the recent-off flag or start its timer.
+      const leave = testAutomation(automation, { event: occupancyEvent('off'), state: bright, ha: makeHa() });
+      expect(leave).toMatchObject({ reason: 'occupancy_off_already_off', outcome: 'ignored' });
+      expect(flagActions(leave.actions)).toEqual([]);
+      expect(leave.actions).not.toContainEqual(expect.objectContaining({ type: 'timer.start' }));
+
+      // Re-entering a minute later sees the flag still off, so the bright room stays unlit.
+      const reenter = testAutomation(automation, { event: occupancyEvent('on'), state: { ...bright, [`binary_sensor.${LOCATION}_occupied`]: { state: 'on' } }, ha: makeHa() });
+      expect(reenter).toMatchObject({ decision: 'no_action', reason: 'lux_high' });
+      expect(reenter.actions).not.toContainEqual(expect.objectContaining({ domain: 'scene' }));
+    });
+
+    it('still raises the flag when the lights really were on at the moment the room emptied', () => {
+      const leave = testAutomation(automation, { event: occupancyEvent('off'), state: { ...bright, [`sensor.${LOCATION}_active_scene`]: { state: `${LOCATION}_daylight` } }, ha: makeHa() });
+      expect(leave).toMatchObject({ reason: 'occupancy_off', outcome: 'acted' });
+      expect(flagActions(leave.actions)).toHaveLength(1);
     });
   });
 
@@ -353,10 +385,19 @@ describe('makeLightingAutomation', () => {
     it('turns off lights when house enters sleep mode', () => {
       const result = testAutomation(automation, {
         event: houseModeEvent('sleep'),
-        state: baseState,
+        state: { ...baseState, [`sensor.${LOCATION}_active_scene`]: { state: `${LOCATION}_low` } },
         ha: makeHa(),
       });
       expect(result).toMatchObject({ decision: 'turn_off', reason: 'house_sleep_mode' });
+    });
+
+    it('does not report switching off lights that were already off', () => {
+      const result = testAutomation(automation, {
+        event: houseModeEvent('sleep'),
+        state: baseState,
+        ha: makeHa(),
+      });
+      expect(result).toMatchObject({ reason: 'house_sleep_mode_already_off', outcome: 'ignored' });
     });
 
     it('bypasses sleep shutoff when guest mode is active', () => {
@@ -493,7 +534,7 @@ describe('makeLightingAutomation', () => {
     it('acts with the rounded lux and threshold when it is dark enough', () => {
       const r = run(occupancyEvent('on'), withLux('10.6', { [`input_number.${LOCATION}_automation_lux_threshold_dark`]: { state: '15.4' } }));
       expect(r).toMatchObject({ reason: 'lux_low', outcome: 'acted' });
-      expect(r.facts).toEqual({ lux: 11, lux_threshold: 15 });
+      expect(r.facts).toEqual({ lux: 11, lux_threshold: 15, scene: `${LOCATION}_low` });
     });
 
     it.each([
@@ -502,13 +543,14 @@ describe('makeLightingAutomation', () => {
       ['inside the range', '120', 120],
     ])('clamps the dark threshold to 0 to 500 (%s)', (_label, raw, expected) => {
       const r = run(occupancyEvent('on'), withLux('10', { [`input_number.${LOCATION}_automation_lux_threshold_dark`]: { state: raw } }));
-      expect(r.facts).toEqual({ lux: 10, lux_threshold: expected });
+      // A threshold of 0 leaves the room too bright to act, so no scene is set and there is no scene fact.
+      expect(r.facts).toEqual(expected === 0 ? { lux: 10, lux_threshold: 0 } : { lux: 10, lux_threshold: expected, scene: `${LOCATION}_low` });
     });
 
     it('acts with a null lux when there is no reading, because the lights still come on', () => {
       const r = run(occupancyEvent('on'), withLux(null));
       expect(r).toMatchObject({ reason: 'lux_low', outcome: 'acted' });
-      expect(r.facts).toEqual({ lux: null, lux_threshold: 15 });
+      expect(r.facts).toEqual({ lux: null, lux_threshold: 15, scene: `${LOCATION}_low` });
     });
 
     it('declines with the rounded lux and threshold when the room is bright enough', () => {
@@ -517,10 +559,10 @@ describe('makeLightingAutomation', () => {
       expect(r.facts).toEqual({ lux: 85, lux_threshold: 15 });
     });
 
-    it('acts without facts when the room was only just emptied', () => {
+    it('acts with the scene it set when the room was only just emptied', () => {
       const r = run(occupancyEvent('on'), withLux('100', { [`binary_sensor.${LOCATION}_lighting_recent_auto_off`]: { state: 'on' } }));
       expect(r).toMatchObject({ reason: 'recent_auto_off', outcome: 'acted' });
-      expect(r.facts).toBeUndefined();
+      expect(r.facts).toEqual({ scene: `${LOCATION}_low` });
     });
 
     it('ignores an occupancy change when the lights are already on', () => {
@@ -530,9 +572,9 @@ describe('makeLightingAutomation', () => {
     });
 
     it.each([
-      ['the room empties', occupancyEvent('off'), baseState, 'occupancy_off'],
+      ['the room empties', occupancyEvent('off'), { ...baseState, ...lightsOn }, 'occupancy_off'],
       ['the wall button is held', buttonEvent('hold'), baseState, 'button_off'],
-      ['the house goes to sleep', houseModeEvent('sleep'), baseState, 'house_sleep_mode'],
+      ['the house goes to sleep', houseModeEvent('sleep'), { ...baseState, ...lightsOn }, 'house_sleep_mode'],
     ] as const)('acts without facts when %s', (_name, event, state, reason) => {
       const r = run(event, state);
       expect(r).toMatchObject({ reason, outcome: 'acted' });
@@ -543,6 +585,17 @@ describe('makeLightingAutomation', () => {
       const r = run(buttonEvent('single_press'), { ...baseState, ...lightsOn });
       expect(r).toMatchObject({ reason: 'button_cycle', outcome: 'acted' });
       expect(r.facts).toEqual({ scene: `${LOCATION}_daylight` });
+    });
+
+    it('ignores the room emptying and the house going to sleep when the lights were already off', () => {
+      expect(run(occupancyEvent('off'), baseState)).toMatchObject({ reason: 'occupancy_off_already_off', outcome: 'ignored' });
+      expect(run(houseModeEvent('sleep'), baseState)).toMatchObject({ reason: 'house_sleep_mode_already_off', outcome: 'ignored' });
+    });
+
+    it('ignores any non-occupancy trigger that finds the house asleep in an occupied room', () => {
+      const r = run(onStartEvent(), { ...occupied, ...sleeping }, makeHa(), automationSleepBlocked);
+      expect(r).toMatchObject({ reason: 'sleep_mode_idle', outcome: 'ignored' });
+      expect(r.facts).toBeUndefined();
     });
 
     it('declines when sleep mode blocks the lights', () => {

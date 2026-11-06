@@ -11,6 +11,13 @@ const trigger = {
   correlation_id: 'test',
 };
 
+// A guest leaving is the modifier moving off 'guest'.
+const guestLeaves = (to: string) => ({
+  ...trigger,
+  old_state: { ...trigger.old_state, state: 'guest' },
+  new_state: { ...trigger.new_state, state: to },
+});
+
 const HOME_OFFICE_OVERRIDE = 'input_boolean.home_office_automation_presence_override';
 
 describe('house:guest-mode', () => {
@@ -32,7 +39,7 @@ describe('house:guest-mode', () => {
 
   it('turns off home office presence override when modifier returns to none', () => {
     const result = testAutomation(automation, {
-      event: { ...trigger, new_state: { ...trigger.new_state, state: 'none' } },
+      event: guestLeaves('none'),
       state: { 'input_select.house_active_mode_modifier': { state: 'none' } },
     });
 
@@ -46,9 +53,19 @@ describe('house:guest-mode', () => {
     }]);
   });
 
+  it('reports a change between two non-guest modifiers as not a guest, ignored', () => {
+    const result = testAutomation(automation, {
+      event: { ...trigger, new_state: { ...trigger.new_state, state: 'holiday' } },
+      state: { 'input_select.house_active_mode_modifier': { state: 'holiday' } },
+    });
+
+    expect(result).toMatchObject({ decision: 'guest_inactive', reason: 'not_guest', outcome: 'ignored' });
+    expect(result.facts).toEqual({ modifier: 'holiday' });
+  });
+
   it('turns off home office presence override when modifier is sitter', () => {
     const result = testAutomation(automation, {
-      event: { ...trigger, new_state: { ...trigger.new_state, state: 'sitter' } },
+      event: guestLeaves('sitter'),
       state: { 'input_select.house_active_mode_modifier': { state: 'sitter' } },
     });
 

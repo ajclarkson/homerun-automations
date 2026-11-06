@@ -85,23 +85,74 @@ describe('house:camera-mode-sync', () => {
     expect(result.actions).toHaveLength(0);
   });
 
-  it('fires on modifier change — away + guest added should suppress cameras', () => {
-    const modifierTrigger = {
+  describe('a guest arriving while the house is away', () => {
+    const modifierChange = (from: string, to: string) => ({
       type: 'state_changed' as const,
       entity_id: 'input_select.house_active_mode_modifier',
-      old_state: { entity_id: 'input_select.house_active_mode_modifier', state: 'none', attributes: {}, last_changed: '', last_updated: '' },
-      new_state: { entity_id: 'input_select.house_active_mode_modifier', state: 'guest', attributes: {}, last_changed: '', last_updated: '' },
+      old_state: { entity_id: 'input_select.house_active_mode_modifier', state: from, attributes: {}, last_changed: '', last_updated: '' },
+      new_state: { entity_id: 'input_select.house_active_mode_modifier', state: to, attributes: {}, last_changed: '', last_updated: '' },
       correlation_id: 'test',
-    };
-
-    const result = testAutomation(automation, {
-      event: modifierTrigger,
-      state: { 'sensor.house_active_mode': { state: 'away' }, 'input_select.house_active_mode_modifier': { state: 'guest' } },
+    });
+    const awayWithGuest = (privacy: string) => ({
+      'sensor.house_active_mode': { state: 'away' },
+      'input_select.house_active_mode_modifier': { state: 'guest' },
+      'switch.parlour_privacy': { state: privacy },
     });
 
-    expect(result).toMatchObject({ decision: 'no_action', reason: 'away_but_guest_present', outcome: 'declined' });
-    expect(result.reason).toBe('away_but_guest_present');
-    expect(result.outcome).toBe('declined');
+    it('switches the cameras off when they were watching the empty house', () => {
+      const result = testAutomation(automation, { event: modifierChange('none', 'guest'), state: awayWithGuest('off') });
+
+      expect(result).toMatchObject({ decision: 'cameras_off', reason: 'guest_arrived_while_away', outcome: 'acted' });
+      expect(result.actions).toEqual([
+        { type: 'ha.call_service', domain: 'switch', service: 'turn_on', target: { entity_id: 'group.cameras_privacy' } },
+      ]);
+    });
+
+    it('leaves the cameras alone when privacy was already on', () => {
+      const result = testAutomation(automation, { event: modifierChange('none', 'guest'), state: awayWithGuest('on') });
+
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'away_but_guest_present', outcome: 'declined' });
+      expect(result.actions).toHaveLength(0);
+    });
+
+    it('does nothing when the privacy switch is unavailable rather than guessing', () => {
+      const result = testAutomation(automation, { event: modifierChange('none', 'guest'), state: awayWithGuest('unavailable') });
+
+      expect(result).toMatchObject({ reason: 'away_but_guest_present', outcome: 'declined' });
+      expect(result.actions).toHaveLength(0);
+    });
+
+    it('does not treat a house going away with a guest already staying as an arrival', () => {
+      const result = testAutomation(automation, { event: trigger, state: awayWithGuest('off') });
+
+      expect(result).toMatchObject({ reason: 'away_but_guest_present', outcome: 'declined' });
+      expect(result.actions).toHaveLength(0);
+    });
+
+    it('does not treat a restart with a guest already staying as an arrival', () => {
+      const result = testAutomation(automation, { event: { type: 'on_start' as const, correlation_id: 'test' }, state: awayWithGuest('off') });
+
+      expect(result).toMatchObject({ reason: 'away_but_guest_present', outcome: 'declined' });
+      expect(result.actions).toHaveLength(0);
+    });
+
+    it('does not switch cameras off when the guest arrives while someone is home', () => {
+      const result = testAutomation(automation, {
+        event: modifierChange('none', 'guest'),
+        state: { ...awayWithGuest('off'), 'sensor.house_active_mode': { state: 'normal' } },
+      });
+
+      expect(result).toMatchObject({ reason: 'house_not_away', outcome: 'acted' });
+    });
+
+    it('turns the cameras back on when the guest leaves while the house is still away', () => {
+      const result = testAutomation(automation, {
+        event: modifierChange('guest', 'none'),
+        state: { ...awayWithGuest('on'), 'input_select.house_active_mode_modifier': { state: 'none' } },
+      });
+
+      expect(result).toMatchObject({ reason: 'house_away', outcome: 'acted' });
+    });
   });
 
   it('aborts when house mode is unavailable', () => {

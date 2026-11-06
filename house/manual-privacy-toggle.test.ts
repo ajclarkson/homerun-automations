@@ -18,6 +18,7 @@ describe('house:manual-privacy-toggle', () => {
     });
 
     expect(result).toMatchObject({ decision: 'disable_privacy', reason: 'button_double_press', outcome: 'acted' });
+    expect(result.facts).toEqual({ privacy: 'off' });
     expect(result.actions).toEqual([{
       type: 'ha.call_service',
       domain: 'switch',
@@ -33,6 +34,7 @@ describe('house:manual-privacy-toggle', () => {
     });
 
     expect(result).toMatchObject({ decision: 'enable_privacy', reason: 'button_double_press', outcome: 'acted' });
+    expect(result.facts).toEqual({ privacy: 'on' });
     expect(result.actions).toEqual([{
       type: 'ha.call_service',
       domain: 'switch',

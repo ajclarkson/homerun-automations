@@ -58,8 +58,8 @@ interface LightingContext {
 // an outcome that depends on the trigger is two reasons: `automation_disabled` is `declined`
 // when a person walking in found the automation off, `automation_disabled_idle` is noise.
 export const LIGHTING_REASONS = {
-  lux_low: { outcome: 'acted', facts: ['lux', 'lux_threshold'] },
-  recent_auto_off: { outcome: 'acted' },
+  lux_low: { outcome: 'acted', facts: ['lux', 'lux_threshold', 'scene'] },
+  recent_auto_off: { outcome: 'acted', facts: ['scene'] },
   occupancy_off: { outcome: 'acted' },
   occupancy_settle_off: { outcome: 'acted' },
   button_off: { outcome: 'acted' },
@@ -67,10 +67,13 @@ export const LIGHTING_REASONS = {
   house_sleep_mode: { outcome: 'acted' },
   lux_high: { outcome: 'declined', facts: ['lux', 'lux_threshold'] },
   sleep_mode: { outcome: 'declined' },
+  sleep_mode_idle: { outcome: 'ignored' },
   external_suppress_active: { outcome: 'declined', facts: ['source'] },
   guest_room_sleep_bypass: { outcome: 'declined' },
   automation_disabled: { outcome: 'declined' },
   automation_disabled_idle: { outcome: 'ignored' },
+  occupancy_off_already_off: { outcome: 'ignored' },
+  house_sleep_mode_already_off: { outcome: 'ignored' },
   recent_auto_off_expired: { outcome: 'ignored' },
   already_on: { outcome: 'ignored' },
   startup_check_ok: { outcome: 'ignored' },
@@ -333,16 +336,21 @@ function reduceRules(ctx: LightingContext, occupancySettleMs: number): LightingD
     if (guestModeActive) {
       return { decision: 'no_action', reason: 'guest_room_sleep_bypass', actions: [] };
     }
+    // Lights already off: the scene is still re-asserted (a lamp may have been switched on by hand),
+    // but nothing was switched off, so it is not news.
     return {
       decision: 'turn_off',
-      reason: 'house_sleep_mode',
+      reason: isCurrentlyOff ? 'house_sleep_mode_already_off' : 'house_sleep_mode',
       actions: [...planScene(scenes.off), ...planRecentAutoOffCancel(location)],
     };
   }
 
   // Rule 3: sleep mode blocks occupancy-triggered on
   if (blockedBySleep && occupied) {
-    return { decision: 'no_action', reason: 'sleep_mode', actions: [] };
+    // Declined only when someone walking in was kept in the dark; any other trigger (a restart,
+    // a timer) merely finds the house asleep.
+    const walkedIn = trigger.type === 'occupancy' && trigger.to === 'occupied';
+    return { decision: 'no_action', reason: walkedIn ? 'sleep_mode' : 'sleep_mode_idle', actions: [] };
   }
 
   // Rule 4: external suppress blocks motion-triggered on
@@ -352,6 +360,11 @@ function reduceRules(ctx: LightingContext, occupancySettleMs: number): LightingD
 
   // Rule 5: occupancy cleared
   if (trigger.type === 'occupancy' && trigger.to === 'unoccupied') {
+    // Leaving a room whose lights were already off (a bright room, a daytime walk-through) must not
+    // open the recent-off window: re-entering within it would light the room regardless of lux.
+    if (isCurrentlyOff) {
+      return { decision: 'no_action', reason: 'occupancy_off_already_off', actions: planScene(scenes.off) };
+    }
     return {
       decision: 'turn_off',
       reason: 'occupancy_off',
@@ -392,6 +405,7 @@ function reduceRules(ctx: LightingContext, occupancySettleMs: number): LightingD
       return {
         decision: 'activate_scene',
         reason: 'recent_auto_off',
+        facts: { scene: toSceneKey(autoScene) },
         actions: [...planScene(autoScene), ...planRecentAutoOffCancel(location)],
       };
     }
@@ -406,7 +420,7 @@ function reduceRules(ctx: LightingContext, occupancySettleMs: number): LightingD
     return {
       decision: 'activate_scene',
       reason: 'lux_low',
-      facts: luxFacts,
+      facts: { ...luxFacts, scene: toSceneKey(autoScene) },
       actions: [...planScene(autoScene), ...planRecentAutoOffCancel(location)],
     };
   }

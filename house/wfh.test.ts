@@ -45,6 +45,7 @@ describe('Adam WFH — Wed–Fri always on', () => {
     const result = testAutomation(adamWfh, { event: adamScheduleEvent, state: baseState });
     expect(result.decision).toBe('on');
     expect(result.reason).toBe('always_wfh_wed_fri');
+    expect(result.facts).toEqual({ person: 'adam' });
     expect(result.outcome).toBe('acted');
     expectBooleanOn(result.actions, 'input_boolean.wfh_adam');
   });
@@ -78,6 +79,7 @@ describe('Adam WFH — Mon–Tue presence check', () => {
     const result = testAutomation(adamWfh, { event: adamMonTueEvent, state: baseState });
     expect(result.decision).toBe('on');
     expect(result.reason).toBe('home_at_inference_time');
+    expect(result.facts).toEqual({ person: 'adam', time: '08:00' });
     expect(result.outcome).toBe('acted');
     expectBooleanOn(result.actions, 'input_boolean.wfh_adam');
   });
@@ -103,6 +105,7 @@ describe('Sarah WFH', () => {
     const result = testAutomation(sarahWfh, { event: sarahScheduleEvent, state: baseState });
     expect(result.decision).toBe('on');
     expect(result.reason).toBe('home_at_inference_time');
+    expect(result.facts).toEqual({ person: 'sarah', time: '07:15' });
     expect(result.outcome).toBe('acted');
     expectBooleanOn(result.actions, 'input_boolean.wfh_sarah');
   });
