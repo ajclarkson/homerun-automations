@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { testAbort } from '@ajclarkson/homerun/testing';
 import { testDeclared as testAutomation } from './declared-outcome.js';
-import { makeHeatingAutomation, type HeatingRoomConfig } from './heating-controller-factory.js';
+import { makeHeatingAutomation, causeOf, type HeatingRoomConfig, type HeatingCause } from './heating-controller-factory.js';
 
 // ---- Test fixtures ----
 
@@ -99,7 +99,7 @@ describe('safety — window open', () => {
     expect(result.reason).toBe('safety_window_open');
     expect(result.outcome).toBe('acted');
     expectModePublished(result.actions, 'minimum');
-    expect(result.facts).toEqual({ mode: 'minimum' });
+    expect(result.facts).toMatchObject({ mode: 'minimum' });
     expectSourcePublished(result.actions, 'safety');
   });
 
@@ -111,7 +111,7 @@ describe('safety — window open', () => {
     expect(result.reason).toBe('safety_window_open');
     expect(result.outcome).toBe('acted');
     expectModePublished(result.actions, 'minimum');
-    expect(result.facts).toEqual({ mode: 'minimum' });
+    expect(result.facts).toMatchObject({ mode: 'minimum' });
   });
 });
 
@@ -147,7 +147,7 @@ describe('safety — window open grace period', () => {
     expect(result.reason).toBe('safety_window_open');
     expect(result.outcome).toBe('acted');
     expectModePublished(result.actions, 'minimum');
-    expect(result.facts).toEqual({ mode: 'minimum' });
+    expect(result.facts).toMatchObject({ mode: 'minimum' });
   });
 
   it('cancels the grace timer once the window closes', () => {
@@ -208,7 +208,7 @@ describe('safety — window open grace period', () => {
     expect(result.reason).toBe('safety_window_open');
     expect(result.outcome).toBe('acted');
     expectModePublished(result.actions, 'minimum');
-    expect(result.facts).toEqual({ mode: 'minimum' });
+    expect(result.facts).toMatchObject({ mode: 'minimum' });
   });
 });
 
@@ -219,7 +219,7 @@ describe('safety — house heating disabled (forceMinimum)', () => {
     expect(result.reason).toBe('safety_heating_disabled');
     expect(result.outcome).toBe('acted');
     expectModePublished(result.actions, 'minimum');
-    expect(result.facts).toEqual({ mode: 'minimum' });
+    expect(result.facts).toMatchObject({ mode: 'minimum' });
     expectSourcePublished(result.actions, 'safety');
   });
 
@@ -251,7 +251,7 @@ describe('independent rooms opt out of house mode overrides', () => {
     expect(result.reason).toBe('schedule');
     expect(result.outcome).toBe('acted');
     expectModePublished(result.actions, 'baseline_day');
-    expect(result.facts).toEqual({ mode: 'baseline_day' });
+    expect(result.facts).toMatchObject({ mode: 'baseline_day' });
   });
 
   it('keeps following its own schedule when the house enters away mode', () => {
@@ -280,7 +280,7 @@ describe('house mode overrides', () => {
     expect(result.reason).toBe('house_mode_sleep');
     expect(result.outcome).toBe('acted');
     expectModePublished(result.actions, 'baseline_night');
-    expect(result.facts).toEqual({ mode: 'baseline_night' });
+    expect(result.facts).toMatchObject({ mode: 'baseline_night' });
     expectSourcePublished(result.actions, 'house_mode');
   });
 
@@ -289,7 +289,7 @@ describe('house mode overrides', () => {
     expect(result.reason).toBe('house_mode_away');
     expect(result.outcome).toBe('acted');
     expectModePublished(result.actions, 'baseline_night');
-    expect(result.facts).toEqual({ mode: 'baseline_night' });
+    expect(result.facts).toMatchObject({ mode: 'baseline_night' });
   });
 
   it('vacation mode maps to minimum', () => {
@@ -297,7 +297,7 @@ describe('house mode overrides', () => {
     expect(result.reason).toBe('house_mode_vacation');
     expect(result.outcome).toBe('acted');
     expectModePublished(result.actions, 'minimum');
-    expect(result.facts).toEqual({ mode: 'minimum' });
+    expect(result.facts).toMatchObject({ mode: 'minimum' });
   });
 
   it('normal house mode does not override schedule', () => {
@@ -320,7 +320,7 @@ describe('manual override', () => {
     expect(result.reason).toBe('manual_override');
     expect(result.outcome).toBe('acted');
     expectModePublished(result.actions, 'comfort');
-    expect(result.facts).toEqual({ mode: 'comfort' });
+    expect(result.facts).toMatchObject({ mode: 'comfort' });
     expectSourcePublished(result.actions, 'manual');
   });
 
@@ -354,7 +354,7 @@ describe('manual override', () => {
     expect(reset).toBeDefined();
     expect((reset as any).data?.option).toBe('auto');
     expectModePublished(result.actions, 'baseline_day');
-    expect(result.facts).toEqual({ mode: 'baseline_day' });
+    expect(result.facts).toMatchObject({ mode: 'baseline_day' });
     expect(result.reason).toBe('schedule');
     expect(result.outcome).toBe('acted');
   });
@@ -363,7 +363,7 @@ describe('manual override', () => {
     // At 10:00 schedule says baseline_day; manual says comfort
     const result = run({ [`input_select.${LOCATION}_heating_manual_mode`]: { state: 'baseline_night' } });
     expectModePublished(result.actions, 'baseline_night');
-    expect(result.facts).toEqual({ mode: 'baseline_night' });
+    expect(result.facts).toMatchObject({ mode: 'baseline_night' });
   });
 
   it('safety takes precedence over manual override', () => {
@@ -372,7 +372,7 @@ describe('manual override', () => {
       [`binary_sensor.${LOCATION}_external_openings`]: { state: 'on' },
     });
     expectModePublished(result.actions, 'minimum');
-    expect(result.facts).toEqual({ mode: 'minimum' });
+    expect(result.facts).toMatchObject({ mode: 'minimum' });
     expect(result.reason).toBe('safety_window_open');
     expect(result.outcome).toBe('acted');
   });
@@ -383,7 +383,7 @@ describe('manual override', () => {
       'sensor.house_active_mode': { state: 'away' },
     });
     expectModePublished(result.actions, 'baseline_night');
-    expect(result.facts).toEqual({ mode: 'baseline_night' });
+    expect(result.facts).toMatchObject({ mode: 'baseline_night' });
     expect(result.reason).toBe('house_mode_away');
     expect(result.outcome).toBe('acted');
   });
@@ -394,7 +394,7 @@ describe('manual override', () => {
       [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' },
     });
     expectModePublished(result.actions, 'baseline_day');
-    expect(result.facts).toEqual({ mode: 'baseline_day' });
+    expect(result.facts).toMatchObject({ mode: 'baseline_day' });
     expect(result.reason).toBe('schedule');
     expect(result.outcome).toBe('acted');
   });
@@ -407,7 +407,7 @@ describe('schedule resolution', () => {
     // Wednesday 10:00 — in 06:00–16:00 block
     const result = run({ [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } }); // force a mode change
     expectModePublished(result.actions, 'baseline_day');
-    expect(result.facts).toEqual({ mode: 'baseline_day' });
+    expect(result.facts).toMatchObject({ mode: 'baseline_day' });
     expectSourcePublished(result.actions, 'schedule');
   });
 
@@ -415,28 +415,28 @@ describe('schedule resolution', () => {
     pinTime('2026-01-07T18:00:00.000Z'); // Wednesday 18:00
     const result = run({ [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } });
     expectModePublished(result.actions, 'comfort');
-    expect(result.facts).toEqual({ mode: 'comfort' });
+    expect(result.facts).toMatchObject({ mode: 'comfort' });
   });
 
   it('resolves baseline_night for overnight block', () => {
     pinTime('2026-01-07T23:00:00.000Z'); // Wednesday 23:00
     const result = run({ [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } });
     expectModePublished(result.actions, 'baseline_night');
-    expect(result.facts).toEqual({ mode: 'baseline_night' });
+    expect(result.facts).toMatchObject({ mode: 'baseline_night' });
   });
 
   it('resolves overnight block correctly past midnight', () => {
     pinTime('2026-01-08T02:00:00.000Z'); // Thursday 02:00 — overnight from Wednesday
     const result = run({ [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } });
     expectModePublished(result.actions, 'baseline_night');
-    expect(result.facts).toEqual({ mode: 'baseline_night' });
+    expect(result.facts).toMatchObject({ mode: 'baseline_night' });
   });
 
   it('uses weekend schedule on a Saturday', () => {
     pinTime('2026-01-10T14:00:00.000Z'); // Saturday 14:00
     const result = run({ [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } });
     expectModePublished(result.actions, 'comfort');
-    expect(result.facts).toEqual({ mode: 'comfort' }); // weekend 06:00–22:00 = comfort
+    expect(result.facts).toMatchObject({ mode: 'comfort' }); // weekend 06:00–22:00 = comfort
   });
 
   it('prefers weekday_wfh_adam context when wfh_adam is on on a weekday', () => {
@@ -455,7 +455,7 @@ describe('schedule resolution', () => {
       wfhConfig,
     );
     expectModePublished(result.actions, 'comfort');
-    expect(result.facts).toEqual({ mode: 'comfort' });
+    expect(result.facts).toMatchObject({ mode: 'comfort' });
   });
 
   it('falls back to weekday context when wfh_adam is off', () => {
@@ -474,7 +474,7 @@ describe('schedule resolution', () => {
       wfhConfig,
     );
     expectModePublished(result.actions, 'baseline_day');
-    expect(result.facts).toEqual({ mode: 'baseline_day' });
+    expect(result.facts).toMatchObject({ mode: 'baseline_day' });
   });
 
   it('returns no_action when no schedule block matches', () => {
@@ -519,7 +519,7 @@ describe('occupancy upgrade', () => {
       occupancyConfig,
     );
     expectModePublished(result.actions, 'comfort');
-    expect(result.facts).toEqual({ mode: 'comfort' });
+    expect(result.facts).toMatchObject({ mode: 'comfort' });
     expect(result.reason).toBe('schedule_occupied');
     expect(result.outcome).toBe('acted');
   });
@@ -530,7 +530,7 @@ describe('occupancy upgrade', () => {
       occupancyConfig,
     );
     expectModePublished(result.actions, 'baseline_day');
-    expect(result.facts).toEqual({ mode: 'baseline_day' });
+    expect(result.facts).toMatchObject({ mode: 'baseline_day' });
     expect(result.reason).toBe('schedule');
     expect(result.outcome).toBe('acted');
   });
@@ -543,7 +543,7 @@ describe('occupancy upgrade', () => {
       occupancyConfig,
     );
     expectModePublished(result.actions, 'comfort');
-    expect(result.facts).toEqual({ mode: 'comfort' });
+    expect(result.facts).toMatchObject({ mode: 'comfort' });
     expect(result.reason).toBe('schedule');
     expect(result.outcome).toBe('acted');
   });
@@ -557,7 +557,7 @@ describe('occupancy upgrade', () => {
       occupancyConfig,
     );
     expectModePublished(result.actions, 'minimum');
-    expect(result.facts).toEqual({ mode: 'minimum' });
+    expect(result.facts).toMatchObject({ mode: 'minimum' });
     expect(result.reason).toBe('safety_window_open');
     expect(result.outcome).toBe('acted');
   });
@@ -572,7 +572,7 @@ describe('occupancy upgrade', () => {
       occupancyConfig,
     );
     expectModePublished(result.actions, 'baseline_night');
-    expect(result.facts).toEqual({ mode: 'baseline_night' });
+    expect(result.facts).toMatchObject({ mode: 'baseline_night' });
     expect(result.reason).toBe('manual_override');
     expect(result.outcome).toBe('acted');
   });
@@ -640,3 +640,75 @@ function expectSourcePublished(actions: Action[], source: string) {
 
 // Only `type` is read directly; the homerun Action interfaces have no index signature.
 type Action = { type: string };
+
+// ---- Cause: what set the decision off ----
+
+describe('the cause carried with a mode change', () => {
+  const stateEvent = (entity_id: string, to: string) => ({
+    type: 'state_changed' as const,
+    entity_id,
+    old_state: { entity_id, state: 'x', attributes: {}, last_changed: '', last_updated: '' },
+    new_state: { entity_id, state: to, attributes: {}, last_changed: '', last_updated: '' },
+    correlation_id: 'test-cid',
+  });
+  const timerEvent = (suffix: string) => ({ type: 'timer_expired' as const, timerKey: `${LOCATION}:heating:${suffix}`, correlation_id: 'test-cid' });
+  const exec = (event: Parameters<typeof testAutomation>[1]['event'], overrideState: Record<string, { state: string }> = {}) =>
+    testAutomation(makeHeatingAutomation(baseConfig), { event, state: { ...baseState, ...overrideState } });
+
+  // Each case changes the mode (the baseline_day starting point differs from the target), so the
+  // decision is a set_mode and carries the cause.
+  const cases: [HeatingCause, Parameters<typeof testAutomation>[1]['event'], Record<string, { state: string }>, string][] = [
+    ['startup', onStartEvent, { [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } }, 'schedule'],
+    ['boundary', timerEvent('schedule_boundary'), { [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } }, 'schedule'],
+    ['window_closed', stateEvent(`binary_sensor.${LOCATION}_external_openings`, 'off'), { [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } }, 'schedule'],
+    ['house_mode', stateEvent('sensor.house_active_mode', 'sleep'), { 'sensor.house_active_mode': { state: 'sleep' } }, 'house_mode_sleep'],
+    ['manual_set', stateEvent(`input_select.${LOCATION}_heating_manual_mode`, 'comfort'), { [`input_select.${LOCATION}_heating_manual_mode`]: { state: 'comfort' } }, 'manual_override'],
+    ['manual_ended', stateEvent(`input_select.${LOCATION}_heating_manual_mode`, 'auto'), { [`sensor.${LOCATION}_active_heating`]: { state: 'comfort' } }, 'schedule'],
+    ['manual_ended', timerEvent('manual_override_expiry'), { [`sensor.${LOCATION}_active_heating`]: { state: 'comfort' } }, 'schedule'],
+    ['heating_on', stateEvent('input_boolean.house_heating_enabled', 'on'), { [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } }, 'schedule'],
+    ['heating_on', stateEvent(`input_boolean.${LOCATION}_automation_heating_enabled`, 'on'), { [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } }, 'schedule'],
+    ['wfh', stateEvent('input_boolean.wfh_sarah', 'on'), { [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } }, 'schedule'],
+    ['wfh', stateEvent('input_boolean.wfh_adam', 'off'), { [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } }, 'schedule'],
+    ['occupancy', stateEvent(`binary_sensor.${LOCATION}_occupied`, 'on'), { [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } }, 'schedule'],
+  ];
+
+  it.each(cases)('is %s when %#', (cause, event, overrides, reason) => {
+    const result = exec(event, overrides);
+    expect(result).toMatchObject({ decision: 'set_mode', reason, outcome: 'acted' });
+    expect(result.facts).toMatchObject({ cause });
+  });
+
+  it('carries the cause on the occupied schedule reason too', () => {
+    const config: HeatingRoomConfig = { location: LOCATION, scheduleConfig: { byContext: { weekday: [{ start: '06:00', end: '16:00', mode: 'baseline_day', occupiedMode: 'comfort' }] } } };
+    const result = testAutomation(makeHeatingAutomation(config), {
+      event: stateEvent(`binary_sensor.${LOCATION}_occupied`, 'on'),
+      state: { ...baseState, [`binary_sensor.${LOCATION}_occupied`]: { state: 'on' }, [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } },
+    });
+    expect(result).toMatchObject({ reason: 'schedule_occupied' });
+    expect(result.facts).toEqual({ mode: 'comfort', cause: 'occupancy' });
+  });
+
+  it('leaves the cause off the safety reasons, which explain themselves', () => {
+    const result = exec(stateEvent(`binary_sensor.${LOCATION}_external_openings`, 'on'), { [`binary_sensor.${LOCATION}_external_openings`]: { state: 'on' } });
+    expect(result).toMatchObject({ reason: 'safety_window_open' });
+    expect(result.facts).toEqual({ mode: 'minimum' });
+  });
+
+  // `other` is only the runtime fallback so a newly added trigger cannot stop heating deciding.
+  // This walks every trigger the factory declares and fails until a new one is mapped.
+  it('maps every trigger the automation declares to a real cause, never the fallback', () => {
+    const automation = makeHeatingAutomation(baseConfig);
+    const unmapped: string[] = [];
+    for (const trigger of automation.triggers as { type: string; entity?: string; timerKey?: string }[]) {
+      const event = trigger.type === 'state_changed' ? stateEvent(trigger.entity as string, 'on')
+        : trigger.type === 'timer_expired' ? { type: 'timer_expired' as const, timerKey: trigger.timerKey as string, correlation_id: 'test-cid' }
+        : onStartEvent;
+      if (causeOf(event, LOCATION) === 'other') unmapped.push(`${trigger.type}:${trigger.entity ?? trigger.timerKey ?? ''}`);
+    }
+    expect(unmapped).toEqual([]);
+  });
+
+  it('falls back to other for an event it does not know, rather than throwing at runtime', () => {
+    expect(causeOf(stateEvent('sensor.something_new', 'on'), LOCATION)).toBe('other');
+  });
+});

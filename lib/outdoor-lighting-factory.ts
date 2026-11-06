@@ -64,6 +64,9 @@ export const OUTDOOR_LIGHTING_REASONS = {
   sunset_while_house_asleep: { outcome: 'declined' },
   automation_disabled: { outcome: 'declined' },
   automation_disabled_idle: { outcome: 'ignored' },
+  schedule_off_already_off: { outcome: 'ignored' },
+  sunrise_already_off: { outcome: 'ignored' },
+  house_sleep_mode_already_off: { outcome: 'ignored' },
   startup_sync: { outcome: 'ignored' },
   theme_changed_while_off: { outcome: 'ignored' },
   preview_ended_in_window: { outcome: 'ignored' },
@@ -84,6 +87,8 @@ interface OutdoorLightingContext {
   themeSceneMissing: boolean;
   onScene: string;
   offScene: string;
+  /** The area's most recently activated scene is already the off scene. */
+  alreadyOff: boolean;
   /** scene_activated only: the scene that changed is this location's off scene. */
   activatedIsOff: boolean;
   /** scene_activated only: the scene is one of this location's area scenes. */
@@ -167,6 +172,7 @@ export function makeOutdoorLightingAutomation(config: OutdoorLightingConfig) {
       const activated = event.type === 'state_changed' && trigger === 'scene_activated' ? event : null;
       return {
         trigger, automationEnabled, inOnWindow, houseAsleep, lightsDue, theme, themeSceneMissing, onScene, offScene,
+        alreadyOff: state(`sensor.${location}_active_scene` as keyof HAEntities)?.state === offScene.replace(/^scene\./, ''),
         activatedIsOff: activated?.entity_id === offScene,
         activatedInArea: activated !== null && areaEntities.includes(activated.entity_id),
         realActivation: activated !== null && isSceneActivation(activated.old_state?.state, activated.new_state.state),
@@ -174,7 +180,7 @@ export function makeOutdoorLightingAutomation(config: OutdoorLightingConfig) {
     },
 
     reduce: (ctx): OutdoorDecision => {
-      const { trigger, automationEnabled, inOnWindow, houseAsleep, lightsDue, theme, themeSceneMissing, onScene, offScene } = ctx;
+      const { trigger, automationEnabled, inOnWindow, houseAsleep, lightsDue, theme, themeSceneMissing, onScene, offScene, alreadyOff } = ctx;
       const sceneOn = (entity_id: string) => HomeAssistant.scene.turn_on({ entity_id }, { transition: 0.5 });
       // A missing theme scene is a config gap, so it must not hide behind the ordinary reason.
       const turnOn = (reason: 'sunset' | 'theme_changed'): OutdoorDecision =>
@@ -198,7 +204,7 @@ export function makeOutdoorLightingAutomation(config: OutdoorLightingConfig) {
       }
 
       if (trigger === 'sleep_mode') {
-        return { decision: 'turn_off', reason: 'house_sleep_mode', actions: [sceneOn(offScene)] };
+        return { decision: 'turn_off', reason: alreadyOff ? 'house_sleep_mode_already_off' : 'house_sleep_mode', actions: [sceneOn(offScene)] };
       }
 
       if (trigger === 'sunset' && inOnWindow) {
@@ -209,7 +215,9 @@ export function makeOutdoorLightingAutomation(config: OutdoorLightingConfig) {
       }
 
       if (trigger === 'schedule_off' || trigger === 'sunrise') {
-        return { decision: 'turn_off', reason: trigger, actions: [sceneOn(offScene)] };
+        // The off scene is still sent (a light may have been switched on by hand); an already-off
+        // garden is not news.
+        return { decision: 'turn_off', reason: alreadyOff ? `${trigger}_already_off` as const : trigger, actions: [sceneOn(offScene)] };
       }
 
       if (trigger === 'theme_changed') {

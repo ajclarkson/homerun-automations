@@ -125,9 +125,9 @@ describe('theme effects', () => {
   });
 
   describe('when the garden moves to a look without effects', () => {
-    it('clears any running effect from every themed light and drops a pending start', () => {
-      const result = run(sceneActivated(NORMAL_SCENE));
-      expect(result).toMatchObject({ decision: 'stop_effects', reason: 'scene_without_effects_activated', outcome: 'acted' });
+    it('reports effects stopped, naming the theme, when a theme with effects was showing', () => {
+      const result = run(sceneActivated(NORMAL_SCENE), activeScene(SPOOKY_SCENE));
+      expect(result).toMatchObject({ decision: 'stop_effects', reason: 'theme_effects_stopped', outcome: 'acted', facts: { theme: 'spooky' } });
       expect(result.actions).toEqual([
         { type: 'timer.cancel', timerKey: SETTLE_TIMER },
         effectCall(FEATURE, 'stop_hue_effect'),
@@ -135,10 +135,22 @@ describe('theme effects', () => {
       ]);
     });
 
-    it('treats a theme scene with no effects configured the same way', () => {
-      const result = run(sceneActivated(COSY_SCENE));
-      expect(result).toMatchObject({ decision: 'stop_effects', reason: 'scene_without_effects_activated', outcome: 'acted' });
+    it('is quiet when no effects were running, but still clears any that may be', () => {
+      const result = run(sceneActivated(NORMAL_SCENE), activeScene(COSY_SCENE));
+      expect(result).toMatchObject({ decision: 'stop_effects', reason: 'scene_without_effects_activated', outcome: 'ignored' });
       expect(result.facts).toBeUndefined();
+      expect(result.actions).toHaveLength(3);
+    });
+
+    it('is quiet when the previous scene cannot be told because the sensor already names the new one', () => {
+      const result = run(sceneActivated(NORMAL_SCENE), activeScene(NORMAL_SCENE));
+      expect(result).toMatchObject({ reason: 'scene_without_effects_activated', outcome: 'ignored' });
+      expect(result.actions).toHaveLength(3);
+    });
+
+    it('is quiet when there is no previous scene at all', () => {
+      const result = run(sceneActivated(COSY_SCENE));
+      expect(result).toMatchObject({ reason: 'scene_without_effects_activated', outcome: 'ignored' });
     });
   });
 

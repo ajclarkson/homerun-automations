@@ -15,8 +15,8 @@ export interface OccupancyRoomConfig {
 export const OCCUPANCY_REASONS = {
   motion_detected: { outcome: 'acted' },
   strong_hold_started: { outcome: 'acted', facts: ['hold'] },
-  timer_expired: { outcome: 'acted' },
-  containment_failsafe_expired: { outcome: 'acted' },
+  timer_expired: { outcome: 'acted', facts: ['minutes'] },
+  containment_failsafe_expired: { outcome: 'acted', facts: ['hours'] },
   strong_hold_active: { outcome: 'declined', facts: ['hold'] },
   evidence_still_present: { outcome: 'ignored' },
   motion_disabled_ignore_pir: { outcome: 'ignored' },
@@ -69,6 +69,8 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
   const containedTopic = `${location}/occupied/contained/state`;
   const containedEntity = `binary_sensor.${location}_occupied_contained`;
 
+  // One decimal keeps an odd configured wait readable (e.g. 1.5 h) without a long float in the fact.
+  const containmentHours = Math.round((containmentMaxMins / 60) * 10) / 10;
   const delayMs = delayMins * 60_000;
   const containmentMaxMs = containmentMaxMins * 60_000;
   const reopenTightenMs = reopenTightenMins * 60_000;
@@ -204,11 +206,12 @@ export function makeOccupancyAutomation(config: OccupancyRoomConfig) {
         // because the timer expiry always terminates containment
         if (containedBefore) publish(containedTopic, 'OFF', containedEntity);
         if (!occupiedBefore) return { decision: 'no_change', reason: 'timer_expired_already_empty', actions };
-        return {
-          decision: 'clear_occupied',
-          reason: containedBefore ? 'containment_failsafe_expired' : 'timer_expired',
-          actions,
-        };
+        // The facts name the configured waits. A timer shortened by `door_open_tighten_timer` also ends
+        // as `timer_expired`; the expiry cannot tell which wait started it, so `minutes` is the room's
+        // normal delay and a card should read it as "no one seen for about N min".
+        return containedBefore
+          ? { decision: 'clear_occupied', reason: 'containment_failsafe_expired', facts: { hours: containmentHours }, actions }
+          : { decision: 'clear_occupied', reason: 'timer_expired', facts: { minutes: delayMins }, actions };
       }
 
       // Branch 3: No evidence, still occupied — start or tighten clear timer

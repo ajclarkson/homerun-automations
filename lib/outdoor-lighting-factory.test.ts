@@ -150,6 +150,20 @@ describe('outdoor lighting', () => {
     });
   });
 
+  describe('when the garden was already off', () => {
+    const alreadyOff = { [`sensor.${LOCATION}_active_scene`]: { state: `${LOCATION}_off` } };
+
+    it.each([
+      ['schedule_off_already_off', () => { at('22:00'); return run(scheduleOffEvent, { ...dark, ...alreadyOff }); }],
+      ['sunrise_already_off', () => { nextDayAt('08:00'); return run(sunriseEvent, { ...light, ...alreadyOff }); }],
+      ['house_sleep_mode_already_off', () => run(houseModeEvent('sleep'), { ...dark, ...alreadyOff })],
+    ] as const)('ignores %s but still re-asserts the off scene', (reason, go) => {
+      const result = go();
+      expect(result).toMatchObject({ decision: 'turn_off', reason, outcome: 'ignored' });
+      expectScene(result.actions, OFF_SCENE);
+    });
+  });
+
   describe('when the house goes to sleep', () => {
     it('turns the garden off even though the evening window is still open', () => {
       const result = run(houseModeEvent('sleep'), { ...dark, 'sensor.house_active_mode': { state: 'sleep' } });

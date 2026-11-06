@@ -1,7 +1,9 @@
 import { defineAutomation, abort, HomeAssistant, type DeclaredDecision } from '@ajclarkson/homerun';
 
 // Cameras going on or off with the house mode is `acted`. A guest keeping cameras off while the
-// house is away is `declined`; a mode this does not manage is bookkeeping.
+// house is away is `declined`; a guest arriving while the house is away and the cameras are
+// watching switches them off (`guest_arrived_while_away`, `acted`). A mode this does not manage
+// is bookkeeping.
 // The `_startup` twins are the same actions on a homerun restart, which only re-asserts the current
 // mode, so they are `ignored`.
 export const CAMERA_MODE_SYNC_REASONS = {
@@ -11,6 +13,7 @@ export const CAMERA_MODE_SYNC_REASONS = {
   house_away_startup: { outcome: 'ignored' },
   sleep_kitchen_camera_on_startup: { outcome: 'ignored' },
   house_not_away_startup: { outcome: 'ignored' },
+  guest_arrived_while_away: { outcome: 'acted' },
   away_but_guest_present: { outcome: 'declined' },
   mode_not_managed: { outcome: 'ignored', facts: ['mode'] },
 } as const;
@@ -40,16 +43,29 @@ export default defineAutomation({
       return abort(`modifier_unavailable:${modifier}`);
     }
 
+    // Only the modifier flipping to guest counts as an arrival. A mode change or a restart with a
+    // guest already present is the old "keep the cameras off" case, not a new arrival.
+    const guestJustArrived = event.type === 'state_changed'
+      && event.entity_id === 'input_select.house_active_mode_modifier'
+      && event.old_state?.state !== 'guest'
+      && modifier === 'guest';
+
+    // Privacy off means the cameras are watching. An unavailable switch is not confirmed watching,
+    // so it never triggers a switch-off: the declined reason records that nothing was done.
+    const camerasWatching = state('switch.parlour_privacy')?.state === 'off';
+
     return {
       houseMode,
       guestPresent: modifier === 'guest',
       modifier,
       startup: event.type === 'on_start',
+      guestJustArrived,
+      camerasWatching,
     };
   },
 
   reduce: (ctx): CameraModeDecision => {
-    const { houseMode, guestPresent, startup } = ctx;
+    const { houseMode, guestPresent, startup, guestJustArrived, camerasWatching } = ctx;
     const sfx = startup ? '_startup' as const : '' as const;
 
     if (houseMode === 'away' && !guestPresent) {
@@ -58,6 +74,16 @@ export default defineAutomation({
         reason: `house_away${sfx}`,
         actions: [
           HomeAssistant.switch.turn_off({ entity_id: 'group.cameras_privacy' }),
+        ],
+      };
+    }
+
+    if (houseMode === 'away' && guestJustArrived && camerasWatching) {
+      return {
+        decision: 'cameras_off',
+        reason: 'guest_arrived_while_away',
+        actions: [
+          HomeAssistant.switch.turn_on({ entity_id: 'group.cameras_privacy' }),
         ],
       };
     }

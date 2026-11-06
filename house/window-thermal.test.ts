@@ -295,12 +295,14 @@ describe('presence routing', () => {
       'person.adam': { state: 'not_home' },
       'person.sarah': { state: 'not_home' },
     });
-    expect(result).toMatchObject({ decision: 'notify', reason: 'close_both', outcome: 'acted' });
+    expect(result).toMatchObject({ decision: 'no_action', reason: 'nobody_home', outcome: 'ignored' });
     const notifyActions = result.actions.filter((a: unknown) =>
       (a as { domain?: string }).domain === 'notify'
     );
     expect(notifyActions).toHaveLength(0);
     expectHotEvent(result.actions);
+    // No dedupe stamp, so the nudge can still go out once someone is home.
+    expect(result.actions).not.toContainEqual(expect.objectContaining({ service: 'set_value', data: { value: expect.any(String) }, target: { entity_id: 'input_text.window_notification_close_both' } }));
   });
 });
 

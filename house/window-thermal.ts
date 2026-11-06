@@ -26,6 +26,7 @@ export const WINDOW_THERMAL_REASONS = {
   close_bedroom: { outcome: 'acted' },
   close_home_office: { outcome: 'acted' },
   open_both: { outcome: 'acted' },
+  nobody_home: { outcome: 'ignored' },
   conditions_not_met: { outcome: 'ignored' },
 } as const;
 
@@ -176,6 +177,12 @@ export default defineAutomation({
       ...(adamHome  ? [notifyAction('mobile_app_adams_iphone',  title, message)] : []),
       ...(sarahHome ? [notifyAction('mobile_app_sarahs_iphone', title, message)] : []),
     ];
+
+    // A nudge with nobody to read it is not sent. The dedupe stamp is left unset so the same nudge
+    // can still go out later today once someone is home.
+    if (notifyActions.length === 0) {
+      return { decision: 'no_action', reason: 'nobody_home', actions: hotEventActions };
+    }
 
     return {
       decision,
