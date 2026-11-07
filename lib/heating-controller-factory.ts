@@ -48,6 +48,7 @@ const HOUSE_MODE_MAP: Record<HouseMode, HeatingMode> = {
 const SCHEDULE_TIMER_SUFFIX = 'heating:schedule_boundary';
 const MANUAL_TIMER_SUFFIX = 'heating:manual_override_expiry';
 const WINDOW_GRACE_TIMER_SUFFIX = 'heating:window_open_grace';
+const MIDNIGHT_TIMER_SUFFIX = 'heating:midnight_rollover';
 
 export const WINDOW_GRACE_HELPER = 'input_number.global_heating_window_open_grace_minutes';
 const MIN_WINDOW_GRACE_MINUTES = 0;
@@ -109,6 +110,8 @@ function buildContextKeys(weekday: boolean, wfhAdam: boolean, wfhSarah: boolean)
 }
 
 interface ResolvedSchedule {
+  /** The chosen context's configured blocks, in order; null when the room defines no context. */
+  blocks: HeatingBlock[] | null;
   requestedMode: HeatingMode | null;
   validUntilMs: number | null;
   block: HeatingBlock | null;
@@ -135,12 +138,13 @@ function resolveSchedule(
     }
   }
 
-  if (!blocks) return { requestedMode: null, validUntilMs: null, block: null, contextKey: null };
+  if (!blocks) return { blocks: null, requestedMode: null, validUntilMs: null, block: null, contextKey: null };
 
   const block = resolveActiveBlock(blocks, now);
-  if (!block) return { requestedMode: null, validUntilMs: null, block: null, contextKey };
+  if (!block) return { blocks, requestedMode: null, validUntilMs: null, block: null, contextKey };
 
   return {
+    blocks,
     requestedMode: block.mode,
     validUntilMs: computeValidUntilMs(block, now),
     block,
@@ -154,6 +158,102 @@ function planTimer(timerKey: string, validUntilMs: number | null, nowMs: number)
   if (validUntilMs === null) return [];
   const delayMs = Math.min(Math.max(validUntilMs - nowMs, MIN_TIMER_DELAY_MS), MAX_TIMER_DELAY_MS);
   return [{ type: 'timer.start', timerKey, delayMs }];
+}
+
+// ---- Day plan (published for the Pulse day-plan card) ----
+
+export interface HeatingPlanBlock {
+  start: string; // local 'HH:MM'
+  end: string;   // local 'HH:MM'; '24:00' allowed as end of day
+  mode: HeatingMode;
+  occupied_mode?: HeatingMode;
+}
+
+export interface HeatingPlan {
+  date: string; // local 'YYYY-MM-DD' the blocks are for
+  context: ScheduleContextKey;
+  blocks: HeatingPlanBlock[];
+  active: { mode: HeatingMode; source: HeatingSource; until: string | null };
+  override: { mode: HeatingMode; until: string | null } | null;
+}
+
+const HHMM_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function isPlanTime(value: unknown, allowEndOfDay: boolean): boolean {
+  return typeof value === 'string' && (HHMM_PATTERN.test(value) || (allowEndOfDay && value === '24:00'));
+}
+
+/** Throws on anything a consumer could not draw. A partial plan is worse than none, so the
+ *  publisher never sends one. Run on configured blocks at load and on the built payload. */
+export function assertValidPlanBlocks(blocks: readonly HeatingBlock[], where: string): void {
+  if (blocks.length === 0) throw new Error(`heating plan: ${where} has no blocks`);
+  for (const b of blocks) {
+    if (!isPlanTime(b.start, false)) throw new Error(`heating plan: ${where} block start '${b.start}' is not HH:MM`);
+    if (!isPlanTime(b.end, true)) throw new Error(`heating plan: ${where} block end '${b.end}' is not HH:MM`);
+    if (!VALID_HEATING_MODES.has(b.mode)) throw new Error(`heating plan: ${where} block mode '${b.mode}' is not a heating mode`);
+    if (b.occupiedMode !== undefined && !VALID_HEATING_MODES.has(b.occupiedMode)) {
+      throw new Error(`heating plan: ${where} block occupiedMode '${b.occupiedMode}' is not a heating mode`);
+    }
+  }
+}
+
+function assertValidPlan(plan: HeatingPlan): void {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(plan.date)) throw new Error(`heating plan: date '${plan.date}' is not YYYY-MM-DD`);
+  assertValidPlanBlocks(plan.blocks.map(b => ({ start: b.start, end: b.end, mode: b.mode, occupiedMode: b.occupied_mode })), `context '${plan.context}'`);
+  if (!VALID_HEATING_MODES.has(plan.active.mode)) throw new Error(`heating plan: active mode '${plan.active.mode}' is not a heating mode`);
+}
+
+function localDate(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// ISO 8601 UTC without milliseconds, as the contract shows.
+function isoUtc(ms: number | null): string | null {
+  if (ms === null || !Number.isFinite(ms)) return null;
+  return new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+/** Null when the room defines no schedule context: there is nothing to draw. */
+export function buildHeatingPlan(
+  schedule: ResolvedSchedule,
+  now: Date,
+  active: { mode: HeatingMode; source: HeatingSource },
+): HeatingPlan | null {
+  if (!schedule.blocks || !schedule.contextKey) return null;
+  const manual = active.source === 'manual';
+  // Only schedule and manual choices end at the block boundary; safety and house mode hold until
+  // their own trigger changes, so they have no end time.
+  const until = (active.source === 'schedule' || manual) ? isoUtc(schedule.validUntilMs) : null;
+  const plan: HeatingPlan = {
+    date: localDate(now),
+    context: schedule.contextKey,
+    blocks: schedule.blocks.map(b => ({
+      start: b.start,
+      end: b.end,
+      mode: b.mode,
+      ...(b.occupiedMode ? { occupied_mode: b.occupiedMode } : {}),
+    })),
+    active: { mode: active.mode, source: active.source, until },
+    override: manual ? { mode: active.mode, until } : null,
+  };
+  assertValidPlan(plan);
+  return plan;
+}
+
+/** Only the contract's fields, in contract order, so HA's extra attributes (friendly_name) and
+ *  key order never make an unchanged plan look changed. */
+function planFingerprint(plan: Partial<HeatingPlan> | null | undefined): string | null {
+  if (!plan || typeof plan !== 'object') return null;
+  const { date, context, blocks, active, override } = plan;
+  if (date === undefined) return null;
+  return JSON.stringify({ date, context, blocks, active, override: override ?? null });
+}
+
+function planMidnightMs(now: Date): number {
+  const midnight = new Date(now);
+  midnight.setHours(24, 0, 0, 0); // local next midnight; DST-safe
+  return midnight.getTime();
 }
 
 // ---- Window-open safety debounce ----
@@ -244,7 +344,8 @@ export function causeOf(event: CauseEvent, location: string): HeatingCause {
   if (event.type === 'on_start') return 'startup';
   if (event.type === 'timer_expired') {
     const { timerKey } = event as { timerKey: string };
-    if (timerKey === `${location}:${SCHEDULE_TIMER_SUFFIX}`) return 'boundary';
+    // Midnight is a day boundary: the plan's date and context roll over.
+    if (timerKey === `${location}:${SCHEDULE_TIMER_SUFFIX}` || timerKey === `${location}:${MIDNIGHT_TIMER_SUFFIX}`) return 'boundary';
     if (timerKey === `${location}:${MANUAL_TIMER_SUFFIX}`) return 'manual_ended';
     // The grace timer ends a window episode; the closing itself is a window state change.
     if (timerKey === `${location}:${WINDOW_GRACE_TIMER_SUFFIX}`) return 'window_closed';
@@ -279,11 +380,20 @@ interface HeatingContext {
   manualTimerKey: string;
   manualSelectEntity: string;
   windowGraceTimerKey: string;
+  midnightTimerKey: string;
+  /** Fingerprint of the plan HA last received on the plan topic; null if none yet. */
+  publishedPlan: string | null;
   cause: HeatingCause;
 }
 
 export function makeHeatingAutomation(config: HeatingRoomConfig) {
   const { location, scheduleConfig, independent = false } = config;
+
+  // Fail at load, not at 3am: a malformed block would otherwise be skipped silently by schedule
+  // resolution and never reach the plan.
+  for (const [key, blocks] of Object.entries(scheduleConfig.byContext)) {
+    assertValidPlanBlocks(blocks ?? [], `${location} context '${key}'`);
+  }
 
   const windowEntity = `binary_sensor.${location}_external_openings`;
   const scheduleTimerKey = `${location}:${SCHEDULE_TIMER_SUFFIX}`;
@@ -294,6 +404,9 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
   const activeHeatingEntity = `sensor.${location}_active_heating`;
   const sourceTopic = `${location}/heating/source`;
   const sourceEntity = `sensor.${location}_heating_source`;
+  const planTopic = `${location}/heating/plan`;
+  const planEntity = `sensor.${location}_heating_plan`;
+  const midnightTimerKey = `${location}:${MIDNIGHT_TIMER_SUFFIX}`;
 
   return defineAutomation<HeatingContext, typeof HEATING_REASONS>({
     reasons: HEATING_REASONS,
@@ -313,6 +426,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       { type: 'timer_expired', timerKey: scheduleTimerKey },
       { type: 'timer_expired', timerKey: manualTimerKey },
       { type: 'timer_expired', timerKey: windowGraceTimerKey },
+      { type: 'timer_expired', timerKey: midnightTimerKey },
       { type: 'on_start' },
     ],
 
@@ -350,6 +464,10 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       const occupied = state(`binary_sensor.${location}_occupied` as keyof HAEntities)?.state === 'on';
       const schedule = resolveSchedule(scheduleConfig, weekday, wfhAdam, wfhSarah, now);
 
+      // The plan sensor's attributes are what HA holds of the last publish: comparing with them
+      // survives restarts and hot reloads, unlike a variable kept in this module.
+      const publishedPlan = planFingerprint(state(planEntity as keyof HAEntities)?.attributes as Partial<HeatingPlan> | undefined);
+
       return {
         now,
         automationEnabled,
@@ -364,6 +482,8 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
         manualTimerKey,
         manualSelectEntity,
         windowGraceTimerKey,
+        midnightTimerKey,
+        publishedPlan,
         cause: causeOf(event, location),
         wfhAdam,
         wfhSarah,
@@ -372,7 +492,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
     },
 
     reduce: (ctx): HeatingDecision => {
-      const { automationEnabled, currentMode, safety, house, manualMode, manualExpiring, occupied, schedule, scheduleTimerKey, manualTimerKey, manualSelectEntity, windowGraceTimerKey, now, cause } = ctx;
+      const { automationEnabled, currentMode, safety, house, manualMode, manualExpiring, occupied, schedule, scheduleTimerKey, manualTimerKey, manualSelectEntity, windowGraceTimerKey, midnightTimerKey, publishedPlan, now, cause } = ctx;
       const actions: Action[] = [];
       const nowMs = now.getTime();
 
@@ -384,6 +504,9 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       if (!automationEnabled) {
         return { decision: 'blocked', reason: 'automation_disabled', actions: [] };
       }
+
+      // The plan's date and context change at local midnight with no other trigger.
+      actions.push(...planTimer(midnightTimerKey, planMidnightMs(now), nowMs));
 
       // Stage 2 — safety (windowOpen takes precedence over forceMinimum)
       if (safety.windowOpenConfirmed) {
@@ -436,6 +559,12 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       // Stage 6 — no schedule match
       if (!targetMode || reason === null) {
         return { decision: 'no_action', reason: 'no_schedule_match', actions };
+      }
+
+      // Publish the day plan whenever it differs from what HA holds, whether or not the mode moved.
+      const plan = buildHeatingPlan(schedule, now, { mode: targetMode, source });
+      if (plan && planFingerprint(plan) !== publishedPlan) {
+        actions.push({ type: 'mqtt.publish', topic: planTopic, payload: JSON.stringify(plan), retain: true, impliesEntity: planEntity });
       }
 
       // Stage 7 — no-op detection
