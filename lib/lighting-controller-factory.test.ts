@@ -530,6 +530,39 @@ describe('makeLightingAutomation', () => {
       expect(result).toMatchObject({ decision: 'no_action', reason: 'external_suppress_active' });
     });
 
+    describe('reports the rule that actually decided', () => {
+      const suppressEntity = `input_boolean.${LOCATION}_bed_occupied_sync`;
+      const suppressed = {
+        ...baseState,
+        [`binary_sensor.${LOCATION}_occupied`]: { state: 'on' },
+        [suppressEntity]: { state: 'on' },
+      };
+      const run = (extra: Record<string, { state: string }>) =>
+        testAutomation(automation, { event: occupancyEvent('on'), state: { ...suppressed, ...extra }, ha: makeHa({ suppressEntity }) });
+
+      it('says the room is bright when suppressed and bright', () => {
+        const r = run({ [`sensor.${LOCATION}_sensor_motion_illuminance`]: { state: '100' } });
+        expect(r).toMatchObject({ decision: 'no_action', reason: 'lux_high' });
+      });
+
+      it('says suppressed when suppressed and dark', () => {
+        expect(run({})).toMatchObject({ decision: 'no_action', reason: 'external_suppress_active' });
+      });
+
+      it('suppression still blocks a recent_auto_off turn-on', () => {
+        const r = run({
+          [`sensor.${LOCATION}_sensor_motion_illuminance`]: { state: '100' },
+          [`binary_sensor.${LOCATION}_lighting_recent_auto_off`]: { state: 'on' },
+        });
+        expect(r).toMatchObject({ decision: 'no_action', reason: 'external_suppress_active' });
+      });
+
+      it('says already on when suppressed and the lights are on', () => {
+        const r = run({ [`sensor.${LOCATION}_active_scene`]: { state: `${LOCATION}_low` } });
+        expect(r).toMatchObject({ decision: 'no_action', reason: 'already_on' });
+      });
+    });
+
     it('does not suppress when suppress entity is off', () => {
       const suppressEntity = `input_boolean.${LOCATION}_bed_occupied_sync`;
       const result = testAutomation(automation, {
