@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { testAbort } from '@ajclarkson/homerun/testing';
 import { testDeclared as testAutomation } from './declared-outcome.js';
-import { makeHeatingAutomation, causeOf, type HeatingRoomConfig, type HeatingCause } from './heating-controller-factory.js';
+import { makeHeatingAutomation, causeOf, assertValidPlanBlocks, type HeatingPlan, type HeatingRoomConfig, type HeatingCause } from './heating-controller-factory.js';
 
 // ---- Test fixtures ----
 
@@ -56,7 +56,7 @@ afterEach(() => {
 });
 
 function run(
-  overrideState: Record<string, { state: string; last_changed?: string }> = {},
+  overrideState: Record<string, { state: string; last_changed?: string; attributes?: Record<string, unknown> }> = {},
   config: HeatingRoomConfig = baseConfig,
 ) {
   const automation = makeHeatingAutomation(config);
@@ -446,7 +446,7 @@ describe('schedule resolution', () => {
         byContext: {
           weekday_wfh_adam: [{ start: '06:00', end: '22:00', mode: 'comfort' }],
           weekday: [{ start: '06:00', end: '22:00', mode: 'baseline_day' }],
-          default: [],
+          default: [{ start: '01:00', end: '02:00', mode: 'minimum' }],
         },
       },
     };
@@ -465,7 +465,7 @@ describe('schedule resolution', () => {
         byContext: {
           weekday_wfh_adam: [{ start: '06:00', end: '22:00', mode: 'comfort' }],
           weekday: [{ start: '06:00', end: '22:00', mode: 'baseline_day' }],
-          default: [],
+          default: [{ start: '01:00', end: '02:00', mode: 'minimum' }],
         },
       },
     };
@@ -480,7 +480,7 @@ describe('schedule resolution', () => {
   it('returns no_action when no schedule block matches', () => {
     const sparseConfig: HeatingRoomConfig = {
       location: LOCATION,
-      scheduleConfig: { byContext: { default: [] } }, // no blocks
+      scheduleConfig: { byContext: { default: [{ start: '01:00', end: '02:00', mode: 'minimum' }] } }, // no block covers 10:00
     };
     const result = run({}, sparseConfig);
     expect(result.decision).toBe('no_action');
@@ -595,9 +595,9 @@ describe('no-op detection', () => {
     expect(timer).toBeDefined();
   });
 
-  it('does not publish MQTT when maintaining', () => {
+  it('does not republish mode or source when maintaining', () => {
     const result = run();
-    const publishes = result.actions.filter(a => a.type === 'mqtt.publish');
+    const publishes = result.actions.filter(a => a.type === 'mqtt.publish' && !(a as any).topic.endsWith('/heating/plan'));
     expect(publishes).toHaveLength(0);
   });
 });
@@ -710,5 +710,210 @@ describe('the cause carried with a mode change', () => {
 
   it('falls back to other for an event it does not know, rather than throwing at runtime', () => {
     expect(causeOf(stateEvent('sensor.something_new', 'on'), LOCATION)).toBe('other');
+  });
+});
+
+// ---- Day plan published for the Pulse card ----
+
+const PLAN_TOPIC = `${LOCATION}/heating/plan`;
+const PLAN_ENTITY = `sensor.${LOCATION}_heating_plan`;
+
+function planOf(actions: { type: string }[]): HeatingPlan | null {
+  const pub = actions.find(a => a.type === 'mqtt.publish' && (a as any).topic === PLAN_TOPIC) as any;
+  if (!pub) return null;
+  expect(pub.retain).toBe(true);
+  expect(pub.impliesEntity).toBe(PLAN_ENTITY);
+  return JSON.parse(pub.payload) as HeatingPlan;
+}
+
+// Tests run in the process's local zone; build instants from local parts so they hold anywhere.
+const localIso = (y: number, mo: number, d: number, h: number, mi: number) => new Date(y, mo - 1, d, h, mi).toISOString();
+const utcNoMs = (iso: string) => iso.replace(/\.\d{3}Z$/, 'Z');
+
+describe('the day plan', () => {
+  const WED_10 = localIso(2026, 1, 7, 10, 0);
+
+  beforeEach(() => pinTime(WED_10));
+
+  it('publishes the configured blocks, the context and the local date', () => {
+    const plan = planOf(run().actions)!;
+    expect(plan.date).toBe('2026-01-07');
+    expect(plan.context).toBe('weekday');
+    expect(plan.blocks).toEqual([
+      { start: '06:00', end: '16:00', mode: 'baseline_day' },
+      { start: '16:00', end: '22:00', mode: 'comfort' },
+      { start: '22:00', end: '06:00', mode: 'baseline_night' }, // wrap block kept whole
+    ]);
+  });
+
+  it('has a schedule source, the block end as until, and no override', () => {
+    const plan = planOf(run().actions)!;
+    expect(plan.active).toEqual({ mode: 'baseline_day', source: 'schedule', until: utcNoMs(localIso(2026, 1, 7, 16, 0)) });
+    expect(plan.override).toBeNull();
+  });
+
+  it('uses the weekend context at the weekend', () => {
+    pinTime(localIso(2026, 1, 10, 10, 0));
+    const plan = planOf(run().actions)!;
+    expect(plan.context).toBe('weekend');
+    expect(plan.active.mode).toBe('comfort');
+  });
+
+  it('uses the wfh context when it is chosen', () => {
+    const wfh: HeatingRoomConfig = { location: LOCATION, scheduleConfig: { byContext: {
+      weekday_wfh_adam: [{ start: '06:00', end: '22:00', mode: 'comfort' }],
+      weekday: [{ start: '06:00', end: '22:00', mode: 'baseline_day' }],
+    } } };
+    const plan = planOf(run({ 'input_boolean.wfh_adam': { state: 'on' } }, wfh).actions)!;
+    expect(plan.context).toBe('weekday_wfh_adam');
+    expect(plan.blocks).toHaveLength(1);
+  });
+
+  it('reports a manual choice as the override, ending with the block', () => {
+    const plan = planOf(run({ [`input_select.${LOCATION}_heating_manual_mode`]: { state: 'comfort' } }).actions)!;
+    const until = utcNoMs(localIso(2026, 1, 7, 16, 0));
+    expect(plan.active).toEqual({ mode: 'comfort', source: 'manual', until });
+    expect(plan.override).toEqual({ mode: 'comfort', until });
+  });
+
+  it('reports safety with no end time and no override, even with a manual choice set', () => {
+    const plan = planOf(run({
+      [`binary_sensor.${LOCATION}_external_openings`]: { state: 'on', last_changed: new Date(Date.now() - 3_600_000).toISOString() },
+      [`input_select.${LOCATION}_heating_manual_mode`]: { state: 'comfort' },
+    }).actions)!;
+    expect(plan.active).toEqual({ mode: 'minimum', source: 'safety', until: null });
+    expect(plan.override).toBeNull();
+  });
+
+  it('reports house mode with no end time', () => {
+    const plan = planOf(run({ 'sensor.house_active_mode': { state: 'away' } }).actions)!;
+    expect(plan.active).toEqual({ mode: 'baseline_night', source: 'house_mode', until: null });
+  });
+
+  it('carries occupied_mode on blocks that have one, and applies it when occupied', () => {
+    const cfg: HeatingRoomConfig = { location: LOCATION, scheduleConfig: { byContext: {
+      weekday: [{ start: '06:00', end: '22:00', mode: 'baseline_day', occupiedMode: 'comfort' }, { start: '22:00', end: '06:00', mode: 'minimum' }],
+    } } };
+    const plan = planOf(run({ [`binary_sensor.${LOCATION}_occupied`]: { state: 'on' } }, cfg).actions)!;
+    expect(plan.blocks[0]).toEqual({ start: '06:00', end: '22:00', mode: 'baseline_day', occupied_mode: 'comfort' });
+    expect(plan.blocks[1]).not.toHaveProperty('occupied_mode');
+    expect(plan.active).toMatchObject({ mode: 'comfort', source: 'schedule' });
+  });
+
+  it('includes an independent room (foreign office) with its occupied blocks, ignoring house mode', () => {
+    const cfg: HeatingRoomConfig = { location: LOCATION, independent: true, scheduleConfig: { byContext: {
+      default: [{ start: '08:00', end: '20:00', mode: 'minimum', occupiedMode: 'comfort' }, { start: '20:00', end: '08:00', mode: 'minimum' }],
+    } } };
+    const plan = planOf(run({
+      'sensor.house_active_mode': { state: 'away' },
+      'input_boolean.house_heating_enabled': { state: 'off' },
+      [`binary_sensor.${LOCATION}_occupied`]: { state: 'on' },
+    }, cfg).actions)!;
+    expect(plan.context).toBe('default');
+    expect(plan.active).toMatchObject({ mode: 'comfort', source: 'schedule' });
+    expect(plan.blocks[0].occupied_mode).toBe('comfort');
+  });
+
+  it('is published when the mode changes too', () => {
+    const result = run({ [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } });
+    expect(planOf(result.actions)).not.toBeNull();
+    expectModePublished(result.actions, 'baseline_day');
+  });
+
+  it('is not published for a room with no schedule context', () => {
+    const none: HeatingRoomConfig = { location: LOCATION, scheduleConfig: { byContext: {} } };
+    expect(planOf(run({ 'sensor.house_active_mode': { state: 'away' } }, none).actions)).toBeNull();
+  });
+
+  describe('dedupe against what HA holds', () => {
+    const held = () => {
+      const { date, context, blocks, active, override } = planOf(run().actions)!;
+      return { date, context, blocks, active, override };
+    };
+
+    it('is not republished when the sensor already carries the same plan', () => {
+      const attributes = { ...held(), friendly_name: 'Parlour heating plan' }; // HA adds attributes of its own
+      expect(planOf(run({ [PLAN_ENTITY]: { state: 'baseline_day', attributes } }).actions)).toBeNull();
+    });
+
+    it('is republished when the active choice differs', () => {
+      const h = held();
+      const attributes = { ...h, active: { ...h.active, source: 'manual' } };
+      expect(planOf(run({ [PLAN_ENTITY]: { state: 'baseline_day', attributes } }).actions)).not.toBeNull();
+    });
+
+    it('is republished when the held plan is for yesterday', () => {
+      const attributes = { ...held(), date: '2026-01-06' };
+      expect(planOf(run({ [PLAN_ENTITY]: { state: 'baseline_day', attributes } }).actions)?.date).toBe('2026-01-07');
+    });
+
+    it('is republished when the sensor is unknown or has no attributes', () => {
+      expect(planOf(run({ [PLAN_ENTITY]: { state: 'unknown' } }).actions)).not.toBeNull();
+    });
+  });
+
+  describe('midnight rollover', () => {
+    const midnightKey = `${LOCATION}:heating:midnight_rollover`;
+    const midnightTimer = (actions: { type: string }[]) =>
+      actions.find(a => a.type === 'timer.start' && (a as any).timerKey === midnightKey) as any;
+
+    it('is armed for the next local midnight', () => {
+      expect(midnightTimer(run().actions).delayMs).toBe(14 * 3_600_000);
+    });
+
+    it('is armed even when the plan is unchanged', () => {
+      const attributes = (() => { const p = planOf(run().actions)!; return { ...p }; })();
+      expect(midnightTimer(run({ [PLAN_ENTITY]: { state: 'x', attributes } }).actions)).toBeDefined();
+    });
+
+    it('is not armed while the automation is disabled', () => {
+      const r = run({ [`input_boolean.${LOCATION}_automation_heating_enabled`]: { state: 'off' } });
+      expect(midnightTimer(r.actions)).toBeUndefined();
+    });
+
+    it('publishes the new date and context when the timer fires after midnight', () => {
+      // Tue 23:59:59 plan held; the timer fires at Wed 00:00 (weekday both days) so use Fri -> Sat for a context change.
+      pinTime(localIso(2026, 1, 9, 23, 59)); // Friday
+      const friday = planOf(run({ [`sensor.${LOCATION}_active_heating`]: { state: 'baseline_night' } }).actions)!;
+      expect(friday.context).toBe('weekday');
+
+      pinTime(localIso(2026, 1, 10, 0, 0)); // Saturday midnight
+      const event = { type: 'timer_expired' as const, timerKey: midnightKey, correlation_id: 'c' };
+      const result = testAutomation(makeHeatingAutomation(baseConfig), {
+        event,
+        state: { ...baseState, [`sensor.${LOCATION}_active_heating`]: { state: 'baseline_night' }, [PLAN_ENTITY]: { state: 'baseline_night', attributes: friday as any } },
+      });
+      const saturday = planOf(result.actions)!;
+      expect(saturday.date).toBe('2026-01-10');
+      expect(saturday.context).toBe('weekend');
+      expect(result.facts ?? {}).not.toHaveProperty('cause'); // maintained: mode unchanged
+    });
+
+    it('fires a little early and re-arms rather than publishing yesterday again', () => {
+      pinTime(new Date(new Date(2026, 0, 8, 0, 0).getTime() - 5).toISOString()); // 5ms before midnight
+      const t = midnightTimer(run().actions);
+      expect(t.delayMs).toBe(250); // clamped minimum, lands after midnight
+    });
+  });
+});
+
+describe('the plan is validated', () => {
+  const ok = { start: '06:00', end: '22:00', mode: 'comfort' as const };
+
+  it('accepts valid blocks, including a 24:00 end', () => {
+    expect(() => assertValidPlanBlocks([ok, { ...ok, start: '22:00', end: '24:00' }], 'x')).not.toThrow();
+  });
+  it('rejects no blocks', () => expect(() => assertValidPlanBlocks([], 'x')).toThrow(/no blocks/));
+  it('rejects a bad time', () => {
+    expect(() => assertValidPlanBlocks([{ ...ok, start: '6:00' }], 'x')).toThrow(/not HH:MM/);
+    expect(() => assertValidPlanBlocks([{ ...ok, end: '25:00' }], 'x')).toThrow(/not HH:MM/);
+    expect(() => assertValidPlanBlocks([{ ...ok, start: '24:00' }], 'x')).toThrow(/not HH:MM/);
+  });
+  it('rejects an unknown mode', () => {
+    expect(() => assertValidPlanBlocks([{ ...ok, mode: 'toasty' as any }], 'x')).toThrow(/not a heating mode/);
+    expect(() => assertValidPlanBlocks([{ ...ok, occupiedMode: 'toasty' as any }], 'x')).toThrow(/occupiedMode/);
+  });
+  it('fails when the automation is built, not when it runs', () => {
+    expect(() => makeHeatingAutomation({ location: LOCATION, scheduleConfig: { byContext: { weekday: [{ ...ok, start: 'soon' }] } } })).toThrow(/not HH:MM/);
   });
 });

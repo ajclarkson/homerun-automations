@@ -100,6 +100,7 @@ Always validate with `Number.isFinite()` before use. If the value is required an
 | Contained state topic | `{location}/occupied/contained/state` | `kitchen/occupied/contained/state` |
 | Heating mode topic | `{location}/heating/active` | `parlour/heating/active` |
 | Heating source topic | `{location}/heating/source` | `parlour/heating/source` |
+| Heating plan topic | `{location}/heating/plan` | `parlour/heating/plan` |
 
 Consistent naming makes topics predictable and prevents collisions across rooms. Do not invent new patterns without updating this table.
 
