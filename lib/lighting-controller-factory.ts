@@ -378,12 +378,7 @@ function reduceRules(ctx: LightingContext, occupancySettleMs: number): LightingD
     return { decision: 'no_action', reason: walkedIn ? 'sleep_mode' : 'sleep_mode_idle', actions: [] };
   }
 
-  // Rule 5: external suppress blocks motion-triggered on
-  if (externalSuppressSource !== null && trigger.type === 'occupancy' && trigger.to === 'occupied') {
-    return { decision: 'no_action', reason: 'external_suppress_active', facts: { source: externalSuppressSource }, actions: [] };
-  }
-
-  // Rule 6: occupancy cleared
+  // Rule 5: occupancy cleared
   if (trigger.type === 'occupancy' && trigger.to === 'unoccupied') {
     // Leaving a room whose lights were already off (a bright room, a daytime walk-through) must not
     // open the recent-off window: re-entering within it would light the room regardless of lux.
@@ -397,7 +392,7 @@ function reduceRules(ctx: LightingContext, occupancySettleMs: number): LightingD
     };
   }
 
-  // Rule 7: occupancy set
+  // Rule 6: occupancy set
   if (trigger.type === 'occupancy' && trigger.to === 'occupied') {
     const luxFacts = { lux: roundedOrNull(lux), lux_threshold: roundedOrNull(luxThreshold) };
     if (!isCurrentlyOff) {
@@ -408,20 +403,25 @@ function reduceRules(ctx: LightingContext, occupancySettleMs: number): LightingD
       };
     }
     const autoScene = selectAutoScene(scenes, isDay);
+    if (!recentAutoOff && lux !== null && lux > luxThreshold) {
+      return {
+        decision: 'no_action',
+        reason: 'lux_high',
+        facts: luxFacts,
+        actions: planRecentAutoOffCancel(location),
+      };
+    }
+    // Checked after the lights-already-on and lux rules so the reason names what actually decided:
+    // a bright room would have stayed dark anyway. Still blocks both turn-on paths below.
+    if (externalSuppressSource !== null) {
+      return { decision: 'no_action', reason: 'external_suppress_active', facts: { source: externalSuppressSource }, actions: [] };
+    }
     if (recentAutoOff) {
       return {
         decision: 'activate_scene',
         reason: 'recent_auto_off',
         facts: { scene: toSceneKey(autoScene) },
         actions: [...planScene(autoScene), ...planRecentAutoOffCancel(location)],
-      };
-    }
-    if (lux !== null && lux > luxThreshold) {
-      return {
-        decision: 'no_action',
-        reason: 'lux_high',
-        facts: luxFacts,
-        actions: planRecentAutoOffCancel(location),
       };
     }
     return {
@@ -432,7 +432,7 @@ function reduceRules(ctx: LightingContext, occupancySettleMs: number): LightingD
     };
   }
 
-  // Rule 8: on_start — no scene resync (would clobber manual overrides); this tick's
+  // Rule 7: on_start — no scene resync (would clobber manual overrides); this tick's
   // only job is exercising the validation above (scene labels, lux threshold) at boot.
   if (trigger.type === 'system') {
     return { decision: 'no_action', reason: 'startup_check_ok', actions: [] };
