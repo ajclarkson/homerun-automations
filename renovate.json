@@ -1,55 +1,32 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:recommended"
-  ],
+  "extends": ["config:recommended"],
   "automerge": true,
   "automergeType": "pr",
   "minimumReleaseAge": "3 days",
-  "labels": [
-    "dependencies"
-  ],
+  "labels": ["dependencies"],
   "packageRules": [
     {
-      "matchUpdateTypes": [
-        "patch"
-      ],
+      "matchUpdateTypes": ["patch"],
       "automerge": true,
-      "labels": [
-        "patch"
-      ]
+      "labels": ["patch"]
     },
     {
-      "matchUpdateTypes": [
-        "minor"
-      ],
+      "matchUpdateTypes": ["minor"],
       "automerge": true,
-      "labels": [
-        "minor"
-      ]
+      "labels": ["minor"]
     },
     {
-      "matchUpdateTypes": [
-        "major"
-      ],
-      "automerge": false,
-      "labels": [
-        "major"
-      ]
-    },
-    {
-      "matchPackageNames": [
-        "@ajclarkson/homerun"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
+      "matchPackageNames": ["@ajclarkson/homerun"],
+      "matchUpdateTypes": ["minor", "patch"],
       "automerge": true,
       "minimumReleaseAge": "0 days",
-      "schedule": [
-        "at any time"
-      ]
+      "schedule": ["at any time"]
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "labels": ["major"]
     }
   ]
 }
