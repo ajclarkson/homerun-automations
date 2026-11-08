@@ -1,7 +1,9 @@
 import { makeHeatingAutomation } from '../lib/heating-controller-factory.js';
+import { HOUSE_SCHEDULE_CONTEXTS } from '../lib/house/schedule-contexts.js';
 
 export default makeHeatingAutomation({
   location: 'bedroom',
+  contexts: HOUSE_SCHEDULE_CONTEXTS,
   scheduleConfig: {
     byContext: {
       default: [

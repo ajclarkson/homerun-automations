@@ -2,6 +2,7 @@
 // fade-back can be a plain light.turn_on (the bulb snaps on scene.turn_on but fades on light.turn_on).
 // Effects are never part of a look: the porch bulb's on-bulb effects turn it off while HA reports it on.
 import type { Action } from '@ajclarkson/homerun';
+import { clamp } from './clamp.js';
 
 export const MIN_KELVIN = 2000; // the bulb's supported range
 export const MAX_KELVIN = 9009;
@@ -17,7 +18,6 @@ export type Look =
 /** A look plus, while a fade-back is under way, the epoch ms at which that fade (and its margin) ends. */
 export interface SavedLook { look: Look; fadeEndsMs: number | null }
 
-const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isXy = (v: unknown): v is [number, number] => Array.isArray(v) && v.length === 2 && v.every(finite);
 

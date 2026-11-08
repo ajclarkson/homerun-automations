@@ -17,3 +17,7 @@ Hold entities discovered dynamically via `entitiesByLabel`/`entitiesByArea` insi
 Tests live in `{factory-name}.test.ts` alongside the factory. Cover all meaningful input permutations — see `occupancy-controller-factory.test.ts` as the reference.
 
 Describe/it blocks must read as domain behaviour specifications, not code structure labels. A reader should understand what the system does from the test names alone, without reading the implementation.
+
+## House data
+
+`lib/house/` holds house-level data the factories must not hardcode, passed in through room config. `lib/house/schedule-contexts.ts` lists the heating schedule contexts (weekday/weekend, who is working from home) once; every `{room}/heating.ts` passes it as `contexts`. It sits under `lib/` because the runtime skips `lib/` when scanning for automations.

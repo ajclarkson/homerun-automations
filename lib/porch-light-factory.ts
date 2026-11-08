@@ -1,6 +1,7 @@
 import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
 import type { Action, DeclaredDecision, HAContext, TriggerEvent } from '@ajclarkson/homerun';
 import { isSceneActivation } from './scene-activation.js';
+import { clamp } from './clamp.js';
 import { MIN_KELVIN, MAX_KELVIN, MIN_BRIGHTNESS, MAX_BRIGHTNESS, readLook, parseLook, serializeLook, lookAction, setLook, type Look } from './porch-look.js';
 
 export const PORCH_LABEL = 'outdoor_light_porch';
@@ -87,7 +88,6 @@ interface PorchLightContext {
 // Entities created at runtime or after the last codegen are not in HAEntities, so reads go through one cast.
 interface Reading { state: string; attributes?: Record<string, unknown> }
 
-const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const usable = (s: string | undefined) => s !== undefined && s !== 'unavailable' && s !== 'unknown';
 

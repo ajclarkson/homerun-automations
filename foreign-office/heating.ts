@@ -1,8 +1,10 @@
 import { makeHeatingAutomation } from '../lib/heating-controller-factory.js';
+import { HOUSE_SCHEDULE_CONTEXTS } from '../lib/house/schedule-contexts.js';
 
 export default makeHeatingAutomation({
   location: 'foreign_office',
   independent: true,
+  contexts: HOUSE_SCHEDULE_CONTEXTS,
   scheduleConfig: {
     byContext: {
       weekday_wfh_adam: [

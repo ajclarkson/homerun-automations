@@ -52,9 +52,6 @@ export const MAX_FAN_MAX_RUN_MIN = 120;
 export const MIN_FAN_MARGIN = 2;
 export const MAX_FAN_MARGIN = 30;
 
-export const clamp = (value: number, min: number, max: number): number =>
-  Math.min(Math.max(value, min), max);
-
 /** Parses a numeric HA state; null when missing, unavailable, unknown or non-finite. */
 export function readFinite(state: HAState, entity: string): number | null {
   const raw = state(entity as keyof HAEntities)?.state;

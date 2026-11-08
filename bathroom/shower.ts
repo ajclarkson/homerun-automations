@@ -5,8 +5,9 @@ import {
   MIN_RISE, MAX_RISE, MIN_ABOVE_BASELINE, MAX_ABOVE_BASELINE,
   SATURATED_LEVEL, MIN_SATURATED_STEP, MAX_STEP_GAP_MINS, MIN_END_DROP, MAX_END_DROP,
   MIN_END_CONFIRM_MIN, MAX_END_CONFIRM_MIN,
-  clamp, readFinite, readShower, minutesToMs,
+  readFinite, readShower, minutesToMs,
 } from '../lib/bathroom/steam.js';
+import { clamp } from '../lib/clamp.js';
 
 const BASELINE_ENTITY = 'sensor.bathroom_humidity_baseline';
 const ABOVE_HELPER = 'input_number.bathroom_automation_shower_above_baseline';
