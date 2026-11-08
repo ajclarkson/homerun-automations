@@ -91,8 +91,7 @@ type LightingDecision = DeclaredDecision<typeof LIGHTING_REASONS>;
 const MIN_TIMER_DELAY_MS =      1_000; // 1 second
 const MAX_TIMER_DELAY_MS = 3_600_000; // 1 hour
 
-const clampTimerMs = (mins: number) =>
-  Math.min(Math.max(mins * 60 * 1000, MIN_TIMER_DELAY_MS), MAX_TIMER_DELAY_MS);
+const clampTimerMs = (mins: number) => clamp(mins * 60 * 1000, MIN_TIMER_DELAY_MS, MAX_TIMER_DELAY_MS);
 
 const planSettleStart = (location: string, delayMs: number) =>
   [{ type: 'timer.start' as const, timerKey: `${location}:lighting_occupancy_settle`, delayMs }];

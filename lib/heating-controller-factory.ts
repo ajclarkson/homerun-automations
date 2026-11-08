@@ -5,12 +5,17 @@ import { defineAutomation, abort, HomeAssistant, type Action, type DeclaredDecis
 export type HeatingMode = 'minimum' | 'baseline_night' | 'baseline_day' | 'comfort';
 export type HeatingSource = 'schedule' | 'manual' | 'house_mode' | 'safety' | 'none';
 
-export type ScheduleContextKey =
-  | 'weekday_wfh_adam'
-  | 'weekday_wfh_sarah'
-  | 'weekend'
-  | 'weekday'
-  | 'default';
+/** One schedule context, in priority order. It applies when every condition it names holds:
+ *  `weekday` matches the day type, `helper` is an input_boolean that is on. A context naming
+ *  neither always applies, so the last one is the catch-all. The house defines the list once
+ *  (heating/schedule-contexts.ts); the factory knows no names. */
+export interface ScheduleContext {
+  key: string;
+  weekday?: boolean;
+  helper?: string;
+}
+
+export type ScheduleContextKey = string;
 
 export interface HeatingBlock {
   id?: string;
@@ -23,6 +28,8 @@ export interface HeatingBlock {
 export interface HeatingRoomConfig {
   location: string;
   scheduleConfig: { byContext: Partial<Record<ScheduleContextKey, HeatingBlock[]>> };
+  /** The house's ordered schedule contexts; every key in `byContext` must be one of them. */
+  contexts: readonly ScheduleContext[];
   /** Opt out of house-wide heating overrides — the house_heating_enabled gate and
    *  sleep/away/vacation mode forcing (foreign office only). The room's own schedule
    *  and manual override still apply. */
@@ -99,14 +106,48 @@ function computeValidUntilMs(block: HeatingBlock, now: Date): number | null {
   return validUntilMs;
 }
 
-function buildContextKeys(weekday: boolean, wfhAdam: boolean, wfhSarah: boolean): ScheduleContextKey[] {
-  const keys: ScheduleContextKey[] = [];
-  if (weekday && wfhAdam) keys.push('weekday_wfh_adam');
-  if (weekday && wfhSarah) keys.push('weekday_wfh_sarah');
-  if (!weekday) keys.push('weekend');
-  if (weekday) keys.push('weekday');
-  keys.push('default');
-  return keys;
+const CONTEXT_KEY_PATTERN = /^[a-z][a-z0-9_]*$/;
+const HELPER_ENTITY_PATTERN = /^input_boolean\.[a-z0-9_]+$/;
+
+/** Throws on a context list that could resolve nothing or resolve wrongly. Run at load. */
+export function assertValidScheduleContexts(contexts: readonly ScheduleContext[]): void {
+  if (contexts.length === 0) throw new Error('heating contexts: list is empty');
+  const seen = new Set<string>();
+  for (const c of contexts) {
+    if (typeof c.key !== 'string' || !CONTEXT_KEY_PATTERN.test(c.key)) {
+      throw new Error(`heating contexts: key '${String(c.key)}' is not a lowercase identifier`);
+    }
+    if (seen.has(c.key)) throw new Error(`heating contexts: duplicate key '${c.key}'`);
+    seen.add(c.key);
+    if (c.weekday !== undefined && typeof c.weekday !== 'boolean') {
+      throw new Error(`heating contexts: '${c.key}' weekday must be a boolean`);
+    }
+    if (c.helper !== undefined && !HELPER_ENTITY_PATTERN.test(c.helper)) {
+      throw new Error(`heating contexts: '${c.key}' helper '${c.helper}' is not an input_boolean entity id`);
+    }
+  }
+  const last = contexts[contexts.length - 1]!;
+  if (last.weekday !== undefined || last.helper !== undefined) {
+    throw new Error(`heating contexts: last context '${last.key}' must be a catch-all with no conditions`);
+  }
+}
+
+/** Helpers the contexts read, each once, in list order. */
+function contextHelpers(contexts: readonly ScheduleContext[]): string[] {
+  const helpers: string[] = [];
+  for (const c of contexts) if (c.helper !== undefined && !helpers.includes(c.helper)) helpers.push(c.helper);
+  return helpers;
+}
+
+/** Keys of the contexts that apply right now, highest priority first. */
+export function buildContextKeys(
+  contexts: readonly ScheduleContext[],
+  weekday: boolean,
+  helpersOn: Readonly<Record<string, boolean>>,
+): string[] {
+  return contexts
+    .filter(c => (c.weekday === undefined || c.weekday === weekday) && (c.helper === undefined || helpersOn[c.helper] === true))
+    .map(c => c.key);
 }
 
 interface ResolvedSchedule {
@@ -120,13 +161,13 @@ interface ResolvedSchedule {
 
 function resolveSchedule(
   scheduleConfig: HeatingRoomConfig['scheduleConfig'],
+  contexts: readonly ScheduleContext[],
   weekday: boolean,
-  wfhAdam: boolean,
-  wfhSarah: boolean,
+  helpersOn: Readonly<Record<string, boolean>>,
   now: Date,
 ): ResolvedSchedule {
   const { byContext } = scheduleConfig;
-  const keys = buildContextKeys(weekday, wfhAdam, wfhSarah);
+  const keys = buildContextKeys(contexts, weekday, helpersOn);
 
   let blocks: HeatingBlock[] | null = null;
   let contextKey: ScheduleContextKey | null = null;
@@ -340,7 +381,7 @@ type CauseEvent =
   | { type: 'timer_expired'; timerKey: string }
   | { type: string };
 
-export function causeOf(event: CauseEvent, location: string): HeatingCause {
+export function causeOf(event: CauseEvent, location: string, contexts: readonly ScheduleContext[]): HeatingCause {
   if (event.type === 'on_start') return 'startup';
   if (event.type === 'timer_expired') {
     const { timerKey } = event as { timerKey: string };
@@ -357,7 +398,7 @@ export function causeOf(event: CauseEvent, location: string): HeatingCause {
     if (entity_id === 'input_boolean.house_heating_enabled') return 'heating_on';
     if (entity_id === `input_boolean.${location}_automation_heating_enabled`) return 'heating_on';
     if (entity_id === `binary_sensor.${location}_external_openings`) return 'window_closed';
-    if (entity_id === 'input_boolean.wfh_adam' || entity_id === 'input_boolean.wfh_sarah') return 'wfh';
+    if (contextHelpers(contexts).includes(entity_id)) return 'wfh';
     if (entity_id === `binary_sensor.${location}_occupied`) return 'occupancy';
     if (entity_id === `input_select.${location}_heating_manual_mode`) return new_state.state === 'auto' ? 'manual_ended' : 'manual_set';
   }
@@ -384,14 +425,134 @@ interface HeatingContext {
   /** Fingerprint of the plan HA last received on the plan topic; null if none yet. */
   publishedPlan: string | null;
   cause: HeatingCause;
+  weekday: boolean;
+  /** Each schedule-context helper and whether it is on; published so a snapshot shows why a context won. */
+  helpersOn: Record<string, boolean>;
+}
+
+// ---- Reducer stages ----
+
+interface Choice {
+  mode: HeatingMode;
+  source: HeatingSource;
+  reason: SetModeReason;
+}
+
+/** Stage 2: safety. A confirmed open window takes precedence over the house heating switch. */
+function safetyChoice(safety: HeatingContext['safety']): Choice | null {
+  if (safety.windowOpenConfirmed) return { mode: 'minimum', source: 'safety', reason: 'safety_window_open' };
+  if (safety.forceMinimum) return { mode: 'minimum', source: 'safety', reason: 'safety_heating_disabled' };
+  return null;
+}
+
+// A window that has only just opened doesn't force minimum yet, but still needs a timer so the
+// safety override fires the moment it's been open long enough: waiting for some other trigger
+// to re-check would let it stay open indefinitely.
+function windowGraceActions(ctx: HeatingContext, nowMs: number): Action[] {
+  if (ctx.safety.windowOpenPending) return planTimer(ctx.windowGraceTimerKey, ctx.safety.windowGraceValidUntilMs, nowMs);
+  return [{ type: 'timer.cancel', timerKey: ctx.windowGraceTimerKey }];
+}
+
+/** Stage 3: house mode. affectsHeating guarantees the mode is non-null and in HOUSE_MODE_MAP. */
+function houseModeChoice(house: HeatingContext['house']): Choice | null {
+  if (!house.affectsHeating) return null;
+  const mode = house.mode as HouseMode;
+  return { mode: HOUSE_MODE_MAP[mode], source: 'house_mode', reason: HOUSE_MODE_REASON[mode] };
+}
+
+/** Stage 4: manual override. Only reached with no earlier choice; otherwise the timer is cancelled. */
+function manualStage(ctx: HeatingContext, earlier: Choice | null, nowMs: number): { choice: Choice | null; actions: Action[] } {
+  if (!earlier && ctx.manualMode) {
+    return {
+      choice: { mode: ctx.manualMode, source: 'manual', reason: 'manual_override' },
+      actions: planTimer(ctx.manualTimerKey, ctx.schedule.validUntilMs, nowMs),
+    };
+  }
+  const actions: Action[] = [{ type: 'timer.cancel', timerKey: ctx.manualTimerKey }];
+  if (ctx.manualExpiring) {
+    actions.push(HomeAssistant.input_select.select_option({ entity_id: ctx.manualSelectEntity }, { option: 'auto' }));
+  }
+  return { choice: null, actions };
+}
+
+/** Stage 5: schedule, with the optional occupancy upgrade. */
+function scheduleChoice(ctx: HeatingContext): Choice | null {
+  const { schedule, occupied } = ctx;
+  if (!schedule.requestedMode) return null;
+  const occupiedMode = schedule.block?.occupiedMode;
+  const upgrade = occupied && occupiedMode;
+  return upgrade
+    ? { mode: occupiedMode, source: 'schedule', reason: 'schedule_occupied' }
+    : { mode: schedule.requestedMode, source: 'schedule', reason: 'schedule' };
+}
+
+/** Publish the day plan whenever it differs from what HA holds, whether or not the mode moved. */
+function planActions(ctx: HeatingContext, choice: Choice, planTopic: string, planEntity: string): Action[] {
+  const plan = buildHeatingPlan(ctx.schedule, ctx.now, { mode: choice.mode, source: choice.source });
+  if (!plan || planFingerprint(plan) === ctx.publishedPlan) return [];
+  return [{ type: 'mqtt.publish', topic: planTopic, payload: JSON.stringify(plan), retain: true, impliesEntity: planEntity }];
+}
+
+interface HeatingTopics {
+  activeHeatingTopic: string;
+  activeHeatingEntity: string;
+  sourceTopic: string;
+  sourceEntity: string;
+  planTopic: string;
+  planEntity: string;
+}
+
+/** Emit the new mode and source, then say why. Safety overrides are their own explanation;
+ *  every other reason also carries its cause. */
+function setModeDecision(ctx: HeatingContext, choice: Choice, topics: HeatingTopics, actions: Action[], nowMs: number): HeatingDecision {
+  actions.push({ type: 'mqtt.publish', topic: topics.activeHeatingTopic, payload: choice.mode, retain: true, impliesEntity: topics.activeHeatingEntity });
+  actions.push({ type: 'mqtt.publish', topic: topics.sourceTopic, payload: choice.source, retain: true, impliesEntity: topics.sourceEntity });
+  actions.push(...planTimer(ctx.scheduleTimerKey, ctx.schedule.validUntilMs, nowMs));
+  if (choice.reason === 'safety_window_open' || choice.reason === 'safety_heating_disabled') {
+    return { decision: 'set_mode', reason: choice.reason, facts: { mode: choice.mode }, actions };
+  }
+  return { decision: 'set_mode', reason: choice.reason, facts: { mode: choice.mode, cause: ctx.cause }, actions };
+}
+
+function reduceHeating(ctx: HeatingContext, topics: HeatingTopics): HeatingDecision {
+  // Stage 1: automation disabled
+  if (!ctx.automationEnabled) {
+    return { decision: 'blocked', reason: 'automation_disabled', actions: [] };
+  }
+  const nowMs = ctx.now.getTime();
+  // The plan's date and context change at local midnight with no other trigger.
+  const actions: Action[] = [...planTimer(ctx.midnightTimerKey, planMidnightMs(ctx.now), nowMs)];
+
+  const safety = safetyChoice(ctx.safety);
+  actions.push(...windowGraceActions(ctx, nowMs));
+  const earlier = safety ?? houseModeChoice(ctx.house);
+  const manual = manualStage(ctx, earlier, nowMs);
+  actions.push(...manual.actions);
+  const choice = earlier ?? manual.choice ?? scheduleChoice(ctx);
+
+  // Stage 6: no schedule match
+  if (!choice) return { decision: 'no_action', reason: 'no_schedule_match', actions };
+
+  actions.push(...planActions(ctx, choice, topics.planTopic, topics.planEntity));
+
+  // Stage 7: no-op detection
+  if (choice.mode === ctx.currentMode) {
+    actions.push(...planTimer(ctx.scheduleTimerKey, ctx.schedule.validUntilMs, nowMs));
+    return { decision: 'maintain', reason: 'no_change', actions };
+  }
+  return setModeDecision(ctx, choice, topics, actions, nowMs);
 }
 
 export function makeHeatingAutomation(config: HeatingRoomConfig) {
-  const { location, scheduleConfig, independent = false } = config;
+  const { location, scheduleConfig, contexts, independent = false } = config;
+
+  assertValidScheduleContexts(contexts);
+  const helpers = contextHelpers(contexts);
 
   // Fail at load, not at 3am: a malformed block would otherwise be skipped silently by schedule
   // resolution and never reach the plan.
   for (const [key, blocks] of Object.entries(scheduleConfig.byContext)) {
+    if (!contexts.some(c => c.key === key)) throw new Error(`heating contexts: ${location} defines unknown context '${key}'`);
     assertValidPlanBlocks(blocks ?? [], `${location} context '${key}'`);
   }
 
@@ -407,6 +568,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
   const planTopic = `${location}/heating/plan`;
   const planEntity = `sensor.${location}_heating_plan`;
   const midnightTimerKey = `${location}:${MIDNIGHT_TIMER_SUFFIX}`;
+  const topics: HeatingTopics = { activeHeatingTopic, activeHeatingEntity, sourceTopic, sourceEntity, planTopic, planEntity };
 
   return defineAutomation<HeatingContext, typeof HEATING_REASONS>({
     reasons: HEATING_REASONS,
@@ -419,8 +581,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       { type: 'state_changed', entity: 'sensor.house_active_mode' },
       { type: 'state_changed', entity: 'input_boolean.house_heating_enabled' },
       { type: 'state_changed', entity: windowEntity as keyof HAEntities },
-      { type: 'state_changed', entity: 'input_boolean.wfh_adam' },
-      { type: 'state_changed', entity: 'input_boolean.wfh_sarah' },
+      ...helpers.map(entity => ({ type: 'state_changed' as const, entity: entity as keyof HAEntities })),
       { type: 'state_changed', entity: manualSelectEntity as keyof HAEntities },
       { type: 'state_changed', entity: `binary_sensor.${location}_occupied` as keyof HAEntities },
       { type: 'timer_expired', timerKey: scheduleTimerKey },
@@ -453,8 +614,8 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       const houseMode = state('sensor.house_active_mode')?.state ?? null;
       const affectsHeating = !independent && houseMode !== null && (HOUSE_MODES_AFFECTING_HEATING as readonly string[]).includes(houseMode);
 
-      const wfhAdam = state('input_boolean.wfh_adam')?.state === 'on';
-      const wfhSarah = state('input_boolean.wfh_sarah')?.state === 'on';
+      const helpersOn: Record<string, boolean> = {};
+      for (const helper of helpers) helpersOn[helper] = state(helper as keyof HAEntities)?.state === 'on';
 
       const manualSelectState = state(manualSelectEntity as keyof HAEntities)?.state ?? 'auto';
       const manualMode = (!manualExpiring && manualSelectState !== 'auto' && VALID_HEATING_MODES.has(manualSelectState))
@@ -462,7 +623,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
         : null;
 
       const occupied = state(`binary_sensor.${location}_occupied` as keyof HAEntities)?.state === 'on';
-      const schedule = resolveSchedule(scheduleConfig, weekday, wfhAdam, wfhSarah, now);
+      const schedule = resolveSchedule(scheduleConfig, contexts, weekday, helpersOn, now);
 
       // The plan sensor's attributes are what HA holds of the last publish: comparing with them
       // survives restarts and hot reloads, unlike a variable kept in this module.
@@ -484,105 +645,12 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
         windowGraceTimerKey,
         midnightTimerKey,
         publishedPlan,
-        cause: causeOf(event, location),
-        wfhAdam,
-        wfhSarah,
+        cause: causeOf(event, location, contexts),
+        helpersOn,
         weekday,
       };
     },
 
-    reduce: (ctx): HeatingDecision => {
-      const { automationEnabled, currentMode, safety, house, manualMode, manualExpiring, occupied, schedule, scheduleTimerKey, manualTimerKey, manualSelectEntity, windowGraceTimerKey, midnightTimerKey, publishedPlan, now, cause } = ctx;
-      const actions: Action[] = [];
-      const nowMs = now.getTime();
-
-      let targetMode: HeatingMode | null = null;
-      let source: HeatingSource = 'none';
-      let reason: SetModeReason | null = null;
-
-      // Stage 1 — automation disabled
-      if (!automationEnabled) {
-        return { decision: 'blocked', reason: 'automation_disabled', actions: [] };
-      }
-
-      // The plan's date and context change at local midnight with no other trigger.
-      actions.push(...planTimer(midnightTimerKey, planMidnightMs(now), nowMs));
-
-      // Stage 2 — safety (windowOpen takes precedence over forceMinimum)
-      if (safety.windowOpenConfirmed) {
-        targetMode = 'minimum';
-        source = 'safety';
-        reason = 'safety_window_open';
-      } else if (safety.forceMinimum) {
-        targetMode = 'minimum';
-        source = 'safety';
-        reason = 'safety_heating_disabled';
-      }
-
-      // A window that has only just opened doesn't force minimum yet, but still needs a
-      // timer so the safety override fires the moment it's been open long enough — waiting
-      // for some other trigger to happen to re-check would let it stay open indefinitely.
-      if (safety.windowOpenPending) {
-        actions.push(...planTimer(windowGraceTimerKey, safety.windowGraceValidUntilMs, nowMs));
-      } else {
-        actions.push({ type: 'timer.cancel', timerKey: windowGraceTimerKey });
-      }
-
-      // Stage 3 — house mode (affectsHeating guarantees mode is non-null and in HOUSE_MODE_MAP)
-      if (!targetMode && house.affectsHeating) {
-        targetMode = HOUSE_MODE_MAP[house.mode as HouseMode];
-        source = 'house_mode';
-        reason = HOUSE_MODE_REASON[house.mode as HouseMode];
-      }
-
-      // Stage 4 — manual override
-      if (!targetMode && manualMode) {
-        targetMode = manualMode;
-        source = 'manual';
-        reason = 'manual_override';
-        actions.push(...planTimer(manualTimerKey, schedule.validUntilMs, nowMs));
-      } else {
-        actions.push({ type: 'timer.cancel', timerKey: manualTimerKey });
-        if (manualExpiring) {
-          actions.push(HomeAssistant.input_select.select_option({ entity_id: manualSelectEntity }, { option: 'auto' }));
-        }
-      }
-
-      // Stage 5 — schedule (with optional occupancy upgrade)
-      if (!targetMode && schedule.requestedMode) {
-        const occupiedMode = schedule.block?.occupiedMode;
-        targetMode = (occupied && occupiedMode) ? occupiedMode : schedule.requestedMode;
-        source = 'schedule';
-        reason = (occupied && occupiedMode) ? 'schedule_occupied' : 'schedule';
-      }
-
-      // Stage 6 — no schedule match
-      if (!targetMode || reason === null) {
-        return { decision: 'no_action', reason: 'no_schedule_match', actions };
-      }
-
-      // Publish the day plan whenever it differs from what HA holds, whether or not the mode moved.
-      const plan = buildHeatingPlan(schedule, now, { mode: targetMode, source });
-      if (plan && planFingerprint(plan) !== publishedPlan) {
-        actions.push({ type: 'mqtt.publish', topic: planTopic, payload: JSON.stringify(plan), retain: true, impliesEntity: planEntity });
-      }
-
-      // Stage 7 — no-op detection
-      if (targetMode === currentMode) {
-        actions.push(...planTimer(scheduleTimerKey, schedule.validUntilMs, nowMs));
-        return { decision: 'maintain', reason: 'no_change', actions };
-      }
-
-      // Stage 8 — emit mode + source
-      actions.push({ type: 'mqtt.publish', topic: activeHeatingTopic, payload: targetMode, retain: true, impliesEntity: activeHeatingEntity });
-      actions.push({ type: 'mqtt.publish', topic: sourceTopic, payload: source, retain: true, impliesEntity: sourceEntity });
-      actions.push(...planTimer(scheduleTimerKey, schedule.validUntilMs, nowMs));
-
-      // Safety overrides are their own explanation; every other reason also carries its cause.
-      if (reason === 'safety_window_open' || reason === 'safety_heating_disabled') {
-        return { decision: 'set_mode', reason, facts: { mode: targetMode }, actions };
-      }
-      return { decision: 'set_mode', reason, facts: { mode: targetMode, cause }, actions };
-    },
+    reduce: ctx => reduceHeating(ctx, topics),
   });
 }

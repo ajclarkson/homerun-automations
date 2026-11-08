@@ -1,14 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { testAbort } from '@ajclarkson/homerun/testing';
 import { testDeclared as testAutomation } from './declared-outcome.js';
-import { makeHeatingAutomation, causeOf, assertValidPlanBlocks, type HeatingPlan, type HeatingRoomConfig, type HeatingCause } from './heating-controller-factory.js';
+import { makeHeatingAutomation, causeOf, assertValidScheduleContexts, buildContextKeys, type ScheduleContext, assertValidPlanBlocks, type HeatingPlan, type HeatingRoomConfig, type HeatingCause } from './heating-controller-factory.js';
+import { HOUSE_SCHEDULE_CONTEXTS } from './house/schedule-contexts.js';
 
 // ---- Test fixtures ----
 
 const LOCATION = 'parlour';
 
 const baseConfig: HeatingRoomConfig = {
-  location: LOCATION,
+  location: LOCATION, contexts: HOUSE_SCHEDULE_CONTEXTS,
   scheduleConfig: {
     byContext: {
       weekday: [
@@ -441,7 +442,7 @@ describe('schedule resolution', () => {
 
   it('prefers weekday_wfh_adam context when wfh_adam is on on a weekday', () => {
     const wfhConfig: HeatingRoomConfig = {
-      location: LOCATION,
+      location: LOCATION, contexts: HOUSE_SCHEDULE_CONTEXTS,
       scheduleConfig: {
         byContext: {
           weekday_wfh_adam: [{ start: '06:00', end: '22:00', mode: 'comfort' }],
@@ -460,7 +461,7 @@ describe('schedule resolution', () => {
 
   it('falls back to weekday context when wfh_adam is off', () => {
     const wfhConfig: HeatingRoomConfig = {
-      location: LOCATION,
+      location: LOCATION, contexts: HOUSE_SCHEDULE_CONTEXTS,
       scheduleConfig: {
         byContext: {
           weekday_wfh_adam: [{ start: '06:00', end: '22:00', mode: 'comfort' }],
@@ -479,7 +480,7 @@ describe('schedule resolution', () => {
 
   it('returns no_action when no schedule block matches', () => {
     const sparseConfig: HeatingRoomConfig = {
-      location: LOCATION,
+      location: LOCATION, contexts: HOUSE_SCHEDULE_CONTEXTS,
       scheduleConfig: { byContext: { default: [{ start: '01:00', end: '02:00', mode: 'minimum' }] } }, // no block covers 10:00
     };
     const result = run({}, sparseConfig);
@@ -501,7 +502,7 @@ describe('schedule resolution', () => {
 
 describe('occupancy upgrade', () => {
   const occupancyConfig: HeatingRoomConfig = {
-    location: LOCATION,
+    location: LOCATION, contexts: HOUSE_SCHEDULE_CONTEXTS,
     scheduleConfig: {
       byContext: {
         weekday: [
@@ -679,7 +680,7 @@ describe('the cause carried with a mode change', () => {
   });
 
   it('carries the cause on the occupied schedule reason too', () => {
-    const config: HeatingRoomConfig = { location: LOCATION, scheduleConfig: { byContext: { weekday: [{ start: '06:00', end: '16:00', mode: 'baseline_day', occupiedMode: 'comfort' }] } } };
+    const config: HeatingRoomConfig = { location: LOCATION, contexts: HOUSE_SCHEDULE_CONTEXTS, scheduleConfig: { byContext: { weekday: [{ start: '06:00', end: '16:00', mode: 'baseline_day', occupiedMode: 'comfort' }] } } };
     const result = testAutomation(makeHeatingAutomation(config), {
       event: stateEvent(`binary_sensor.${LOCATION}_occupied`, 'on'),
       state: { ...baseState, [`binary_sensor.${LOCATION}_occupied`]: { state: 'on' }, [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } },
@@ -703,13 +704,13 @@ describe('the cause carried with a mode change', () => {
       const event = trigger.type === 'state_changed' ? stateEvent(trigger.entity as string, 'on')
         : trigger.type === 'timer_expired' ? { type: 'timer_expired' as const, timerKey: trigger.timerKey as string, correlation_id: 'test-cid' }
         : onStartEvent;
-      if (causeOf(event, LOCATION) === 'other') unmapped.push(`${trigger.type}:${trigger.entity ?? trigger.timerKey ?? ''}`);
+      if (causeOf(event, LOCATION, HOUSE_SCHEDULE_CONTEXTS) === 'other') unmapped.push(`${trigger.type}:${trigger.entity ?? trigger.timerKey ?? ''}`);
     }
     expect(unmapped).toEqual([]);
   });
 
   it('falls back to other for an event it does not know, rather than throwing at runtime', () => {
-    expect(causeOf(stateEvent('sensor.something_new', 'on'), LOCATION)).toBe('other');
+    expect(causeOf(stateEvent('sensor.something_new', 'on'), LOCATION, HOUSE_SCHEDULE_CONTEXTS)).toBe('other');
   });
 });
 
@@ -760,7 +761,7 @@ describe('the day plan', () => {
   });
 
   it('uses the wfh context when it is chosen', () => {
-    const wfh: HeatingRoomConfig = { location: LOCATION, scheduleConfig: { byContext: {
+    const wfh: HeatingRoomConfig = { location: LOCATION, contexts: HOUSE_SCHEDULE_CONTEXTS, scheduleConfig: { byContext: {
       weekday_wfh_adam: [{ start: '06:00', end: '22:00', mode: 'comfort' }],
       weekday: [{ start: '06:00', end: '22:00', mode: 'baseline_day' }],
     } } };
@@ -791,7 +792,7 @@ describe('the day plan', () => {
   });
 
   it('carries occupied_mode on blocks that have one, and applies it when occupied', () => {
-    const cfg: HeatingRoomConfig = { location: LOCATION, scheduleConfig: { byContext: {
+    const cfg: HeatingRoomConfig = { location: LOCATION, contexts: HOUSE_SCHEDULE_CONTEXTS, scheduleConfig: { byContext: {
       weekday: [{ start: '06:00', end: '22:00', mode: 'baseline_day', occupiedMode: 'comfort' }, { start: '22:00', end: '06:00', mode: 'minimum' }],
     } } };
     const plan = planOf(run({ [`binary_sensor.${LOCATION}_occupied`]: { state: 'on' } }, cfg).actions)!;
@@ -801,7 +802,7 @@ describe('the day plan', () => {
   });
 
   it('includes an independent room (foreign office) with its occupied blocks, ignoring house mode', () => {
-    const cfg: HeatingRoomConfig = { location: LOCATION, independent: true, scheduleConfig: { byContext: {
+    const cfg: HeatingRoomConfig = { location: LOCATION, contexts: HOUSE_SCHEDULE_CONTEXTS, independent: true, scheduleConfig: { byContext: {
       default: [{ start: '08:00', end: '20:00', mode: 'minimum', occupiedMode: 'comfort' }, { start: '20:00', end: '08:00', mode: 'minimum' }],
     } } };
     const plan = planOf(run({
@@ -821,7 +822,7 @@ describe('the day plan', () => {
   });
 
   it('is not published for a room with no schedule context', () => {
-    const none: HeatingRoomConfig = { location: LOCATION, scheduleConfig: { byContext: {} } };
+    const none: HeatingRoomConfig = { location: LOCATION, contexts: HOUSE_SCHEDULE_CONTEXTS, scheduleConfig: { byContext: {} } };
     expect(planOf(run({ 'sensor.house_active_mode': { state: 'away' } }, none).actions)).toBeNull();
   });
 
@@ -914,6 +915,63 @@ describe('the plan is validated', () => {
     expect(() => assertValidPlanBlocks([{ ...ok, occupiedMode: 'toasty' as any }], 'x')).toThrow(/occupiedMode/);
   });
   it('fails when the automation is built, not when it runs', () => {
-    expect(() => makeHeatingAutomation({ location: LOCATION, scheduleConfig: { byContext: { weekday: [{ ...ok, start: 'soon' }] } } })).toThrow(/not HH:MM/);
+    expect(() => makeHeatingAutomation({ location: LOCATION, contexts: HOUSE_SCHEDULE_CONTEXTS, scheduleConfig: { byContext: { weekday: [{ ...ok, start: 'soon' }] } } })).toThrow(/not HH:MM/);
+  });
+});
+
+describe('schedule contexts resolve as the house always has', () => {
+  // The hardcoded resolution this config replaced, kept here as the reference.
+  function legacyKeys(weekday: boolean, wfhAdam: boolean, wfhSarah: boolean): string[] {
+    const keys: string[] = [];
+    if (weekday && wfhAdam) keys.push('weekday_wfh_adam');
+    if (weekday && wfhSarah) keys.push('weekday_wfh_sarah');
+    if (!weekday) keys.push('weekend');
+    if (weekday) keys.push('weekday');
+    keys.push('default');
+    return keys;
+  }
+
+  const combinations: [boolean, boolean, boolean][] = [];
+  for (const weekday of [true, false]) for (const adam of [true, false]) for (const sarah of [true, false]) combinations.push([weekday, adam, sarah]);
+
+  it.each(combinations)('weekday=%s wfh_adam=%s wfh_sarah=%s gives the same ordered keys', (weekday, adam, sarah) => {
+    const helpersOn = { 'input_boolean.wfh_adam': adam, 'input_boolean.wfh_sarah': sarah };
+    expect(buildContextKeys(HOUSE_SCHEDULE_CONTEXTS, weekday, helpersOn)).toEqual(legacyKeys(weekday, adam, sarah));
+  });
+
+  it('listens to every helper the contexts read, and maps them to the wfh cause', () => {
+    const triggers = (makeHeatingAutomation(baseConfig).triggers as { entity?: string }[]).map(t => t.entity);
+    expect(triggers).toContain('input_boolean.wfh_adam');
+    expect(triggers).toContain('input_boolean.wfh_sarah');
+    expect(causeOf({ type: 'state_changed', entity_id: 'input_boolean.wfh_sarah', new_state: { state: 'on' } }, LOCATION, HOUSE_SCHEDULE_CONTEXTS)).toBe('wfh');
+  });
+});
+
+describe('schedule context config is validated at load', () => {
+  const catchAll: ScheduleContext = { key: 'default' };
+
+  it('accepts the house contexts', () => {
+    expect(() => assertValidScheduleContexts(HOUSE_SCHEDULE_CONTEXTS)).not.toThrow();
+  });
+  it('rejects an empty list', () => expect(() => assertValidScheduleContexts([])).toThrow(/empty/));
+  it('rejects duplicate keys', () => {
+    expect(() => assertValidScheduleContexts([{ key: 'a', weekday: true }, { key: 'a', weekday: false }, catchAll])).toThrow(/duplicate key 'a'/);
+  });
+  it.each(['Weekday', '1day', 'has space', '', 'a-b'])('rejects the non-identifier key %j', key => {
+    expect(() => assertValidScheduleContexts([{ key }, catchAll])).toThrow(/not a lowercase identifier/);
+  });
+  it('rejects a list whose last context has conditions', () => {
+    expect(() => assertValidScheduleContexts([{ key: 'a', weekday: true }])).toThrow(/catch-all/);
+    expect(() => assertValidScheduleContexts([catchAll, { key: 'b', helper: 'input_boolean.x' }])).toThrow(/catch-all/);
+  });
+  it('rejects a helper that is not an input_boolean', () => {
+    expect(() => assertValidScheduleContexts([{ key: 'a', helper: 'sensor.x' }, catchAll])).toThrow(/input_boolean/);
+  });
+  it('fails when a room is built with contexts that do not validate', () => {
+    expect(() => makeHeatingAutomation({ ...baseConfig, contexts: [] })).toThrow(/empty/);
+  });
+  it('fails when a room defines a context the house does not have', () => {
+    const typo = { ...baseConfig, scheduleConfig: { byContext: { weekdy: [{ start: '06:00', end: '22:00', mode: 'comfort' as const }] } } };
+    expect(() => makeHeatingAutomation(typo)).toThrow(/unknown context 'weekdy'/);
   });
 });
