@@ -1,4 +1,4 @@
-import { defineAutomation, abort, HomeAssistant, type Action, type DeclaredDecision } from '@ajclarkson/homerun';
+import { defineAutomation, abort, requireState, UnavailableInputError, HomeAssistant, type Action, type DeclaredDecision, type HAState } from '@ajclarkson/homerun';
 
 // ---- Types ----
 
@@ -354,10 +354,11 @@ export const HEATING_REASONS = {
   automation_disabled: { outcome: 'ignored' },
   no_schedule_match: { outcome: 'ignored' },
   no_change: { outcome: 'ignored' },
+  input_not_valid: { outcome: 'ignored' },
 } as const;
 
 type HeatingDecision = DeclaredDecision<typeof HEATING_REASONS>;
-type SetModeReason = Exclude<keyof typeof HEATING_REASONS, 'automation_disabled' | 'no_schedule_match' | 'no_change'>;
+type SetModeReason = Exclude<keyof typeof HEATING_REASONS, 'automation_disabled' | 'no_schedule_match' | 'no_change' | 'input_not_valid'>;
 
 const HOUSE_MODE_REASON: Record<HouseMode, SetModeReason> = {
   sleep: 'house_mode_sleep',
@@ -403,6 +404,36 @@ export function causeOf(event: CauseEvent, location: string, contexts: readonly 
     if (entity_id === `input_select.${location}_heating_manual_mode`) return new_state.state === 'auto' ? 'manual_ended' : 'manual_set';
   }
   return 'other';
+}
+
+// ---- Unavailable inputs ----
+
+const isUsableState = (s: unknown): s is string => typeof s === 'string' && s !== 'unavailable' && s !== 'unknown';
+
+/** An HA reload walks entities through unavailable then unknown before their real values return;
+ *  deciding on those steps flipped every room's mode and re-sent TRV setpoints. A change *to* an
+ *  unusable state is noise, not a failure: it is an `ignored` no_action (an abort would be stored
+ *  and shown on every room page at every reload). A change *from* one is let through: the reducer
+ *  compares with the published mode and plan, so an unchanged value does nothing and a value that
+ *  really moved during the outage applies once. */
+function triggerWentInvalid(event: { type: string }): boolean {
+  if (event.type !== 'state_changed') return false;
+  const { new_state } = event as unknown as { new_state?: { state?: string } };
+  return !isUsableState(new_state?.state);
+}
+
+/** Context for a trigger that moved an input to unavailable/unknown: nothing to read, nothing to decide. */
+interface InvalidTrigger { invalidTrigger: true }
+
+/** The published mode. A missing or `unknown` sensor means nothing has been published yet, which
+ *  only startup may treat as "no mode": any other trigger waits for the value to come back. */
+function readCurrentMode(state: HAState, entity: string, event: { type: string }): string | null {
+  const raw = state(entity as keyof HAEntities)?.state;
+  if (raw === undefined || raw === 'unknown') {
+    if (event.type === 'on_start') return null;
+    throw new UnavailableInputError(entity);
+  }
+  return requireState(state, entity as keyof HAEntities);
 }
 
 // ---- Factory ----
@@ -514,7 +545,8 @@ function setModeDecision(ctx: HeatingContext, choice: Choice, topics: HeatingTop
   return { decision: 'set_mode', reason: choice.reason, facts: { mode: choice.mode, cause: ctx.cause }, actions };
 }
 
-function reduceHeating(ctx: HeatingContext, topics: HeatingTopics): HeatingDecision {
+function reduceHeating(ctx: HeatingContext | InvalidTrigger, topics: HeatingTopics): HeatingDecision {
+  if ('invalidTrigger' in ctx) return { decision: 'no_action', reason: 'input_not_valid', actions: [] };
   // Stage 1: automation disabled
   if (!ctx.automationEnabled) {
     return { decision: 'blocked', reason: 'automation_disabled', actions: [] };
@@ -570,7 +602,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
   const midnightTimerKey = `${location}:${MIDNIGHT_TIMER_SUFFIX}`;
   const topics: HeatingTopics = { activeHeatingTopic, activeHeatingEntity, sourceTopic, sourceEntity, planTopic, planEntity };
 
-  return defineAutomation<HeatingContext, typeof HEATING_REASONS>({
+  return defineAutomation<HeatingContext | InvalidTrigger, typeof HEATING_REASONS>({
     reasons: HEATING_REASONS,
     id: `${location}:heating`,
     location,
@@ -592,6 +624,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
     ],
 
     context: (state, _ha, event) => {
+      if (triggerWentInvalid(event)) return { invalidTrigger: true };
       const now = new Date();
       const weekday = now.getDay() !== 0 && now.getDay() !== 6;
       const manualExpiring = event.type === 'timer_expired' && event.timerKey === manualTimerKey;
@@ -602,16 +635,17 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       }
       const automationEnabled = automationEnabledState === 'on';
 
-      const currentMode = state(`sensor.${location}_active_heating` as keyof HAEntities)?.state ?? null;
+      const currentMode = readCurrentMode(state, `sensor.${location}_active_heating`, event);
 
       const windowState = state(windowEntity as keyof HAEntities);
       const graceHelperState = state(WINDOW_GRACE_HELPER as keyof HAEntities)?.state;
       const windowSafety = resolveWindowSafety(windowState, graceHelperState, now);
 
-      const heatingSystemEnabled = state('input_boolean.house_heating_enabled')?.state === 'on';
+      // Independent rooms ignore both house inputs, so their loss must not stall the room.
+      const heatingSystemEnabled = independent || requireState(state, 'input_boolean.house_heating_enabled') === 'on';
       const forceMinimum = !independent && !heatingSystemEnabled;
 
-      const houseMode = state('sensor.house_active_mode')?.state ?? null;
+      const houseMode = independent ? (state('sensor.house_active_mode')?.state ?? null) : requireState(state, 'sensor.house_active_mode');
       const affectsHeating = !independent && houseMode !== null && (HOUSE_MODES_AFFECTING_HEATING as readonly string[]).includes(houseMode);
 
       const helpersOn: Record<string, boolean> = {};
@@ -622,8 +656,13 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
         ? (manualSelectState as HeatingMode)
         : null;
 
-      const occupied = state(`binary_sensor.${location}_occupied` as keyof HAEntities)?.state === 'on';
       const schedule = resolveSchedule(scheduleConfig, contexts, weekday, helpersOn, now);
+      // Occupancy only matters when the active block upgrades on it; a dead sensor elsewhere must
+      // not freeze the schedule.
+      const occupancyEntity = `binary_sensor.${location}_occupied`;
+      const occupied = schedule.block?.occupiedMode
+        ? requireState(state, occupancyEntity as keyof HAEntities) === 'on'
+        : state(occupancyEntity as keyof HAEntities)?.state === 'on';
 
       // The plan sensor's attributes are what HA holds of the last publish: comparing with them
       // survives restarts and hot reloads, unlike a variable kept in this module.
