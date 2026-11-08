@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { testUnavailable } from '@ajclarkson/homerun/testing';
 import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './trv-actuation.js';
 
@@ -62,14 +63,13 @@ describe('house:trv_actuation', () => {
     expect(result.actions[0]).toMatchObject({ data: { temperature: 17.5 } });
   });
 
-  it('names skipped rooms with an unavailable mode in the facts, and ignores the run', () => {
+  it('names skipped rooms with an unavailable mode in the facts when startup loads every room', () => {
     const result = testAutomation(automation, {
-      event: activeHeatingTrigger('parlour', 'unavailable'),
+      event: { type: 'on_start', correlation_id: 'test-cid' },
       state: { ...baseState, 'sensor.parlour_active_heating': { state: 'unavailable' } },
     });
-    expect(result.decision).toBe('no_action');
-    expect(result.actions).toHaveLength(0);
-    expect(result).toMatchObject({ reason: 'no_valid_rooms', outcome: 'ignored', facts: { skipped: 'parlour' } });
+    expect(result.actions.some(a => JSON.stringify(a).includes('parlour'))).toBe(false);
+    expect(result.facts).toMatchObject({ rooms: expect.not.stringContaining('parlour') });
   });
 
   it('declines a room with an unrecognised mode and names it in the facts', () => {
@@ -132,6 +132,55 @@ describe('house:trv_actuation', () => {
     expect(result.actions[0]).toMatchObject({
       target: { entity_id: 'climate.hallway_downstairs_trv' },
       data: { temperature: 16 },
+    });
+  });
+
+  describe('an HA reload walks the mode sensor through unavailable and unknown', () => {
+    const change = (room: string, from: string, to: string) => ({
+      ...activeHeatingTrigger(room, to),
+      old_state: { entity_id: `sensor.${room}_active_heating`, state: from, attributes: {}, last_changed: '', last_updated: '' },
+    });
+    const parlourTrv = (temperature: number) => ({ 'climate.parlour_trv': { state: 'heat', attributes: { temperature } } });
+
+    it.each(['unavailable', 'unknown'])('does nothing when the mode becomes %s', to => {
+      const entity = testUnavailable(automation, {
+        event: change('parlour', 'comfort', to),
+        state: { ...baseState, 'sensor.parlour_active_heating': { state: to } },
+      });
+      expect(entity).toBe('sensor.parlour_active_heating');
+    });
+
+    it('does not move between unavailable and unknown', () => {
+      testUnavailable(automation, {
+        event: change('parlour', 'unavailable', 'unknown'),
+        state: { ...baseState, 'sensor.parlour_active_heating': { state: 'unknown' } },
+      });
+    });
+
+    it('sends nothing when the mode returns to what the TRV already holds', () => {
+      const result = testAutomation(automation, {
+        event: change('parlour', 'unknown', 'comfort'),
+        state: { ...baseState, ...parlourTrv(20) },
+      });
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'trvs_already_set', facts: { rooms: 'parlour' } });
+      expect(result.actions).toEqual([]);
+    });
+
+    it('sends the setpoint once when the mode really changed during the outage', () => {
+      const result = testAutomation(automation, {
+        event: change('parlour', 'unknown', 'comfort'),
+        state: { ...baseState, ...parlourTrv(16) },
+      });
+      expect(result.actions).toHaveLength(1);
+      expect(result.actions[0]).toMatchObject({ service: 'set_temperature', data: { temperature: 20 } });
+    });
+
+    it('does not re-send hvac off to a TRV that is already off', () => {
+      const result = testAutomation(automation, {
+        event: change('home_office', 'unknown', 'off'),
+        state: { ...baseState, 'climate.home_office_trv': { state: 'off' } },
+      });
+      expect(result.actions).toEqual([]);
     });
   });
 });

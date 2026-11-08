@@ -1,4 +1,4 @@
-import { defineAutomation, abort, HomeAssistant, type Action, type DeclaredDecision } from '@ajclarkson/homerun';
+import { defineAutomation, abort, requireState, UnavailableInputError, HomeAssistant, type Action, type DeclaredDecision, type HAState } from '@ajclarkson/homerun';
 
 // ---- Types ----
 
@@ -405,6 +405,32 @@ export function causeOf(event: CauseEvent, location: string, contexts: readonly 
   return 'other';
 }
 
+// ---- Unavailable inputs ----
+
+const isUsableState = (s: unknown): s is string => typeof s === 'string' && s !== 'unavailable' && s !== 'unknown';
+
+/** An HA reload walks entities through unavailable then unknown before their real values return;
+ *  deciding on those steps flipped every room's mode and re-sent TRV setpoints. A change *to* an
+ *  unusable state is never a decision. A change *from* one is let through: the reducer compares
+ *  with the published mode and plan, so an unchanged value does nothing and a value that really
+ *  moved during the outage applies once. */
+function assertTriggerUsable(event: { type: string }): void {
+  if (event.type !== 'state_changed') return;
+  const { entity_id, new_state } = event as unknown as { entity_id: string; new_state?: { state?: string } };
+  if (!isUsableState(new_state?.state)) throw new UnavailableInputError(entity_id);
+}
+
+/** The published mode. A missing or `unknown` sensor means nothing has been published yet, which
+ *  only startup may treat as "no mode": any other trigger waits for the value to come back. */
+function readCurrentMode(state: HAState, entity: string, event: { type: string }): string | null {
+  const raw = state(entity as keyof HAEntities)?.state;
+  if (raw === undefined || raw === 'unknown') {
+    if (event.type === 'on_start') return null;
+    throw new UnavailableInputError(entity);
+  }
+  return requireState(state, entity as keyof HAEntities);
+}
+
 // ---- Factory ----
 
 interface HeatingContext {
@@ -602,16 +628,18 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       }
       const automationEnabled = automationEnabledState === 'on';
 
-      const currentMode = state(`sensor.${location}_active_heating` as keyof HAEntities)?.state ?? null;
+      assertTriggerUsable(event);
+      const currentMode = readCurrentMode(state, `sensor.${location}_active_heating`, event);
 
       const windowState = state(windowEntity as keyof HAEntities);
       const graceHelperState = state(WINDOW_GRACE_HELPER as keyof HAEntities)?.state;
       const windowSafety = resolveWindowSafety(windowState, graceHelperState, now);
 
-      const heatingSystemEnabled = state('input_boolean.house_heating_enabled')?.state === 'on';
+      // Independent rooms ignore both house inputs, so their loss must not stall the room.
+      const heatingSystemEnabled = independent || requireState(state, 'input_boolean.house_heating_enabled') === 'on';
       const forceMinimum = !independent && !heatingSystemEnabled;
 
-      const houseMode = state('sensor.house_active_mode')?.state ?? null;
+      const houseMode = independent ? (state('sensor.house_active_mode')?.state ?? null) : requireState(state, 'sensor.house_active_mode');
       const affectsHeating = !independent && houseMode !== null && (HOUSE_MODES_AFFECTING_HEATING as readonly string[]).includes(houseMode);
 
       const helpersOn: Record<string, boolean> = {};
@@ -622,8 +650,13 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
         ? (manualSelectState as HeatingMode)
         : null;
 
-      const occupied = state(`binary_sensor.${location}_occupied` as keyof HAEntities)?.state === 'on';
       const schedule = resolveSchedule(scheduleConfig, contexts, weekday, helpersOn, now);
+      // Occupancy only matters when the active block upgrades on it; a dead sensor elsewhere must
+      // not freeze the schedule.
+      const occupancyEntity = `binary_sensor.${location}_occupied`;
+      const occupied = schedule.block?.occupiedMode
+        ? requireState(state, occupancyEntity as keyof HAEntities) === 'on'
+        : state(occupancyEntity as keyof HAEntities)?.state === 'on';
 
       // The plan sensor's attributes are what HA holds of the last publish: comparing with them
       // survives restarts and hot reloads, unlike a variable kept in this module.

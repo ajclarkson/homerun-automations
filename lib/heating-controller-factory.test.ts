@@ -975,3 +975,145 @@ describe('schedule context config is validated at load', () => {
     expect(() => makeHeatingAutomation(typo)).toThrow(/unknown context 'weekdy'/);
   });
 });
+
+// ---- HA reload: unavailable and unknown inputs ----
+
+describe('an HA reload walks inputs through unavailable and unknown', () => {
+  const occupiedConfig: HeatingRoomConfig = {
+    ...baseConfig,
+    scheduleConfig: { byContext: { weekday: [{ start: '00:00', end: '23:59', mode: 'baseline_day', occupiedMode: 'comfort' }] } },
+  };
+  const OCC = `binary_sensor.${LOCATION}_occupied`;
+  const ACTIVE = `sensor.${LOCATION}_active_heating`;
+  const HOUSE = 'sensor.house_active_mode';
+
+  const change = (entity: string, from: string, to: string) => ({
+    type: 'state_changed' as const,
+    entity_id: entity,
+    old_state: { entity_id: entity, state: from, attributes: {}, last_changed: '', last_updated: '' },
+    new_state: { entity_id: entity, state: to, attributes: {}, last_changed: '', last_updated: '' },
+    correlation_id: 'test-cid',
+  });
+
+  // Replays real -> unavailable -> unknown -> real for one trigger entity. `outage` is what the
+  // other inputs hold while it is down; `after` is what the world looks like on recovery.
+  function replay(entity: string, real: string, back: string, held: Record<string, { state: string }>, config = occupiedConfig) {
+    const automation = makeHeatingAutomation(config);
+    const sequence: [string, string][] = [[real, 'unavailable'], ['unavailable', 'unknown'], ['unknown', back]];
+    return sequence.map(([from, to]) => {
+      const state = { ...baseState, ...held, [entity]: { state: to } };
+      try {
+        return testAutomation(automation, { event: change(entity, from, to), state });
+      } catch (e) {
+        return e as Error;
+      }
+    });
+  }
+  const setModes = (results: unknown[]) =>
+    results.filter(r => !(r instanceof Error) && (r as { decision: string }).decision === 'set_mode').length;
+  const aborted = (r: unknown) => r instanceof Error && /required entity unavailable/.test(r.message);
+
+  describe('occupancy', () => {
+    it('emits nothing for the outage steps and nothing when the value returns unchanged', () => {
+      const held = { [ACTIVE]: { state: 'comfort' } };
+      const [toUnavailable, toUnknown, recovered] = replay(OCC, 'on', 'on', held);
+      expect(aborted(toUnavailable)).toBe(true);
+      expect(aborted(toUnknown)).toBe(true);
+      expect(recovered).toMatchObject({ decision: 'maintain', reason: 'no_change' });
+      expect(setModes([toUnavailable, toUnknown, recovered])).toBe(0);
+    });
+
+    it('applies exactly once when the room emptied during the outage', () => {
+      const held = { [ACTIVE]: { state: 'comfort' } };
+      const results = replay(OCC, 'on', 'off', held);
+      expect(setModes(results)).toBe(1);
+      expect(results[2]).toMatchObject({ decision: 'set_mode', reason: 'schedule', facts: { mode: 'baseline_day' } });
+    });
+
+    it('does not decide on an occupancy sensor that is down when the block upgrades on occupancy', () => {
+      const automation = makeHeatingAutomation(occupiedConfig);
+      expect(() => testAutomation(automation, {
+        event: onStartEvent,
+        state: { ...baseState, [ACTIVE]: { state: 'comfort' }, [OCC]: { state: 'unavailable' } },
+      })).toThrow(OCC);
+    });
+
+    it('keeps scheduling when a block that never upgrades has a dead occupancy sensor', () => {
+      expect(run({ [OCC]: { state: 'unavailable' } })).toMatchObject({ decision: 'maintain', reason: 'no_change' });
+    });
+  });
+
+  describe('house mode', () => {
+    it('emits nothing for the outage steps and nothing when it returns unchanged', () => {
+      const held = { [ACTIVE]: { state: 'baseline_night' } };
+      const results = replay(HOUSE, 'sleep', 'sleep', held, baseConfig);
+      expect(results.slice(0, 2).every(aborted)).toBe(true);
+      expect(results[2]).toMatchObject({ decision: 'maintain', reason: 'no_change' });
+      expect(setModes(results)).toBe(0);
+    });
+
+    it('applies exactly once when the mode changed during the outage', () => {
+      const held = { [ACTIVE]: { state: 'baseline_day' } };
+      const results = replay(HOUSE, 'normal', 'away', held, baseConfig);
+      expect(setModes(results)).toBe(1);
+      expect(results[2]).toMatchObject({ decision: 'set_mode', reason: 'house_mode_away' });
+    });
+
+    it('does not decide while the house mode is down, whichever input triggered', () => {
+      const automation = makeHeatingAutomation(baseConfig);
+      expect(() => testAutomation(automation, {
+        event: change(OCC, 'on', 'off'),
+        state: { ...baseState, [HOUSE]: { state: 'unknown' } },
+      })).toThrow(HOUSE);
+    });
+
+    it('lets an independent room carry on without the house inputs', () => {
+      const automation = makeHeatingAutomation({ ...baseConfig, independent: true });
+      const result = testAutomation(automation, {
+        event: onStartEvent,
+        state: { ...baseState, [HOUSE]: { state: 'unavailable' }, 'input_boolean.house_heating_enabled': { state: 'unavailable' } },
+      });
+      expect(result).toMatchObject({ decision: 'maintain', reason: 'no_change' });
+    });
+
+    it('does not force minimum while house_heating_enabled is down', () => {
+      const automation = makeHeatingAutomation(baseConfig);
+      expect(() => testAutomation(automation, {
+        event: onStartEvent,
+        state: { ...baseState, 'input_boolean.house_heating_enabled': { state: 'unavailable' } },
+      })).toThrow('input_boolean.house_heating_enabled');
+    });
+  });
+
+  describe('the published active_heating', () => {
+    it.each(['unavailable', 'unknown'])('does not decide while it is %s', value => {
+      const automation = makeHeatingAutomation(baseConfig);
+      expect(() => testAutomation(automation, {
+        event: change(HOUSE, 'normal', 'normal'),
+        state: { ...baseState, [ACTIVE]: { state: value } },
+      })).toThrow(ACTIVE);
+    });
+
+    it('still publishes a first mode at startup while the sensor is unknown', () => {
+      expect(run({ [ACTIVE]: { state: 'unknown' } })).toMatchObject({ decision: 'set_mode', reason: 'schedule' });
+    });
+
+    it('emits nothing when it returns to the value the schedule wants', () => {
+      const automation = makeHeatingAutomation(baseConfig);
+      const result = testAutomation(automation, {
+        event: change(HOUSE, 'normal', 'normal'),
+        state: { ...baseState, [ACTIVE]: { state: 'baseline_day' } },
+      });
+      expect(result).toMatchObject({ decision: 'maintain', reason: 'no_change' });
+    });
+
+    it('applies once when it returns to a value that differs from the schedule', () => {
+      const automation = makeHeatingAutomation(baseConfig);
+      const result = testAutomation(automation, {
+        event: change(HOUSE, 'normal', 'normal'),
+        state: { ...baseState, [ACTIVE]: { state: 'comfort' } },
+      });
+      expect(result).toMatchObject({ decision: 'set_mode', facts: { mode: 'baseline_day' } });
+    });
+  });
+});
