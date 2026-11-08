@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import { testUnavailable } from '@ajclarkson/homerun/testing';
 import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './trv-actuation.js';
 
@@ -142,19 +141,21 @@ describe('house:trv_actuation', () => {
     });
     const parlourTrv = (temperature: number) => ({ 'climate.parlour_trv': { state: 'heat', attributes: { temperature } } });
 
-    it.each(['unavailable', 'unknown'])('does nothing when the mode becomes %s', to => {
-      const entity = testUnavailable(automation, {
+    it.each(['unavailable', 'unknown'])('ignores the run, with no actions and no abort, when the mode becomes %s', to => {
+      const result = testAutomation(automation, {
         event: change('parlour', 'comfort', to),
         state: { ...baseState, 'sensor.parlour_active_heating': { state: to } },
       });
-      expect(entity).toBe('sensor.parlour_active_heating');
+      expect(result).toMatchObject({ decision: 'no_action', reason: 'input_not_valid', outcome: 'ignored' });
+      expect(result.actions).toEqual([]);
     });
 
-    it('does not move between unavailable and unknown', () => {
-      testUnavailable(automation, {
+    it('ignores the step between unavailable and unknown', () => {
+      const result = testAutomation(automation, {
         event: change('parlour', 'unavailable', 'unknown'),
         state: { ...baseState, 'sensor.parlour_active_heating': { state: 'unknown' } },
       });
+      expect(result.reason).toBe('input_not_valid');
     });
 
     it('sends nothing when the mode returns to what the TRV already holds', () => {

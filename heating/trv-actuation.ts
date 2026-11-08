@@ -1,4 +1,4 @@
-import { defineAutomation, abort, UnavailableInputError, HomeAssistant, type DeclaredDecision } from '@ajclarkson/homerun';
+import { defineAutomation, abort, HomeAssistant, type DeclaredDecision } from '@ajclarkson/homerun';
 import { HEATING_ROOMS } from '../lib/heating-rooms.js';
 
 const MODE_HELPERS: Record<string, string> = {
@@ -22,6 +22,7 @@ export const TRV_ACTUATION_REASONS = {
   trvs_already_set: { outcome: 'ignored', facts: ['rooms'] },
   trvs_not_set: { outcome: 'declined', facts: ['skipped'] },
   no_valid_rooms: { outcome: 'ignored', facts: ['skipped'] },
+  input_not_valid: { outcome: 'ignored' },
 } as const;
 
 type TrvActuationDecision = DeclaredDecision<typeof TRV_ACTUATION_REASONS>;
@@ -50,7 +51,7 @@ export default defineAutomation({
     let targetRooms: string[];
     if (event.type === 'state_changed') {
       // A reload walks the mode sensor through unavailable and unknown; only its real values count.
-      if (!isUsableState(event.new_state?.state)) throw new UnavailableInputError(event.entity_id);
+      if (!isUsableState(event.new_state?.state)) return { rooms: [], modeToTemp, invalid: true };
       const match = event.entity_id.match(/^sensor\.(.+)_active_heating$/);
       const room = match?.[1];
       targetRooms = room && HEATING_ROOMS.includes(room) ? [room] : [];
@@ -65,11 +66,12 @@ export default defineAutomation({
       mode: state(`sensor.${room}_active_heating` as keyof HAEntities)?.state ?? null,
     }));
 
-    return { rooms, modeToTemp };
+    return { rooms, modeToTemp, invalid: false };
   },
 
   reduce: (ctx): TrvActuationDecision => {
     const { rooms, modeToTemp } = ctx;
+    if (ctx.invalid) return { decision: 'no_action', reason: 'input_not_valid', actions: [] };
     const actions = [];
     const setRooms: string[] = [];
     const skippedRooms: string[] = [];

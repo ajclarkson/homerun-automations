@@ -354,10 +354,11 @@ export const HEATING_REASONS = {
   automation_disabled: { outcome: 'ignored' },
   no_schedule_match: { outcome: 'ignored' },
   no_change: { outcome: 'ignored' },
+  input_not_valid: { outcome: 'ignored' },
 } as const;
 
 type HeatingDecision = DeclaredDecision<typeof HEATING_REASONS>;
-type SetModeReason = Exclude<keyof typeof HEATING_REASONS, 'automation_disabled' | 'no_schedule_match' | 'no_change'>;
+type SetModeReason = Exclude<keyof typeof HEATING_REASONS, 'automation_disabled' | 'no_schedule_match' | 'no_change' | 'input_not_valid'>;
 
 const HOUSE_MODE_REASON: Record<HouseMode, SetModeReason> = {
   sleep: 'house_mode_sleep',
@@ -411,14 +412,18 @@ const isUsableState = (s: unknown): s is string => typeof s === 'string' && s !=
 
 /** An HA reload walks entities through unavailable then unknown before their real values return;
  *  deciding on those steps flipped every room's mode and re-sent TRV setpoints. A change *to* an
- *  unusable state is never a decision. A change *from* one is let through: the reducer compares
- *  with the published mode and plan, so an unchanged value does nothing and a value that really
- *  moved during the outage applies once. */
-function assertTriggerUsable(event: { type: string }): void {
-  if (event.type !== 'state_changed') return;
-  const { entity_id, new_state } = event as unknown as { entity_id: string; new_state?: { state?: string } };
-  if (!isUsableState(new_state?.state)) throw new UnavailableInputError(entity_id);
+ *  unusable state is noise, not a failure: it is an `ignored` no_action (an abort would be stored
+ *  and shown on every room page at every reload). A change *from* one is let through: the reducer
+ *  compares with the published mode and plan, so an unchanged value does nothing and a value that
+ *  really moved during the outage applies once. */
+function triggerWentInvalid(event: { type: string }): boolean {
+  if (event.type !== 'state_changed') return false;
+  const { new_state } = event as unknown as { new_state?: { state?: string } };
+  return !isUsableState(new_state?.state);
 }
+
+/** Context for a trigger that moved an input to unavailable/unknown: nothing to read, nothing to decide. */
+interface InvalidTrigger { invalidTrigger: true }
 
 /** The published mode. A missing or `unknown` sensor means nothing has been published yet, which
  *  only startup may treat as "no mode": any other trigger waits for the value to come back. */
@@ -540,7 +545,8 @@ function setModeDecision(ctx: HeatingContext, choice: Choice, topics: HeatingTop
   return { decision: 'set_mode', reason: choice.reason, facts: { mode: choice.mode, cause: ctx.cause }, actions };
 }
 
-function reduceHeating(ctx: HeatingContext, topics: HeatingTopics): HeatingDecision {
+function reduceHeating(ctx: HeatingContext | InvalidTrigger, topics: HeatingTopics): HeatingDecision {
+  if ('invalidTrigger' in ctx) return { decision: 'no_action', reason: 'input_not_valid', actions: [] };
   // Stage 1: automation disabled
   if (!ctx.automationEnabled) {
     return { decision: 'blocked', reason: 'automation_disabled', actions: [] };
@@ -596,7 +602,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
   const midnightTimerKey = `${location}:${MIDNIGHT_TIMER_SUFFIX}`;
   const topics: HeatingTopics = { activeHeatingTopic, activeHeatingEntity, sourceTopic, sourceEntity, planTopic, planEntity };
 
-  return defineAutomation<HeatingContext, typeof HEATING_REASONS>({
+  return defineAutomation<HeatingContext | InvalidTrigger, typeof HEATING_REASONS>({
     reasons: HEATING_REASONS,
     id: `${location}:heating`,
     location,
@@ -618,6 +624,7 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
     ],
 
     context: (state, _ha, event) => {
+      if (triggerWentInvalid(event)) return { invalidTrigger: true };
       const now = new Date();
       const weekday = now.getDay() !== 0 && now.getDay() !== 6;
       const manualExpiring = event.type === 'timer_expired' && event.timerKey === manualTimerKey;
@@ -628,7 +635,6 @@ export function makeHeatingAutomation(config: HeatingRoomConfig) {
       }
       const automationEnabled = automationEnabledState === 'on';
 
-      assertTriggerUsable(event);
       const currentMode = readCurrentMode(state, `sensor.${location}_active_heating`, event);
 
       const windowState = state(windowEntity as keyof HAEntities);

@@ -1011,14 +1011,15 @@ describe('an HA reload walks inputs through unavailable and unknown', () => {
   }
   const setModes = (results: unknown[]) =>
     results.filter(r => !(r instanceof Error) && (r as { decision: string }).decision === 'set_mode').length;
-  const aborted = (r: unknown) => r instanceof Error && /required entity unavailable/.test(r.message);
+  const ignoredInvalid = (r: unknown) =>
+    !(r instanceof Error) && (r as { reason: string }).reason === 'input_not_valid' && (r as { actions: unknown[] }).actions.length === 0;
 
   describe('occupancy', () => {
     it('emits nothing for the outage steps and nothing when the value returns unchanged', () => {
       const held = { [ACTIVE]: { state: 'comfort' } };
       const [toUnavailable, toUnknown, recovered] = replay(OCC, 'on', 'on', held);
-      expect(aborted(toUnavailable)).toBe(true);
-      expect(aborted(toUnknown)).toBe(true);
+      expect(ignoredInvalid(toUnavailable)).toBe(true);
+      expect(ignoredInvalid(toUnknown)).toBe(true);
       expect(recovered).toMatchObject({ decision: 'maintain', reason: 'no_change' });
       expect(setModes([toUnavailable, toUnknown, recovered])).toBe(0);
     });
@@ -1047,9 +1048,10 @@ describe('an HA reload walks inputs through unavailable and unknown', () => {
     it('emits nothing for the outage steps and nothing when it returns unchanged', () => {
       const held = { [ACTIVE]: { state: 'baseline_night' } };
       const results = replay(HOUSE, 'sleep', 'sleep', held, baseConfig);
-      expect(results.slice(0, 2).every(aborted)).toBe(true);
+      expect(results.slice(0, 2).every(ignoredInvalid)).toBe(true);
       expect(results[2]).toMatchObject({ decision: 'maintain', reason: 'no_change' });
       expect(setModes(results)).toBe(0);
+      expect(results.some(r => r instanceof Error)).toBe(false);
     });
 
     it('applies exactly once when the mode changed during the outage', () => {
