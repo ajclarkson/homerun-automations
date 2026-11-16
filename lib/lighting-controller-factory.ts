@@ -1,9 +1,16 @@
 import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
 import type { DeclaredDecision } from '@ajclarkson/homerun';
 import { clamp } from './clamp.js';
+import { minutesSinceNoon, parseTimeOfDay, formatTimeOfDay } from './time-of-day.js';
 
 // Same range as the input_number helper and the Pulse room settings stepper.
 export const LUX_THRESHOLD_DARK_RANGE = { min: 0, max: 500 } as const;
+
+// Same range as the Pulse room settings stepper for the evening end time. Before 16:00 the
+// evening scene would start in daylight; after 23:00 it would run into the night scene's hours.
+export const EVENING_END_RANGE = { min: '16:00', max: '23:00' } as const;
+const EVENING_END_MIN_MINUTES = parseTimeOfDay(EVENING_END_RANGE.min) as number;
+const EVENING_END_MAX_MINUTES = parseTimeOfDay(EVENING_END_RANGE.max) as number;
 
 export interface LightingRoomConfig {
   location: string;
@@ -29,6 +36,7 @@ interface SceneSet {
   off: string;
   daylight: string | null;
   night: string | null;
+  evening: string | null;
   ordered: string[];
 }
 
@@ -47,6 +55,10 @@ interface LightingContext {
   /** Entity id of the first active suppressor (sorted, so it is stable), or null when none is on. */
   externalSuppressSource: string | null;
   isDay: boolean;
+  /** Below the horizon and before the room's evening end time; always false without an evening scene. */
+  inEvening: boolean;
+  /** 'HH:MM' of the clamped evening end; null when the room has no evening scene. */
+  eveningEnd: string | null;
   guestModeActive: boolean;
   isCurrentlyOff: boolean;
   scenes: SceneSet;
@@ -58,8 +70,10 @@ interface LightingContext {
 // an outcome that depends on the trigger is two reasons: `automation_disabled` is `declined`
 // when a person walking in found the automation off, `automation_disabled_idle` is noise.
 export const LIGHTING_REASONS = {
-  lux_low: { outcome: 'acted', facts: ['lux', 'lux_threshold', 'scene'] },
-  recent_auto_off: { outcome: 'acted', facts: ['scene'] },
+  // evening_end is the 'HH:MM' the evening scene runs until, and null whenever another scene was chosen:
+  // the framework has no optional facts, and a fact is never omitted.
+  lux_low: { outcome: 'acted', facts: ['lux', 'lux_threshold', 'scene', 'evening_end'] },
+  recent_auto_off: { outcome: 'acted', facts: ['scene', 'evening_end'] },
   occupancy_off: { outcome: 'acted' },
   occupancy_settle_off: { outcome: 'acted' },
   button_off: { outcome: 'acted' },
@@ -119,10 +133,24 @@ function classifyOccupancyChange(oldState: unknown, newState: unknown): Lighting
   return { type: 'occupancy', to: newState === 'on' ? 'occupied' : 'unoccupied' };
 }
 
-function selectAutoScene(scenes: SceneSet, isDay: boolean): string {
+function selectAutoScene(scenes: SceneSet, isDay: boolean, inEvening: boolean): string {
+  if (inEvening && scenes.evening) return scenes.evening;
   if (isDay && scenes.daylight) return scenes.daylight;
   if (!isDay && scenes.night) return scenes.night;
   return scenes.ordered[0] ?? scenes.off;
+}
+
+// The evening end is only a fact when the evening scene is what was chosen.
+function eveningEndFact(scenes: SceneSet, autoScene: string, eveningEnd: string | null): string | null {
+  return scenes.evening !== null && autoScene === scenes.evening ? eveningEnd : null;
+}
+
+// The room's evening end time, clamped. Aborts rather than guessing when the helper is unreadable:
+// a wrong end time would silently choose the wrong scene.
+function readEveningEnd(rawState: unknown, entity: string): { minutes: number } | { unavailable: string } {
+  const minutes = parseTimeOfDay(rawState);
+  if (minutes === null) return { unavailable: entity };
+  return { minutes: clamp(minutes, EVENING_END_MIN_MINUTES, EVENING_END_MAX_MINUTES) };
 }
 
 function nextCycleScene(scenes: SceneSet, activeScene: string | null): string {
@@ -210,6 +238,7 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
 
       const daylightScene = findScene('scene_control_daylight');
       const nightScene = findScene('scene_control_night');
+      const eveningScene = findScene('scene_control_evening');
       const ordered: string[] = [];
       for (let i = 1; ; i++) {
         const s = findScene(`scene_order_${i}`);
@@ -241,13 +270,26 @@ export function makeLightingAutomation(config: LightingRoomConfig) {
       const isDay = state('sun.sun')?.state === 'above_horizon';
       const blockedBySleep = houseMode === 'sleep' && disableInSleepMode;
 
-      const scenes: SceneSet = { off: offScene, daylight: daylightScene, night: nightScene, ordered };
+      // Only rooms with an evening scene read the helper, so other rooms need not have one.
+      let inEvening = false;
+      let eveningEnd: string | null = null;
+      if (eveningScene) {
+        const eveningEntity = `input_datetime.${location}_automation_lights_evening_end`;
+        const end = readEveningEnd(state(eveningEntity as keyof HAEntities)?.state, eveningEntity);
+        if ('unavailable' in end) return abort(`evening_end_unavailable:${end.unavailable}`);
+        const now = new Date();
+        // Minutes since noon make the small hours count as late, so 02:00 is never inside the window.
+        inEvening = !isDay && minutesSinceNoon(now.getHours(), now.getMinutes()) < minutesSinceNoon(Math.floor(end.minutes / 60), end.minutes % 60);
+        eveningEnd = formatTimeOfDay(end.minutes);
+      }
+
+      const scenes: SceneSet = { off: offScene, daylight: daylightScene, night: nightScene, evening: eveningScene, ordered };
       const isCurrentlyOff = activeScene === toSceneKey(offScene);
 
       return {
         location, trigger, automationEnabled, lux, luxThreshold, occupied, activeScene,
         houseMode, blockedBySleep, recentAutoOff, externalSuppressActive, externalSuppressSource, isDay,
-        guestModeActive, isCurrentlyOff, scenes, recentAutoOffMs, occupancySensorState,
+        inEvening, eveningEnd, guestModeActive, isCurrentlyOff, scenes, recentAutoOffMs, occupancySensorState,
       };
     },
 
@@ -268,7 +310,7 @@ const roundedOrNull = (n: number | null) => (n === null ? null : Math.round(n));
 function reduceRules(ctx: LightingContext, occupancySettleMs: number): LightingDecision {
   const {
     location, trigger, automationEnabled, lux, luxThreshold, occupied, activeScene,
-    blockedBySleep, recentAutoOff, externalSuppressSource, isDay, guestModeActive,
+    blockedBySleep, recentAutoOff, externalSuppressSource, isDay, inEvening, eveningEnd, guestModeActive,
     isCurrentlyOff, scenes, recentAutoOffMs, occupancySensorState,
   } = ctx;
 
@@ -401,7 +443,7 @@ function reduceRules(ctx: LightingContext, occupancySettleMs: number): LightingD
         actions: planRecentAutoOffCancel(location),
       };
     }
-    const autoScene = selectAutoScene(scenes, isDay);
+    const autoScene = selectAutoScene(scenes, isDay, inEvening);
     if (!recentAutoOff && lux !== null && lux > luxThreshold) {
       return {
         decision: 'no_action',
@@ -419,14 +461,14 @@ function reduceRules(ctx: LightingContext, occupancySettleMs: number): LightingD
       return {
         decision: 'activate_scene',
         reason: 'recent_auto_off',
-        facts: { scene: toSceneKey(autoScene) },
+        facts: { scene: toSceneKey(autoScene), evening_end: eveningEndFact(scenes, autoScene, eveningEnd) },
         actions: [...planScene(autoScene), ...planRecentAutoOffCancel(location)],
       };
     }
     return {
       decision: 'activate_scene',
       reason: 'lux_low',
-      facts: { ...luxFacts, scene: toSceneKey(autoScene) },
+      facts: { ...luxFacts, scene: toSceneKey(autoScene), evening_end: eveningEndFact(scenes, autoScene, eveningEnd) },
       actions: [...planScene(autoScene), ...planRecentAutoOffCancel(location)],
     };
   }
