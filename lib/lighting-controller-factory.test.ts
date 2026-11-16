@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { testAbort } from '@ajclarkson/homerun/testing';
 import { testDeclared as testAutomation } from './declared-outcome.js';
 import type { HAContext } from '@ajclarkson/homerun';
@@ -640,7 +640,7 @@ describe('makeLightingAutomation', () => {
     it('acts with the rounded lux and threshold when it is dark enough', () => {
       const r = run(occupancyEvent('on'), withLux('10.6', { [`input_number.${LOCATION}_automation_lux_threshold_dark`]: { state: '15.4' } }));
       expect(r).toMatchObject({ reason: 'lux_low', outcome: 'acted' });
-      expect(r.facts).toEqual({ lux: 11, lux_threshold: 15, scene: `${LOCATION}_low` });
+      expect(r.facts).toEqual({ lux: 11, lux_threshold: 15, scene: `${LOCATION}_low`, evening_end: null });
     });
 
     it.each([
@@ -650,13 +650,13 @@ describe('makeLightingAutomation', () => {
     ])('clamps the dark threshold to 0 to 500 (%s)', (_label, raw, expected) => {
       const r = run(occupancyEvent('on'), withLux('10', { [`input_number.${LOCATION}_automation_lux_threshold_dark`]: { state: raw } }));
       // A threshold of 0 leaves the room too bright to act, so no scene is set and there is no scene fact.
-      expect(r.facts).toEqual(expected === 0 ? { lux: 10, lux_threshold: 0 } : { lux: 10, lux_threshold: expected, scene: `${LOCATION}_low` });
+      expect(r.facts).toEqual(expected === 0 ? { lux: 10, lux_threshold: 0 } : { lux: 10, lux_threshold: expected, scene: `${LOCATION}_low`, evening_end: null });
     });
 
     it('acts with a null lux when there is no reading, because the lights still come on', () => {
       const r = run(occupancyEvent('on'), withLux(null));
       expect(r).toMatchObject({ reason: 'lux_low', outcome: 'acted' });
-      expect(r.facts).toEqual({ lux: null, lux_threshold: 15, scene: `${LOCATION}_low` });
+      expect(r.facts).toEqual({ lux: null, lux_threshold: 15, scene: `${LOCATION}_low`, evening_end: null });
     });
 
     it('declines with the rounded lux and threshold when the room is bright enough', () => {
@@ -668,7 +668,7 @@ describe('makeLightingAutomation', () => {
     it('acts with the scene it set when the room was only just emptied', () => {
       const r = run(occupancyEvent('on'), withLux('100', { [`binary_sensor.${LOCATION}_lighting_recent_auto_off`]: { state: 'on' } }));
       expect(r).toMatchObject({ reason: 'recent_auto_off', outcome: 'acted' });
-      expect(r.facts).toEqual({ scene: `${LOCATION}_low` });
+      expect(r.facts).toEqual({ scene: `${LOCATION}_low`, evening_end: null });
     });
 
     it('ignores an occupancy change when the lights are already on', () => {
@@ -748,6 +748,144 @@ describe('makeLightingAutomation', () => {
 
     it('ignores house mode changes that are not sleep', () => {
       expect(run(houseModeEvent('away'), baseState)).toMatchObject({ reason: 'no_matching_rule', outcome: 'ignored' });
+    });
+  });
+
+  describe('evening scene (sunset until the room evening end time)', () => {
+    const END_ENTITY = `input_datetime.${LOCATION}_automation_lights_evening_end`;
+    const EVENING = `scene.${LOCATION}_all`;
+    const eveningHa = (): Partial<HAContext> => {
+      const base = makeHa();
+      const area = [...(base.entitiesByArea as (a: string) => string[])(LOCATION), EVENING];
+      return {
+        entitiesByArea: (a) => (a === LOCATION ? area : []),
+        entitiesByLabel: (label) => (label === 'scene_control_evening' ? [EVENING] : (base.entitiesByLabel as (l: string) => string[])(label)),
+      };
+    };
+    // Local wall-clock time, matching how the automation reads the hour, so tests pass in any timezone.
+    const at = (time: string) => {
+      const [h, m] = time.split(':').map(Number);
+      vi.setSystemTime(new Date(2026, 0, 7, h, m));
+    };
+    const dusk = { 'sun.sun': { state: 'below_horizon' } };
+    const sunUp = { 'sun.sun': { state: 'above_horizon' } };
+    const endsAt = (time: string) => ({ [END_ENTITY]: { state: time } });
+    const occupied = { ...baseState, [`binary_sensor.${LOCATION}_occupied`]: { state: 'on' } };
+    const walkIn = (extra: Record<string, { state: string }>, ha = eveningHa()) =>
+      testAutomation(automation, { event: occupancyEvent('on'), state: { ...occupied, ...extra }, ha });
+    const reEnter = (extra: Record<string, { state: string }>) =>
+      walkIn({ [`binary_sensor.${LOCATION}_lighting_recent_auto_off`]: { state: 'on' }, ...extra });
+    const sceneCalled = (r: { actions: unknown[] }, entity: string) =>
+      expect(r.actions).toContainEqual(expect.objectContaining({ service: 'turn_on', target: { entity_id: entity } }));
+
+    beforeEach(() => { vi.useFakeTimers(); at('19:00'); });
+    afterEach(() => vi.useRealTimers());
+
+    it('chooses the evening scene just after sunset and says when it ends', () => {
+      at('16:30');
+      const r = walkIn({ ...dusk, ...endsAt('20:00:00') });
+      expect(r).toMatchObject({ reason: 'lux_low', outcome: 'acted' });
+      sceneCalled(r, EVENING);
+      expect(r.facts).toEqual({ lux: 10, lux_threshold: 15, scene: `${LOCATION}_all`, evening_end: '20:00' });
+    });
+
+    it('chooses the evening scene one minute before the end time', () => {
+      at('19:59');
+      const r = walkIn({ ...dusk, ...endsAt('20:00:00') });
+      sceneCalled(r, EVENING);
+      expect(r.facts).toMatchObject({ evening_end: '20:00' });
+    });
+
+    it.each(['20:00', '23:30', '02:00'])('chooses the night scene at %s with the sun down and the evening over', (time) => {
+      at(time);
+      const r = walkIn({ ...dusk, ...endsAt('20:00:00') });
+      sceneCalled(r, `scene.${LOCATION}_low`);
+      expect(r.facts).toEqual({ lux: 10, lux_threshold: 15, scene: `${LOCATION}_low`, evening_end: null });
+    });
+
+    it('chooses the daylight scene when the sun is up, even before the end time', () => {
+      at('17:00');
+      const r = walkIn({ ...sunUp, ...endsAt('20:00:00') });
+      sceneCalled(r, `scene.${LOCATION}_daylight`);
+      expect(r.facts).toMatchObject({ scene: `${LOCATION}_daylight`, evening_end: null });
+    });
+
+    it('falls back to the first ordered scene when the sun is up and the room has no daylight scene', () => {
+      at('17:00');
+      const base = eveningHa();
+      const ha: Partial<HAContext> = {
+        ...base,
+        entitiesByLabel: (l) => (l === 'scene_control_daylight' ? [] : (base.entitiesByLabel as (l: string) => string[])(l)),
+      };
+      const r = walkIn({ ...sunUp, ...endsAt('20:00:00') }, ha);
+      sceneCalled(r, `scene.${LOCATION}_low`);
+      expect(r.facts).toMatchObject({ evening_end: null });
+    });
+
+    it('never reads the helper in a room without an evening scene, and behaves as before', () => {
+      at('17:00');
+      // The helper is absent and the clock is inside the would-be evening: nothing changes, nothing aborts.
+      const r = walkIn({ ...dusk }, makeHa());
+      sceneCalled(r, `scene.${LOCATION}_low`);
+      expect(r.facts).toEqual({ lux: 10, lux_threshold: 15, scene: `${LOCATION}_low`, evening_end: null });
+    });
+
+    it.each(['unavailable', 'bogus', 'unknown', ''])('aborts when the evening end helper is %j', (bad) => {
+      const result = testAbort(automation, { event: occupancyEvent('on'), state: { ...occupied, ...dusk, ...endsAt(bad) }, ha: eveningHa() });
+      expect(result.reason).toEqual(expect.stringContaining(`evening_end_unavailable:${END_ENTITY}`));
+    });
+
+    it('aborts when the evening end helper is missing', () => {
+      const result = testAbort(automation, { event: occupancyEvent('on'), state: { ...occupied, ...dusk }, ha: eveningHa() });
+      expect(result.reason).toEqual(expect.stringContaining('evening_end_unavailable'));
+    });
+
+    it.each([
+      ['15:00:00', '16:00', '15:30', 'the evening scene'],
+      ['15:00:00', '16:00', '16:30', 'the night scene'],
+      ['23:45:00', '23:00', '22:30', 'the evening scene'],
+      ['23:45:00', '23:00', '23:30', 'the night scene'],
+    ])('clamps an end time of %s to %s (at %s: %s)', (raw, clamped, time, expected) => {
+      at(time);
+      const r = walkIn({ ...dusk, ...endsAt(raw) });
+      sceneCalled(r, expected === 'the evening scene' ? EVENING : `scene.${LOCATION}_low`);
+      expect(r.facts).toMatchObject({ evening_end: expected === 'the evening scene' ? clamped : null });
+    });
+
+    it('accepts an end time without seconds', () => {
+      at('18:00');
+      const r = walkIn({ ...dusk, ...endsAt('21:15') });
+      expect(r.facts).toMatchObject({ evening_end: '21:15' });
+    });
+
+    describe('re-entering just after the room emptied', () => {
+      it('follows the same window: evening scene before the end, night after', () => {
+        at('18:00');
+        const early = reEnter({ ...dusk, ...endsAt('20:00:00') });
+        expect(early).toMatchObject({ reason: 'recent_auto_off', outcome: 'acted' });
+        sceneCalled(early, EVENING);
+        expect(early.facts).toEqual({ scene: `${LOCATION}_all`, evening_end: '20:00' });
+
+        at('21:00');
+        const late = reEnter({ ...dusk, ...endsAt('20:00:00') });
+        sceneCalled(late, `scene.${LOCATION}_low`);
+        expect(late.facts).toEqual({ scene: `${LOCATION}_low`, evening_end: null });
+      });
+
+      it('uses daylight when the sun is up', () => {
+        at('17:00');
+        const r = reEnter({ ...sunUp, ...endsAt('20:00:00') });
+        sceneCalled(r, `scene.${LOCATION}_daylight`);
+        expect(r.facts).toEqual({ scene: `${LOCATION}_daylight`, evening_end: null });
+      });
+    });
+
+    it('leaves the button cycle unchanged: the evening scene is not in it', () => {
+      at('18:00');
+      const r = testAutomation(automation, { event: buttonEvent('single_press'), state: { ...baseState, ...dusk, ...endsAt('20:00:00') }, ha: eveningHa() });
+      expect(r).toMatchObject({ reason: 'button_cycle' });
+      sceneCalled(r, `scene.${LOCATION}_low`);
+      expect(r.facts).toEqual({ scene: `${LOCATION}_low` });
     });
   });
 

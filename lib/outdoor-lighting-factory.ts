@@ -1,6 +1,7 @@
 import { defineAutomation, abort, HomeAssistant } from '@ajclarkson/homerun';
 import type { Action, DeclaredDecision } from '@ajclarkson/homerun';
 import { isSceneActivation } from './scene-activation.js';
+import { minutesSinceNoon } from './time-of-day.js';
 
 export interface OutdoorLightingConfig {
   location: string;
@@ -17,19 +18,11 @@ export interface OutdoorLightingConfig {
 }
 
 const DEFAULT_OFF_TIME = '22:00';
-const MINUTES_PER_DAY = 24 * 60;
-const NOON = 12 * 60;
-
 function parseOffTime(offTime: string): { hour: number; minute: number } {
   const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(offTime);
   if (!match) throw new Error(`invalid outdoor lighting offTime '${offTime}' — expected 'HH:MM'`);
   return { hour: Number(match[1]), minute: Number(match[2]) };
 }
-
-// Minutes elapsed since the most recent noon, so an evening window that crosses midnight
-// is still one contiguous range (e.g. 22:00 → 600, 00:00 → 720, 01:30 → 810).
-const minutesSinceNoon = (hour: number, minute: number) =>
-  (hour * 60 + minute - NOON + MINUTES_PER_DAY) % MINUTES_PER_DAY;
 
 // Theme selected via input_select.<location>_light_theme. 'normal' (or no helper at all) uses the
 // scene_order_1 scene; any other theme uses the area's scene labelled scene_theme_<theme>.

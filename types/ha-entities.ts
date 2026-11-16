@@ -68,6 +68,7 @@ declare global {
     'input_number.hallway_downstairs_automation_lux_threshold_dark': { state: string };
     'input_number.hallway_upstairs_automation_lux_threshold_dark': { state: string };
     'input_number.kitchen_automation_lux_threshold_dark': { state: string };
+    'input_datetime.kitchen_automation_lights_evening_end': { state: string };
     'input_number.bedroom_automation_lux_threshold_dark': { state: string };
     'input_number.bathroom_automation_lux_threshold_dark': { state: string };
     'input_number.home_office_automation_lux_threshold_dark': { state: string };
