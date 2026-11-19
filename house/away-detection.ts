@@ -10,12 +10,30 @@ export const AWAY_DETECTION_REASONS = {
   all_left_door_recently: { outcome: 'acted' },
   all_left_door_recently_startup: { outcome: 'ignored' },
   someone_returned: { outcome: 'acted' },
+  // Declined, not ignored: the house stays as it was and a person would ask why it did not go away.
+  presence_unknown: { outcome: 'declined', facts: ['unknown_count', 'first_unknown'] },
   sitter_present_no_change: { outcome: 'ignored' },
   no_door_event: { outcome: 'ignored' },
   not_in_away_mode: { outcome: 'ignored' },
 } as const;
 
 type AwayDecision = DeclaredDecision<typeof AWAY_DETECTION_REASONS>;
+
+// Residents whose presence must be known before the house may go away. Explicit rather than
+// label-discovered: HA labels for persons are not configured and the framework cannot list a domain.
+// `person.guest` is excluded because it is routinely not_home and is not a resident.
+const RESIDENT_PERSONS = ['person.adam', 'person.sarah'] as const;
+
+// When the presence integration is broken every person reads unknown and zone.home reads 0, which
+// is indistinguishable from an empty house. Treat anything but a real location as unknown.
+function findUnknownPersons(state: (id: keyof HAEntities) => { state: string } | undefined): string[] {
+  return RESIDENT_PERSONS
+    .filter(id => {
+      const value = state(id)?.state;
+      return !value || value === 'unknown' || value === 'unavailable';
+    })
+    .sort();
+}
 
 const DOOR_WINDOW_MS = 15 * 60 * 1000;
 const MODIFIER_ENTITY = 'input_select.house_active_mode_modifier';
@@ -70,6 +88,7 @@ export default defineAutomation({
       ? Date.now() - doorsLastChangedMs
       : Infinity;
 
+    const unknownPersons = findUnknownPersons(state);
     const noneHome = personCount === 0;
     const doorRecentlyChanged = timeSinceDoorsChangedMs <= DOOR_WINDOW_MS;
     const sitterActive = modifier === 'sitter';
@@ -101,6 +120,7 @@ export default defineAutomation({
 
     return {
       noneHome,
+      unknownPersons,
       doorRecentlyChanged,
       houseMode,
       sitterActive,
@@ -112,7 +132,7 @@ export default defineAutomation({
   },
 
   reduce: (ctx): AwayDecision => {
-    const { noneHome, doorRecentlyChanged, houseMode, sitterActive, sitterJustLeft, vacationEligible, vacationTimerValidUntilMs, startup } = ctx;
+    const { noneHome, unknownPersons, doorRecentlyChanged, houseMode, sitterActive, sitterJustLeft, vacationEligible, vacationTimerValidUntilMs, startup } = ctx;
     const actions: Action[] = [];
     let decision = 'uninitialised';
     let reason: keyof typeof AWAY_DETECTION_REASONS = 'not_in_away_mode';
@@ -139,6 +159,15 @@ export default defineAutomation({
       decision = 'set_vacation';
       reason = 'away_duration_exceeded';
       actions.push({ type: 'mqtt.publish', topic: 'house/mode/active', payload: 'vacation', impliesEntity: 'sensor.house_active_mode' });
+    } else if (noneHome && doorRecentlyChanged && unknownPersons.length > 0) {
+      // Never go away on unknown presence: wrongly staying home is cheap, wrongly leaving is not.
+      // Returned directly: a reason with declared facts needs them in the literal for the types to hold.
+      return {
+        decision: 'no_action',
+        reason: 'presence_unknown',
+        facts: { unknown_count: unknownPersons.length, first_unknown: unknownPersons[0] ?? null },
+        actions,
+      };
     } else if (noneHome && doorRecentlyChanged) {
       decision = 'set_away';
       reason = startup ? 'all_left_door_recently_startup' : 'all_left_door_recently';

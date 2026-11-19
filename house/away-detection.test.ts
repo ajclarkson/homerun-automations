@@ -19,6 +19,8 @@ const zoneTrigger = {
 };
 
 const baseState = {
+  'person.adam': { state: 'not_home' },
+  'person.sarah': { state: 'not_home' },
   'zone.home': { state: '0' },
   'sensor.house_active_mode': { state: 'normal' },
   'binary_sensor.external_doors_state': { state: 'off', last_changed: RECENTLY },
@@ -32,6 +34,82 @@ const modifierEndedTrigger = {
   new_state: { entity_id: 'input_select.house_active_mode_modifier', state: 'none', attributes: {}, last_changed: '', last_updated: '' },
   correlation_id: 'test',
 };
+
+const startupTrigger = { type: 'on_start' as const, correlation_id: 'test' };
+
+describe('house:away-detection presence unknown', () => {
+  it.each(['unknown', 'unavailable'])('does not set away when a person is %s, nobody counted home and a door changed', (value) => {
+    const result = testAutomation(automation, {
+      event: zoneTrigger,
+      state: { ...baseState, 'person.sarah': { state: value } },
+    });
+
+    expect(result.decision).toBe('no_action');
+    expect(result.reason).toBe('presence_unknown');
+    expect(result.outcome).toBe('declined');
+    expect(result.facts).toEqual({ unknown_count: 1, first_unknown: 'person.sarah' });
+    expect(result.actions).toEqual([cancelVacationTimer]);
+  });
+
+  it('counts every unknown person and names the first by sorted id', () => {
+    const result = testAutomation(automation, {
+      event: zoneTrigger,
+      state: { ...baseState, 'person.adam': { state: 'unknown' }, 'person.sarah': { state: 'unknown' } },
+    });
+
+    expect(result.reason).toBe('presence_unknown');
+    expect(result.facts).toEqual({ unknown_count: 2, first_unknown: 'person.adam' });
+  });
+
+  it('treats a missing person entity as unknown', () => {
+    const { 'person.adam': _omitted, ...withoutAdam } = baseState;
+    const result = testAutomation(automation, { event: zoneTrigger, state: withoutAdam });
+
+    expect(result.reason).toBe('presence_unknown');
+    expect(result.facts).toEqual({ unknown_count: 1, first_unknown: 'person.adam' });
+  });
+
+  it('does not set away on restart with all persons unknown and a recent door event', () => {
+    const result = testAutomation(automation, {
+      event: startupTrigger,
+      state: { ...baseState, 'person.adam': { state: 'unknown' }, 'person.sarah': { state: 'unknown' } },
+    });
+
+    expect(result.decision).toBe('no_action');
+    expect(result.reason).toBe('presence_unknown');
+  });
+
+  it('still sets away on restart when every person is known to be out', () => {
+    const result = testAutomation(automation, { event: startupTrigger, state: baseState });
+
+    expect(result.decision).toBe('set_away');
+    expect(result.reason).toBe('all_left_door_recently_startup');
+  });
+
+  it('keeps existing behaviour when a person is unknown but zone.home counts someone home', () => {
+    const result = testAutomation(automation, {
+      event: zoneTrigger,
+      state: { ...baseState, 'zone.home': { state: '1' }, 'person.adam': { state: 'unknown' } },
+    });
+
+    expect(result.decision).toBe('no_action');
+    expect(result.reason).toBe('not_in_away_mode');
+  });
+
+  it('still sets normal when someone returns while a person is unknown', () => {
+    const result = testAutomation(automation, {
+      event: zoneTrigger,
+      state: {
+        ...baseState,
+        'zone.home': { state: '1' },
+        'sensor.house_active_mode': { state: 'away' },
+        'person.sarah': { state: 'unknown' },
+      },
+    });
+
+    expect(result.reason).toBe('someone_returned');
+  });
+});
 
 describe('house:away-detection', () => {
   it('sets away mode when nobody is home and a door changed recently', () => {
