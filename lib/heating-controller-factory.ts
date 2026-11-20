@@ -31,7 +31,7 @@ export interface HeatingRoomConfig {
   /** The house's ordered schedule contexts; every key in `byContext` must be one of them. */
   contexts: readonly ScheduleContext[];
   /** Opt out of house-wide heating overrides — the house_heating_enabled gate and
-   *  sleep/away/vacation mode forcing (foreign office only). The room's own schedule
+   *  away/vacation mode forcing (foreign office only). The room's own schedule
    *  and manual override still apply. */
   independent?: boolean;
 }
@@ -40,11 +40,12 @@ export interface HeatingRoomConfig {
 
 const VALID_HEATING_MODES = new Set<string>(['minimum', 'baseline_night', 'baseline_day', 'comfort']);
 
-const HOUSE_MODES_AFFECTING_HEATING = ['sleep', 'away', 'vacation'] as const;
+// Sleep is deliberately absent: the schedules already drop to baseline_night at 22:00, and sleep
+// only ends when someone gets up, so forcing night mode would mask the 06:00 morning pre-warm.
+const HOUSE_MODES_AFFECTING_HEATING = ['away', 'vacation'] as const;
 type HouseMode = typeof HOUSE_MODES_AFFECTING_HEATING[number];
 
 const HOUSE_MODE_MAP: Record<HouseMode, HeatingMode> = {
-  sleep: 'baseline_night',
   // The cat stays home while we're at work — minimum is for genuinely
   // nobody-cares situations (safety overrides, off-hours schedule blocks),
   // not an empty-but-occupied-by-a-cat house.
@@ -345,7 +346,6 @@ function resolveWindowSafety(
 export const HEATING_REASONS = {
   safety_window_open: { outcome: 'acted', facts: ['mode'] },
   safety_heating_disabled: { outcome: 'acted', facts: ['mode'] },
-  house_mode_sleep: { outcome: 'acted', facts: ['mode', 'cause'] },
   house_mode_away: { outcome: 'acted', facts: ['mode', 'cause'] },
   house_mode_vacation: { outcome: 'acted', facts: ['mode', 'cause'] },
   manual_override: { outcome: 'acted', facts: ['mode', 'cause'] },
@@ -361,7 +361,6 @@ type HeatingDecision = DeclaredDecision<typeof HEATING_REASONS>;
 type SetModeReason = Exclude<keyof typeof HEATING_REASONS, 'automation_disabled' | 'no_schedule_match' | 'no_change' | 'input_not_valid'>;
 
 const HOUSE_MODE_REASON: Record<HouseMode, SetModeReason> = {
-  sleep: 'house_mode_sleep',
   away: 'house_mode_away',
   vacation: 'house_mode_vacation',
 };

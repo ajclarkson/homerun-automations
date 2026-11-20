@@ -243,9 +243,9 @@ describe('safety — house heating disabled (forceMinimum)', () => {
 describe('independent rooms opt out of house mode overrides', () => {
   const independentConfig: HeatingRoomConfig = { ...baseConfig, independent: true };
 
-  it('keeps following its own schedule when the house enters sleep mode', () => {
+  it('keeps following its own schedule when the house enters away mode while comfort is active', () => {
     const result = run(
-      { 'sensor.house_active_mode': { state: 'sleep' }, [`sensor.${LOCATION}_active_heating`]: { state: 'comfort' } },
+      { 'sensor.house_active_mode': { state: 'away' }, [`sensor.${LOCATION}_active_heating`]: { state: 'comfort' } },
       independentConfig,
     );
     expect(result.reason).not.toMatch(/^house_mode/);
@@ -266,8 +266,8 @@ describe('independent rooms opt out of house mode overrides', () => {
   });
 
   it('a non-independent room in the same house mode is still overridden', () => {
-    const result = run({ 'sensor.house_active_mode': { state: 'sleep' } }, baseConfig);
-    expect(result.reason).toBe('house_mode_sleep');
+    const result = run({ 'sensor.house_active_mode': { state: 'away' } }, baseConfig);
+    expect(result.reason).toBe('house_mode_away');
     expect(result.outcome).toBe('acted');
   });
 });
@@ -275,14 +275,20 @@ describe('independent rooms opt out of house mode overrides', () => {
 // ---- Stage 3: house mode ----
 
 describe('house mode overrides', () => {
-  it('sleep mode maps to baseline_night', () => {
-    const result = run({ 'sensor.house_active_mode': { state: 'sleep' } });
+  it('sleep mode does not override: the 06:30 weekday schedule block still applies', () => {
+    pinTime('2026-01-07T06:30:00.000Z'); // Wednesday, after the 06:00 block starts
+    const result = run({ 'sensor.house_active_mode': { state: 'sleep' }, [`sensor.${LOCATION}_active_heating`]: { state: 'baseline_night' } });
     expect(result.decision).toBe('set_mode');
-    expect(result.reason).toBe('house_mode_sleep');
-    expect(result.outcome).toBe('acted');
-    expectModePublished(result.actions, 'baseline_night');
-    expect(result.facts).toMatchObject({ mode: 'baseline_night' });
-    expectSourcePublished(result.actions, 'house_mode');
+    expect(result.reason).toBe('schedule');
+    expectModePublished(result.actions, 'baseline_day');
+    expect(result.facts).toMatchObject({ mode: 'baseline_day' });
+    expectSourcePublished(result.actions, 'schedule');
+  });
+
+  it('leaving away for sleep falls back to the schedule', () => {
+    const result = run({ 'sensor.house_active_mode': { state: 'sleep' }, [`sensor.${LOCATION}_active_heating`]: { state: 'baseline_night' } });
+    expect(result.reason).toBe('schedule');
+    expectModePublished(result.actions, 'baseline_day');
   });
 
   it('away mode maps to baseline_night, not minimum, so the cat is not left in a cold house', () => {
@@ -662,7 +668,7 @@ describe('the cause carried with a mode change', () => {
     ['startup', onStartEvent, { [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } }, 'schedule'],
     ['boundary', timerEvent('schedule_boundary'), { [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } }, 'schedule'],
     ['window_closed', stateEvent(`binary_sensor.${LOCATION}_external_openings`, 'off'), { [`sensor.${LOCATION}_active_heating`]: { state: 'minimum' } }, 'schedule'],
-    ['house_mode', stateEvent('sensor.house_active_mode', 'sleep'), { 'sensor.house_active_mode': { state: 'sleep' } }, 'house_mode_sleep'],
+    ['house_mode', stateEvent('sensor.house_active_mode', 'away'), { 'sensor.house_active_mode': { state: 'away' } }, 'house_mode_away'],
     ['manual_set', stateEvent(`input_select.${LOCATION}_heating_manual_mode`, 'comfort'), { [`input_select.${LOCATION}_heating_manual_mode`]: { state: 'comfort' } }, 'manual_override'],
     ['manual_ended', stateEvent(`input_select.${LOCATION}_heating_manual_mode`, 'auto'), { [`sensor.${LOCATION}_active_heating`]: { state: 'comfort' } }, 'schedule'],
     ['manual_ended', timerEvent('manual_override_expiry'), { [`sensor.${LOCATION}_active_heating`]: { state: 'comfort' } }, 'schedule'],
@@ -1047,7 +1053,7 @@ describe('an HA reload walks inputs through unavailable and unknown', () => {
   describe('house mode', () => {
     it('emits nothing for the outage steps and nothing when it returns unchanged', () => {
       const held = { [ACTIVE]: { state: 'baseline_night' } };
-      const results = replay(HOUSE, 'sleep', 'sleep', held, baseConfig);
+      const results = replay(HOUSE, 'away', 'away', held, baseConfig);
       expect(results.slice(0, 2).every(ignoredInvalid)).toBe(true);
       expect(results[2]).toMatchObject({ decision: 'maintain', reason: 'no_change' });
       expect(setModes(results)).toBe(0);
