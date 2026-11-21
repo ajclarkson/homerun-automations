@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { testAbort } from '@ajclarkson/homerun/testing';
 import { testDeclared as testAutomation } from '../lib/declared-outcome.js';
 import automation from './boiler-demand.js';
@@ -75,7 +75,7 @@ describe('house:boiler_demand', () => {
     });
     expect(result.reason).toBe('demand_started');
     expect(result.outcome).toBe('acted');
-    expect(result.facts).toEqual({ rooms: 'parlour,bedroom' });
+    expect(result.facts).toEqual({ rooms: 'parlour,bedroom', unconfirmed_rooms: '' });
     expect(result.outcome).toBe('acted');
   });
 
@@ -117,7 +117,7 @@ describe('house:boiler_demand', () => {
     ])('demand when %s is %s (%s)', (_name, prior, reason, outcome) => {
       const result = run(heatRequiredTrigger('parlour'), { ...calling, ...prior });
       expect(result).toMatchObject({ decision: 'boiler_on', reason, outcome, actions: publish(30) });
-      expect(result.facts).toEqual({ rooms: 'parlour,bedroom' });
+      expect(result.facts).toEqual({ rooms: 'parlour,bedroom', unconfirmed_rooms: '' });
     });
 
     it.each([
@@ -143,6 +143,77 @@ describe('house:boiler_demand', () => {
       expect(run(onStart, { ...calling, ...receiver(5) })).toMatchObject({ decision: 'boiler_on', reason: 'demand', outcome: 'ignored', actions: publish(30) });
       expect(run(onStart, { ...baseState, ...receiver(30) })).toMatchObject({ decision: 'boiler_off', reason: 'no_demand', outcome: 'ignored', actions: publish(5) });
       expect(run(onStart, disabled)).toMatchObject({ reason: 'heating_disabled_idle', outcome: 'ignored', actions: publish(5) });
+    });
+  });
+
+  describe('a TRV whose temperature feed is not confirmed cannot call the boiler', () => {
+    const HOUR = 3_600_000;
+    const NOW = Date.parse('2026-11-21T23:30:00Z');
+    const ago = (ms: number) => new Date(NOW - ms).toISOString();
+    const schedule = { type: 'schedule' as const, cron: '*/5 * * * *', correlation_id: 'test-cid' };
+    const RECEIVER = 'climate.boiler_receiver_heat';
+    const receiver = (setpoint: unknown) => ({ [RECEIVER]: { state: 'heat', attributes: { temperature: setpoint } } });
+    const bedroomFeed = (number: string, updatedAgoMs: number, sensor = '19.41') => ({
+      'number.bedroom_trv_external_measured_room_sensor': { state: number, last_updated: ago(updatedAgoMs) },
+      'sensor.bedroom_sensor_climate_temperature': { state: sensor, last_updated: ago(1000) },
+    });
+    const bedroomCalling = { ...baseState, 'binary_sensor.bedroom_trv_heat_required': { state: 'on' } };
+
+    beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); });
+    afterEach(() => vi.useRealTimers());
+
+    const run = (event: Parameters<typeof testAutomation>[1]['event'], state: Record<string, unknown>) =>
+      testAutomation(automation, { event, state: state as never });
+
+    it('turns the boiler off when the only calling room is stale and mismatched (2026-11-21 bedroom)', () => {
+      const result = run(schedule, { ...bedroomCalling, ...bedroomFeed('1869', 11 * HOUR), ...receiver(30) });
+      expect(result).toMatchObject({ decision: 'boiler_off', reason: 'demand_withheld', outcome: 'acted' });
+      expect(result.facts).toEqual({ unconfirmed_rooms: 'bedroom' });
+      const action = result.actions[0];
+      if (action.type === 'mqtt.publish') expect(JSON.parse(action.payload).occupied_heating_setpoint_heat).toBe(5);
+    });
+
+    it('keeps calling for the confirmed rooms and names the withheld one', () => {
+      const result = run(schedule, {
+        ...bedroomCalling, ...bedroomFeed('1869', 11 * HOUR), ...receiver(30),
+        'binary_sensor.parlour_trv_heat_required': { state: 'on' },
+      });
+      expect(result).toMatchObject({ decision: 'boiler_on', reason: 'demand', outcome: 'ignored' });
+      expect(result.facts).toEqual({ rooms: 'parlour', unconfirmed_rooms: 'bedroom' });
+    });
+
+    it('still calls for a steady room whose number is old but matches the sensor', () => {
+      const result = run(schedule, { ...bedroomCalling, ...bedroomFeed('1941', 11 * HOUR), ...receiver(30) });
+      expect(result).toMatchObject({ decision: 'boiler_on', reason: 'demand' });
+      expect(result.facts).toEqual({ rooms: 'bedroom', unconfirmed_rooms: '' });
+    });
+
+    it('still calls for a fresh mismatch inside the threshold', () => {
+      const result = run(schedule, { ...bedroomCalling, ...bedroomFeed('1869', 10 * 60_000), ...receiver(30) });
+      expect(result).toMatchObject({ decision: 'boiler_on', reason: 'demand' });
+    });
+
+    it.each([
+      ['number unavailable', bedroomFeed('unavailable', 11 * HOUR)],
+      ['number non-numeric', bedroomFeed('abc', 11 * HOUR)],
+      ['sensor unavailable', bedroomFeed('1869', 11 * HOUR, 'unavailable')],
+      ['both entities missing', {}],
+    ])('keeps today\'s behaviour when %s', (_name, feed) => {
+      const result = run(schedule, { ...bedroomCalling, ...feed, ...receiver(30) });
+      expect(result).toMatchObject({ decision: 'boiler_on', reason: 'demand' });
+    });
+
+    it('uses the ignored variants when the schedule finds nothing changed', () => {
+      const withheld = { ...bedroomCalling, ...bedroomFeed('1869', 11 * HOUR) };
+      expect(run(schedule, { ...withheld, ...receiver(5) })).toMatchObject({ reason: 'demand_withheld_idle', outcome: 'ignored' });
+      expect(run(schedule, { ...baseState, ...receiver(5) })).toMatchObject({ reason: 'no_demand', outcome: 'ignored' });
+      expect(run(schedule, { ...bedroomCalling, ...receiver(30) })).toMatchObject({ reason: 'demand', outcome: 'ignored' });
+      expect(run({ type: 'on_start', correlation_id: 'c' }, { ...withheld, ...receiver(30) })).toMatchObject({ reason: 'demand_withheld_idle', outcome: 'ignored' });
+    });
+
+    it('leaves the heating-disabled behaviour unchanged', () => {
+      const off = { ...bedroomCalling, ...bedroomFeed('1869', 11 * HOUR), 'input_boolean.house_heating_enabled': { state: 'off' } };
+      expect(run(schedule, off)).toMatchObject({ decision: 'boiler_off', reason: 'heating_disabled_idle', outcome: 'ignored' });
     });
   });
 });
