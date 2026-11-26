@@ -21,11 +21,23 @@ const MAX_RUN_HELPER = 'input_number.bathroom_automation_fan_max_run';
 export const AUTO_TOPIC = 'bathroom/fan/auto';
 export const AUTO_ENTITY = 'binary_sensor.bathroom_fan_auto';
 
+// A ZBMini relay has been seen to report ON and then OFF within milliseconds of our own turn_on.
+// An off inside START_BOUNCE_WINDOW_MS of the auto flag going ON, while the shower runs, is that
+// failure and not a person at the switch. The retry is delayed by RETRY_DELAY_MS so the retry's own
+// bounce lands after that delay: the time since the flag went ON then tells the first bounce
+// (before the delay: retry) from the second (after it: give up). That is how "once" is guaranteed
+// without timer visibility in context or a new entity.
+export const FAN_RETRY_TIMER = 'bathroom:fan:start_retry';
+export const START_BOUNCE_WINDOW_MS = 10_000;
+export const RETRY_DELAY_MS = 2_000;
+
 // Starting or stopping the fan is `acted`. Disabled and not-auto-started are `declined` only when a
 // shower just started (the person expected the fan); on any other trigger they are `_idle` noise,
 // as are the holding states and the fan's own bookkeeping.
 export const FAN_REASONS = {
   fan_on_shower_started: { outcome: 'acted' },
+  fan_retry_after_bounce: { outcome: 'acted' },
+  fan_start_failed: { outcome: 'declined' },
   fan_off_max_run: { outcome: 'acted' },
   fan_off_humidity_normal: { outcome: 'acted' },
   automation_disabled: { outcome: 'declined' },
@@ -41,7 +53,7 @@ export const FAN_REASONS = {
 type FanDecision = DeclaredDecision<typeof FAN_REASONS>;
 type FanReason = keyof typeof FAN_REASONS;
 
-type FanTrigger = 'shower_started' | 'shower_ended' | 'min_run_expired' | 'max_run_expired' | 'other';
+type FanTrigger = 'shower_started' | 'shower_ended' | 'min_run_expired' | 'max_run_expired' | 'retry_expired' | 'fan_turned_off' | 'other';
 
 interface FanContext {
   trigger: FanTrigger;
@@ -50,6 +62,12 @@ interface FanContext {
   /** This controller turned the fan on, so it may turn it off. */
   autoStarted: boolean;
   showerOn: boolean;
+  /** Milliseconds since the auto flag went ON; 0 unless this controller owns the fan. */
+  msSinceAutoOn: number;
+  /** Owned, shower running, and the fan went off before the retry delay: the first bounce. */
+  firstBounceWindow: boolean;
+  /** Owned, shower running, and the fan went off after the retry delay but inside the window: the retry bounced. */
+  retryBounceWindow: boolean;
   humidity: number;
   baseline: number;
   margin: number;
@@ -71,8 +89,10 @@ interface FanEvent {
 
 function triggerOf(event: FanEvent): FanTrigger {
   if (event.type === 'timer_expired') {
+    if (event.timerKey === FAN_RETRY_TIMER) return 'retry_expired';
     return event.timerKey === FAN_MIN_RUN_TIMER ? 'min_run_expired' : 'max_run_expired';
   }
+  if (event.type === 'state_changed' && event.entity_id === FAN && event.new_state?.state === 'off') return 'fan_turned_off';
   if (event.type === 'state_changed' && event.entity_id === SHOWER_ENTITY) {
     return event.new_state?.state === 'on' ? 'shower_started' : 'shower_ended';
   }
@@ -95,6 +115,10 @@ function buildContext(state: HAState, event: FanEvent) {
   // unknown = never published, which means this controller never started the fan.
   if (autoRaw !== 'on' && autoRaw !== 'off' && autoRaw !== 'unknown') return abort(`fan_auto_flag_unavailable:${autoRaw ?? 'missing'}`);
 
+  const autoChangedAt = Date.parse(state(AUTO_ENTITY)?.last_changed ?? '');
+  // Only an owned fan has a meaningful flag timestamp; off/unknown carry none worth checking.
+  if (autoRaw === 'on' && !Number.isFinite(autoChangedAt)) return abort(`fan_auto_timestamp_invalid:${AUTO_ENTITY}`);
+
   const shower = readShower(state);
   if (shower.kind === 'unavailable') return abort(`shower_state_unavailable:${shower.raw}`);
 
@@ -114,16 +138,25 @@ function buildContext(state: HAState, event: FanEvent) {
   if (!Number.isFinite(changedAt)) return abort(`shower_timestamp_invalid:${SHOWER_ENTITY}`);
   const minsSinceShowerChange = Math.max((Date.now() - changedAt) / 60_000, 0);
 
+  const trigger = triggerOf(event);
+  const autoStarted = autoRaw === 'on';
+  const showerOn = shower.kind === 'on';
+  const msSinceAutoOn = autoStarted ? Math.max(Date.now() - autoChangedAt, 0) : 0;
+  const inBounceScope = trigger === 'fan_turned_off' && autoStarted && showerOn && msSinceAutoOn < START_BOUNCE_WINDOW_MS;
+
   // The cap can never be shorter than the minimum run, whatever the helpers say.
   const minRunMs = minutesToMs(minRunMin);
   const maxRunMs = Math.max(minutesToMs(maxRunMin), minRunMs);
 
   return {
-    trigger: triggerOf(event),
+    trigger,
     enabled: enabledRaw === 'on',
     fanOn: fanRaw === 'on',
-    autoStarted: autoRaw === 'on',
-    showerOn: shower.kind === 'on',
+    autoStarted,
+    showerOn,
+    msSinceAutoOn,
+    firstBounceWindow: inBounceScope && msSinceAutoOn < RETRY_DELAY_MS,
+    retryBounceWindow: inBounceScope && msSinceAutoOn >= RETRY_DELAY_MS,
     humidity, baseline, margin,
     humidityNormal: humidity <= baseline + margin,
     minRunMs, maxRunMs,
@@ -140,6 +173,7 @@ const cancel = (timerKey: string): Action => ({ type: 'timer.cancel', timerKey }
 const startTimer = (timerKey: string, delayMs: number): Action => ({
   type: 'timer.start', timerKey, delayMs: clamp(delayMs, 1_000, minutesToMs(MAX_FAN_MAX_RUN_MIN)),
 });
+const startRetryTimer = (): Action => ({ type: 'timer.start', timerKey: FAN_RETRY_TIMER, delayMs: RETRY_DELAY_MS });
 const holdTimers = (): Action[] => [cancel(FAN_MIN_RUN_TIMER), cancel(FAN_MAX_RUN_TIMER)];
 const runTimers = (ctx: FanContext): Action[] => [
   startTimer(FAN_MIN_RUN_TIMER, ctx.minRunMs),
@@ -170,6 +204,19 @@ function reduceFanOff(ctx: FanContext): FanDecision {
       ],
     };
   }
+  // The retry is delayed (see RETRY_DELAY_MS); by then the fan may have been taken over or the shower ended.
+  if (ctx.trigger === 'retry_expired' && ctx.autoStarted && ctx.showerOn) {
+    return {
+      decision: 'turn_on', reason: 'fan_retry_after_bounce',
+      actions: [{ type: 'ha.call_service', domain: 'switch', service: 'turn_on', target: { entity_id: FAN } } as Action],
+    };
+  }
+  // The relay bounced our own start: keep ownership and retry once, after the delay.
+  if (ctx.firstBounceWindow) return ignore('fan_idle', [startRetryTimer()]);
+  // The retry bounced too: stop fighting the relay and say so.
+  if (ctx.retryBounceWindow) {
+    return { decision: 'no_action', reason: 'fan_start_failed', actions: [publishAuto('OFF'), ...holdTimers()] };
+  }
   // Someone switched the fan off by hand: forget ownership so a later manual on is left alone.
   if (ctx.autoStarted) return ignore('fan_idle', [publishAuto('OFF'), ...holdTimers()]);
   return ignore('fan_idle');
@@ -191,6 +238,8 @@ function reduceFanOn(ctx: FanContext): FanDecision {
     if (ctx.trigger === 'shower_started') return ignore('fan_run_extended', holdTimers());
     return ignore('fan_holding_min_run');
   }
+  // A stale retry timer (the fan came back on, or the shower ended meanwhile) has nothing left to do.
+  if (ctx.trigger === 'retry_expired') return ignore('fan_idle');
   // Timers do not survive a restart: re-arm both so the fan cannot run forever.
   if (ctx.isStartUp) return ignore('fan_holding_min_run', runTimers(ctx));
   return reduceFanOnShowerEnded(ctx);
@@ -210,6 +259,7 @@ export default defineAutomation<FanContext, typeof FAN_REASONS>({
     { type: 'state_changed', entity: ENABLED as keyof HAEntities },
     { type: 'timer_expired', timerKey: FAN_MIN_RUN_TIMER },
     { type: 'timer_expired', timerKey: FAN_MAX_RUN_TIMER },
+    { type: 'timer_expired', timerKey: FAN_RETRY_TIMER },
     { type: 'on_start' },
   ],
 

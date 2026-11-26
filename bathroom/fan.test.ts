@@ -27,7 +27,7 @@ const stateChanged = (entity: string, to: string) => ({
 const timer = (timerKey: string) => ({ type: 'timer_expired' as const, timerKey, correlation_id: 'c' });
 const onStart = { type: 'on_start' as const, correlation_id: 'c' };
 
-interface World { fan?: string; auto?: string; shower?: string; showerChangedMinsAgo?: number; enabled?: string; humidity?: string; baseline?: string; extra?: Record<string, string> }
+interface World { autoChangedSecsAgo?: number; fan?: string; auto?: string; shower?: string; showerChangedMinsAgo?: number; enabled?: string; humidity?: string; baseline?: string; extra?: Record<string, string> }
 function world(w: World = {}) {
   const v: Record<string, string> = {
     [FAN]: w.fan ?? 'off', [AUTO]: w.auto ?? 'off', [SHOWER]: w.shower ?? 'off',
@@ -39,6 +39,7 @@ function world(w: World = {}) {
   };
   const out: Record<string, { state: string; last_changed?: string }> = Object.fromEntries(Object.entries(v).map(([k, s]) => [k, { state: s }]));
   out[SHOWER] = { state: v[SHOWER]!, last_changed: ago(w.showerChangedMinsAgo ?? 0) };
+  out[AUTO] = { state: v[AUTO]!, last_changed: new Date(NOW - (w.autoChangedSecsAgo ?? 3600) * 1000).toISOString() };
   return out;
 }
 
@@ -220,5 +221,60 @@ describe('inputs and clamps', () => {
     expect(r.reason).toBe('fan_holding_min_run');
     expect(r.outcome).toBe('ignored');
     expect(JSON.stringify(fan.triggers)).not.toMatch(/occupied|light/);
+  });
+});
+
+describe('relay bounces our own start', () => {
+  const RETRY = 'bathroom:fan:start_retry';
+  const bounce = (over: World) => ({ event: stateChanged(FAN, 'off'), state: world({ fan: 'off', auto: 'on', shower: 'on', ...over }) });
+
+  it('arms one delayed retry and keeps ownership on the first quick off', () => {
+    const r = testAutomation(fan, bounce({ autoChangedSecsAgo: 0.01 }));
+    expect(r).toMatchObject({ decision: 'no_action', reason: 'fan_idle' });
+    expect(r.actions).toEqual([{ type: 'timer.start', timerKey: RETRY, delayMs: 2_000 }]);
+  });
+
+  it('turns the fan on again when the retry timer fires, leaving auto ON', () => {
+    const r = testAutomation(fan, { event: timer(RETRY), state: world({ fan: 'off', auto: 'on', shower: 'on', autoChangedSecsAgo: 2 }) });
+    expect(r).toMatchObject({ decision: 'turn_on', reason: 'fan_retry_after_bounce', outcome: 'acted' });
+    expect(r.actions).toEqual([turnOn]);
+  });
+
+  it('gives up and drops ownership when the retry bounces too', () => {
+    const r = testAutomation(fan, bounce({ autoChangedSecsAgo: 2.1 }));
+    expect(r).toMatchObject({ decision: 'no_action', reason: 'fan_start_failed', outcome: 'declined' });
+    expect(r.actions).toContainEqual(auto('OFF'));
+    expect(r.actions).not.toContainEqual(turnOn);
+  });
+
+  it('treats an off after the window as a manual off', () => {
+    const r = testAutomation(fan, bounce({ autoChangedSecsAgo: 10 }));
+    expect(r).toMatchObject({ reason: 'fan_idle', outcome: 'ignored' });
+    expect(r.actions).toContainEqual(auto('OFF'));
+  });
+
+  it('treats a quick off with no shower as a manual off', () => {
+    const r = testAutomation(fan, bounce({ autoChangedSecsAgo: 0.01, shower: 'off' }));
+    expect(r).toMatchObject({ reason: 'fan_idle' });
+    expect(r.actions).toContainEqual(auto('OFF'));
+    expect(r.actions).not.toContainEqual(expect.objectContaining({ timerKey: RETRY }));
+  });
+
+  it('ignores a stale retry timer once the fan is back on', () => {
+    const r = testAutomation(fan, { event: timer(RETRY), state: world({ fan: 'on', auto: 'on', shower: 'on', autoChangedSecsAgo: 2 }) });
+    expect(r).toMatchObject({ reason: 'fan_holding_min_run', outcome: 'ignored' });
+  });
+
+  it('drops ownership when the shower ended before the retry fired', () => {
+    const r = testAutomation(fan, { event: timer(RETRY), state: world({ fan: 'off', auto: 'on', shower: 'off', autoChangedSecsAgo: 2 }) });
+    expect(r).toMatchObject({ decision: 'no_action', reason: 'fan_idle' });
+    expect(r.actions).toContainEqual(auto('OFF'));
+    expect(r.actions).not.toContainEqual(turnOn);
+  });
+
+  it('aborts when the auto flag timestamp is invalid', () => {
+    const state = world({ fan: 'off', auto: 'on', shower: 'on' });
+    state[AUTO] = { state: 'on', last_changed: 'garbage' };
+    expect(testAbort(fan, { event: stateChanged(FAN, 'off'), state }).reason).toContain('fan_auto_timestamp_invalid');
   });
 });
