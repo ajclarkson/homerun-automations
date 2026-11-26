@@ -265,6 +265,13 @@ describe('relay bounces our own start', () => {
     expect(r).toMatchObject({ reason: 'fan_holding_min_run', outcome: 'ignored' });
   });
 
+  it('drops ownership when the shower ended before the retry fired', () => {
+    const r = testAutomation(fan, { event: timer(RETRY), state: world({ fan: 'off', auto: 'on', shower: 'off', autoChangedSecsAgo: 2 }) });
+    expect(r).toMatchObject({ decision: 'no_action', reason: 'fan_idle' });
+    expect(r.actions).toContainEqual(auto('OFF'));
+    expect(r.actions).not.toContainEqual(turnOn);
+  });
+
   it('aborts when the auto flag timestamp is invalid', () => {
     const state = world({ fan: 'off', auto: 'on', shower: 'on' });
     state[AUTO] = { state: 'on', last_changed: 'garbage' };
